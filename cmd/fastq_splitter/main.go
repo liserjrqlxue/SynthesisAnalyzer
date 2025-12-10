@@ -10,14 +10,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/tealeg/xlsx"
-	"golang.org/x/exp/mmap"
 )
 
 // 配置结构
@@ -46,7 +47,7 @@ type SampleInfo struct {
 	OutputPath    string
 }
 
-// 拆分处理器
+// 更新后的拆分处理器
 type SplitProcessor struct {
 	config      *Config
 	samples     []*SampleInfo
@@ -459,7 +460,7 @@ func (p *SplitProcessor) buildBarcodeIndex() error {
 	return nil
 }
 
-// 拆分reads
+// 拆分reads - 修复版
 func (p *SplitProcessor) splitReads() error {
 	totalReads := 0
 	totalSamples := 0
@@ -469,12 +470,10 @@ func (p *SplitProcessor) splitReads() error {
 		fmt.Printf("\n  处理合并文件: %s (%d个样品)\n",
 			filepath.Base(mergedFile), len(samples))
 
-		// 并行处理每个样品
-		var wg sync.WaitGroup
-		results := make(chan map[string]int, len(samples))
-
 		// 为每个样品创建输出文件
 		sampleFiles := make(map[string]*os.File)
+		sampleWriters := make(map[string]*bufio.Writer)
+
 		for _, sample := range samples {
 			outputFile := filepath.Join(sample.OutputPath, "split_reads.fastq")
 			f, err := os.Create(outputFile)
@@ -482,26 +481,42 @@ func (p *SplitProcessor) splitReads() error {
 				return fmt.Errorf("创建输出文件失败: %v", err)
 			}
 			sampleFiles[sample.Name] = f
+			sampleWriters[sample.Name] = bufio.NewWriterSize(f, 64*1024)
 		}
 
-		// 读取合并文件
-		mmapReader, err := mmap.Open(mergedFile)
+		// 读取文件
+		data, err := os.ReadFile(mergedFile)
 		if err != nil {
-			return fmt.Errorf("内存映射失败: %v", err)
+			return fmt.Errorf("读取合并文件失败: %v", err)
 		}
 
-		data := mmapReader.Data()
-		chunkSize := 64 * 1024 * 1024 // 64MB chunks
+		fmt.Printf("    文件大小: %.2f MB\n", float64(len(data))/1024/1024)
+
+		// 计算chunk大小
+		chunkSize := 100 * 1024 * 1024 // 100MB chunks
 		numChunks := (len(data) + chunkSize - 1) / chunkSize
 
-		fmt.Printf("    文件大小: %.2f MB, 数据块数: %d\n",
-			float64(len(data))/1024/1024, numChunks)
+		// 使用工作池处理chunks
+		var wg sync.WaitGroup
+		statsChan := make(chan map[string]int, numChunks)
 
-		// 处理每个数据块
+		// 控制并发数
+		maxWorkers := runtime.NumCPU() * 2
+		if maxWorkers > len(data)/chunkSize+1 {
+			maxWorkers = len(data)/chunkSize + 1
+		}
+
+		sem := make(chan struct{}, maxWorkers)
+
 		for chunk := 0; chunk < numChunks; chunk++ {
 			wg.Add(1)
+			sem <- struct{}{}
+
 			go func(chunkIdx int) {
-				defer wg.Done()
+				defer func() {
+					<-sem
+					wg.Done()
+				}()
 
 				start := chunkIdx * chunkSize
 				end := start + chunkSize
@@ -509,123 +524,115 @@ func (p *SplitProcessor) splitReads() error {
 					end = len(data)
 				}
 
-				chunkData := data[start:end]
-				stats := p.processChunk(chunkData, samples, sampleFiles)
+				// 调整chunk边界，确保不截断记录
+				if chunkIdx > 0 && chunkIdx < numChunks-1 {
+					// 找到最近的换行符作为边界
+					for start < end && data[start] != '\n' {
+						start++
+					}
+					if start < end {
+						start++ // 跳过换行符
+					}
 
-				results <- stats
+					for end > start && data[end-1] != '\n' {
+						end--
+					}
+				}
+
+				if start >= end {
+					statsChan <- make(map[string]int)
+					return
+				}
+
+				chunkData := data[start:end]
+				stats := p.processChunk(chunkData, samples, sampleWriters)
+				statsChan <- stats
 			}(chunk)
 		}
 
-		// 等待所有块处理完成
+		// 等待所有chunk处理完成
 		go func() {
 			wg.Wait()
-			close(results)
+			close(statsChan)
 		}()
 
 		// 收集统计信息
 		chunkStats := make(map[string]int)
-		for stats := range results {
+		for stats := range statsChan {
 			for sampleName, count := range stats {
 				chunkStats[sampleName] += count
 				totalReads += count
 			}
 		}
 
-		// 关闭文件
-		for _, f := range sampleFiles {
-			f.Close()
-		}
-
-		// 输出统计
-		for sampleName, count := range chunkStats {
-			fmt.Printf("    样品 %s: %d reads\n", sampleName, count)
+		// 刷新所有writer并关闭文件
+		for sampleName, writer := range sampleWriters {
+			writer.Flush()
+			if f, ok := sampleFiles[sampleName]; ok {
+				f.Close()
+			}
+			fmt.Printf("    样品 %s: %d reads\n", sampleName, chunkStats[sampleName])
 			totalSamples++
 		}
-
-		mmapReader.Close()
 	}
 
 	fmt.Printf("\n  总计: %d 个样品, %d 条reads\n", totalSamples, totalReads)
 	return nil
 }
 
-// 处理数据块
-func (p *SplitProcessor) processChunk(data []byte, samples []*SampleInfo, sampleFiles map[string]*os.File) map[string]int {
+// 处理数据块 - 修复版
+func (p *SplitProcessor) processChunk(data []byte, samples []*SampleInfo, sampleWriters map[string]*bufio.Writer) map[string]int {
 	stats := make(map[string]int)
 
-	i := 0
-	for i < len(data) {
-		// 查找FASTQ记录开始
-		if data[i] != '@' {
-			// 跳过到下一行
-			for i < len(data) && data[i] != '\n' {
-				i++
-			}
-			if i < len(data) {
-				i++ // 跳过换行符
-			}
-			continue
-		}
+	// 使用bufio.Scanner来逐行读取
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	var record bytes.Buffer
+	lineCount := 0
 
-		// 找到记录开始
-		recordStart := i
+	for scanner.Scan() {
+		line := scanner.Bytes()
 
-		// 找到记录结束（4行后）
-		linesFound := 0
-		for linesFound < 4 && i < len(data) {
-			// 查找行尾
-			for i < len(data) && data[i] != '\n' {
-				i++
-			}
-			if i < len(data) {
-				i++ // 跳过换行符
-				linesFound++
-			}
-		}
-
-		if linesFound < 4 {
-			break // 不完整的记录
-		}
-
-		// 提取记录
-		record := data[recordStart:i]
-
-		// 解析序列（第二行）
-		lines := bytes.SplitN(record, []byte{'\n'}, 4)
-		if len(lines) < 2 {
-			continue
-		}
-
-		sequence := lines[1]
-
-		// 提取barcode
-		if len(sequence) >= p.config.BarcodeStart+p.config.BarcodeEnd {
-			startBarcode := string(sequence[:p.config.BarcodeStart])
-			endBarcode := string(sequence[len(sequence)-p.config.BarcodeEnd:])
-
-			// 使用Bloom过滤器快速检查
-			key := startBarcode + "|" + endBarcode
-			if !p.bloomFilter.Test([]byte(key)) {
-				// 尝试反向互补
-				rcKey := reverseComplement(startBarcode) + "|" + reverseComplement(endBarcode)
-				if !p.bloomFilter.Test([]byte(rcKey)) {
-					continue // 不匹配任何barcode
-				} else {
-					key = rcKey
+		// 开始新记录
+		if lineCount == 0 {
+			// 处理前一个记录
+			if record.Len() > 0 {
+				recordData := record.Bytes()
+				sequence, found := extractSequence(recordData)
+				if found {
+					sample := p.matchSequence(sequence, samples)
+					if sample != nil {
+						if writer, ok := sampleWriters[sample.Name]; ok {
+							writer.Write(recordData)
+							stats[sample.Name]++
+						}
+					}
 				}
+				record.Reset()
 			}
 
-			// 查找匹配的样品
-			sample, ok := p.barcodeIdx[key]
-			if !ok {
-				// 如果没有完全匹配，尝试模糊匹配
-				sample = p.fuzzyMatchBarcode(startBarcode, endBarcode, samples)
+			// 检查是否以@开头
+			if len(line) > 0 && line[0] == '@' {
+				record.Write(line)
+				record.WriteByte('\n')
+				lineCount = 1
 			}
+		} else {
+			// 继续当前记录
+			record.Write(line)
+			record.WriteByte('\n')
+			lineCount = (lineCount + 1) % 4
+		}
+	}
 
+	// 处理最后一个记录
+	if record.Len() > 0 {
+		recordData := record.Bytes()
+		sequence, found := extractSequence(recordData)
+		if found {
+			sample := p.matchSequence(sequence, samples)
 			if sample != nil {
-				// 写入到对应文件
-				if f, ok := sampleFiles[sample.Name]; ok {
-					f.Write(record)
+				if writer, ok := sampleWriters[sample.Name]; ok {
+					writer.Write(recordData)
 					stats[sample.Name]++
 				}
 			}
@@ -633,6 +640,48 @@ func (p *SplitProcessor) processChunk(data []byte, samples []*SampleInfo, sample
 	}
 
 	return stats
+}
+
+// 提取序列
+func extractSequence(record []byte) ([]byte, bool) {
+	lines := bytes.SplitN(record, []byte{'\n'}, 4)
+	if len(lines) >= 2 {
+		return lines[1], true
+	}
+	return nil, false
+}
+
+// 匹配序列到样品
+func (p *SplitProcessor) matchSequence(sequence []byte, samples []*SampleInfo) *SampleInfo {
+	seqStr := string(sequence)
+
+	if len(seqStr) < p.config.BarcodeStart+p.config.BarcodeEnd {
+		return nil
+	}
+
+	startBarcode := seqStr[:p.config.BarcodeStart]
+	endBarcode := seqStr[len(seqStr)-p.config.BarcodeEnd:]
+
+	// 使用Bloom过滤器快速检查
+	key := startBarcode + "|" + endBarcode
+	if !p.bloomFilter.Test([]byte(key)) {
+		// 尝试反向互补
+		rcKey := reverseComplement(startBarcode) + "|" + reverseComplement(endBarcode)
+		if !p.bloomFilter.Test([]byte(rcKey)) {
+			return nil // 不匹配任何barcode
+		} else {
+			key = rcKey
+		}
+	}
+
+	// 查找匹配的样品
+	sample, ok := p.barcodeIdx[key]
+	if !ok {
+		// 如果没有完全匹配，尝试模糊匹配
+		sample = p.fuzzyMatchBarcode(startBarcode, endBarcode, samples)
+	}
+
+	return sample
 }
 
 // 模糊匹配barcode
@@ -837,9 +886,68 @@ func countFastqRecords(filename string) int {
 	return count
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
+// 读取Mmap数据 - 修复版
+func readMmapData(filename string) ([]byte, error) {
+	// 方法1: 直接读取整个文件到内存
+	return os.ReadFile(filename)
+}
+
+// 批量读取FASTQ记录
+func readFastqRecords(filename string, processor func(record []byte)) error {
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
 	}
-	return b
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	var record bytes.Buffer
+	lineCount := 0
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+
+		if lineCount == 0 {
+			// 新记录开始
+			if record.Len() > 0 {
+				processor(record.Bytes())
+				record.Reset()
+			}
+		}
+
+		record.Write(line)
+		record.WriteByte('\n')
+		lineCount = (lineCount + 1) % 4
+	}
+
+	// 处理最后一个记录
+	if record.Len() > 0 {
+		processor(record.Bytes())
+	}
+
+	return scanner.Err()
+}
+
+// 使用mmap的高级方法（如果需要）
+func getMmapData(mmapReader interface{}) ([]byte, error) {
+	// 使用反射访问未导出字段
+	rv := reflect.ValueOf(mmapReader).Elem()
+	dataField := rv.FieldByName("data")
+
+	if dataField.IsValid() && dataField.Kind() == reflect.Slice {
+		// 获取切片头
+		sliceHeader := (*reflect.SliceHeader)(unsafe.Pointer(dataField.UnsafeAddr()))
+
+		// 创建切片
+		length := dataField.Len()
+		data := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+			Data: sliceHeader.Data,
+			Len:  length,
+			Cap:  length,
+		}))
+
+		return data, nil
+	}
+
+	return nil, fmt.Errorf("无法访问mmap数据")
 }
