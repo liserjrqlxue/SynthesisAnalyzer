@@ -2,10 +2,15 @@ package synthesis
 
 import (
 	"log"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"sync"
 	"time"
+
+	"github.com/bits-and-blooms/bloom/v3"
+	"golang.org/x/exp/mmap"
+	"golang.org/x/sys/unix"
 )
 
 type SynthesisAnalyzer struct {
@@ -13,8 +18,9 @@ type SynthesisAnalyzer struct {
 	config Config
 
 	// 参考序列信息
-	references []Reference
-	barcodeMap map[string]int // barcode->reference index
+	references  []Reference
+	barcodeMap  map[string]int     // barcode->reference index
+	bloomFilter *bloom.BloomFilter // 添加Bloom过滤器
 
 	// 统计结果
 	results     []PositionStats
@@ -121,4 +127,65 @@ func (m *Monitor) TrackPhase(phase string, fn func() error) error {
 	}
 
 	return err
+}
+
+// 修复2: 使用正确的mmap实现
+func NewMMapReader(filename string) (*MMapReader, error) {
+	f, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	// 方法1: 使用golang.org/x/exp/mmap
+	reader, err := mmap.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	return &MMapReader{
+		reader: reader,
+		data:   reader.Data(),
+	}, nil
+}
+
+type MMapReader struct {
+	reader *mmap.ReaderAt
+	data   []byte
+}
+
+func (m *MMapReader) Close() error {
+	return m.reader.Close()
+}
+
+func (m *MMapReader) Unmap() error {
+	// mmap包会自动处理，这里只需关闭
+	return m.reader.Close()
+}
+
+func (m *MMapReader) Data() []byte {
+	return m.data
+}
+
+// 方法2: 使用系统调用实现mmap（备用方案）
+func mmapFile(filename string) ([]byte, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	// 使用系统调用进行内存映射
+	data, err := unix.Mmap(int(file.Fd()), 0, int(stat.Size()),
+		unix.PROT_READ, unix.MAP_SHARED)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
 }
