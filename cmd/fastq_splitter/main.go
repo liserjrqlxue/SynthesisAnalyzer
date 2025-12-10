@@ -140,7 +140,8 @@ func (p *SplitProcessor) Run() error {
 
 	// 步骤6: 拆分reads
 	fmt.Println("\n步骤6: 拆分reads...")
-	if err := p.splitReads(); err != nil {
+	// 使用简单版本避免mmap问题
+	if err := p.splitReadsAlternative(); err != nil {
 		return fmt.Errorf("拆分reads失败: %v", err)
 	}
 
@@ -577,6 +578,101 @@ func (p *SplitProcessor) splitReads() error {
 	}
 
 	fmt.Printf("\n  总计: %d 个样品, %d 条reads\n", totalSamples, totalReads)
+	return nil
+}
+
+// 使用内存映射的替代方案 - 使用bufio读取
+func (p *SplitProcessor) splitReadsAlternative() error {
+	totalReads := 0
+
+	for mergedFile, samples := range p.fileMap {
+		fmt.Printf("\n  处理合并文件: %s (%d个样品)\n",
+			filepath.Base(mergedFile), len(samples))
+
+		// 为每个样品创建输出文件
+		sampleWriters := make(map[string]*bufio.Writer)
+		for _, sample := range samples {
+			outputFile := filepath.Join(sample.OutputPath, "split_reads.fastq")
+			f, err := os.Create(outputFile)
+			if err != nil {
+				return fmt.Errorf("创建输出文件失败: %v", err)
+			}
+			defer f.Close()
+			sampleWriters[sample.Name] = bufio.NewWriterSize(f, 64*1024)
+		}
+
+		// 打开文件
+		file, err := os.Open(mergedFile)
+		if err != nil {
+			return fmt.Errorf("打开合并文件失败: %v", err)
+		}
+		defer file.Close()
+
+		// 逐条处理记录
+		scanner := bufio.NewScanner(file)
+		var record bytes.Buffer
+		lineCount := 0
+		stats := make(map[string]int)
+
+		for scanner.Scan() {
+			line := scanner.Bytes()
+
+			if lineCount == 0 {
+				// 处理前一个记录
+				if record.Len() > 0 {
+					recordData := record.Bytes()
+					sequence, found := extractSequence(recordData)
+					if found {
+						sample := p.matchSequence(sequence, samples)
+						if sample != nil {
+							if writer, ok := sampleWriters[sample.Name]; ok {
+								writer.Write(recordData)
+								stats[sample.Name]++
+								totalReads++
+							}
+						}
+					}
+					record.Reset()
+				}
+
+				// 检查是否以@开头
+				if len(line) > 0 && line[0] == '@' {
+					record.Write(line)
+					record.WriteByte('\n')
+					lineCount = 1
+				}
+			} else {
+				// 继续当前记录
+				record.Write(line)
+				record.WriteByte('\n')
+				lineCount = (lineCount + 1) % 4
+			}
+		}
+
+		// 处理最后一个记录
+		if record.Len() > 0 {
+			recordData := record.Bytes()
+			sequence, found := extractSequence(recordData)
+			if found {
+				sample := p.matchSequence(sequence, samples)
+				if sample != nil {
+					if writer, ok := sampleWriters[sample.Name]; ok {
+						writer.Write(recordData)
+						stats[sample.Name]++
+						totalReads++
+					}
+				}
+			}
+		}
+
+		// 刷新所有writer
+		for sampleName, writer := range sampleWriters {
+			writer.Flush()
+			fmt.Printf("    样品 %s: %d reads\n", sampleName, stats[sampleName])
+		}
+	}
+
+	fmt.Printf("\n  总计处理: %d 条reads\n", totalReads)
 	return nil
 }
 
