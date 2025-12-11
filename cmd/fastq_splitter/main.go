@@ -20,70 +20,10 @@ import (
 	"unsafe"
 
 	// "compress/gzip"
-	"github.com/bits-and-blooms/bloom/v3"
+
 	gzip "github.com/klauspost/pgzip"
 	"github.com/tealeg/xlsx"
 )
-
-// 配置结构
-type Config struct {
-	ExcelFile    string
-	OutputDir    string
-	FastqDir     string
-	Threads      int
-	BarcodeStart int
-	BarcodeEnd   int
-	Mismatch     int
-	Quality      int
-	MergeLen     int
-
-	// 新增压缩相关配置
-	Compression   bool // 是否压缩输出
-	CompressLevel int  // 压缩级别 1-9，默认6
-	SkipExisting  bool // 是否跳过已存在的文件
-	CleanupTemp   bool // 是否清理临时文件
-}
-
-// 样品信息
-type SampleInfo struct {
-	Name          string
-	TargetSeq     string
-	SynthesisSeq  string
-	PostTargetSeq string
-	R1Path        string
-	R2Path        string
-	BarcodeStart  string
-	BarcodeEnd    string
-	MergedFile    string
-	DoneFile      string // 完成标签文件
-	OutputPath    string
-	MergeTime     time.Time
-	SplitTime     time.Time
-	ReadCount     int
-	Status        string
-}
-
-// 更新后的拆分处理器
-type SplitProcessor struct {
-	config      *Config
-	samples     []*SampleInfo
-	sampleMap   map[string]*SampleInfo
-	fileMap     map[string][]*SampleInfo // merged文件 -> 样品列表
-	bloomFilter *bloom.BloomFilter
-	barcodeIdx  map[string]*SampleInfo
-	mu          sync.RWMutex
-}
-
-// 新建处理器
-func NewSplitProcessor(config *Config) *SplitProcessor {
-	return &SplitProcessor{
-		config:     config,
-		samples:    []*SampleInfo{},
-		sampleMap:  make(map[string]*SampleInfo),
-		fileMap:    make(map[string][]*SampleInfo),
-		barcodeIdx: make(map[string]*SampleInfo),
-	}
-}
 
 func main() {
 	// 检查参数
@@ -109,12 +49,11 @@ func main() {
 		OutputDir:    outputDir,
 		FastqDir:     fastqDir,
 		Threads:      runtime.NumCPU(),
-		BarcodeStart: 51,
-		BarcodeEnd:   20,
-		Mismatch:     2,
+		SearchWindow: 200, // 从头/尾搜索50bp
 		Quality:      20,
 		MergeLen:     80,
 
+		SkipExisting:  true, // 默认跳过已存在文件
 		Compression:   true, // 默认启用压缩
 		CompressLevel: 6,    // 默认压缩级别
 		CleanupTemp:   true, // 不保留临时文件
@@ -122,10 +61,12 @@ func main() {
 	}
 
 	// 创建处理器
-	processor := NewSplitProcessor(config)
+	// processor := NewSplitProcessor(config)
+	// 创建拆分器
+	splitter := NewExactMatchSplitter(config)
 
 	// 运行处理流程
-	if err := processor.Run(); err != nil {
+	if err := splitter.Run(); err != nil {
 		log.Fatalf("处理失败: %v", err)
 	}
 
@@ -133,47 +74,47 @@ func main() {
 }
 
 // 主运行流程
-func (p *SplitProcessor) Run() error {
+func (s *ExactMatchSplitter) Run() error {
 	startTime := time.Now()
-	fmt.Println("=== FASTQ拆分程序开始运行 ===")
+	fmt.Println("=== FASTQ拆分程序（完全匹配版）开始运行 ===")
 
 	// 步骤1: 创建输出目录
-	if err := p.createOutputDir(); err != nil {
+	if err := s.createOutputDir(); err != nil {
 		return fmt.Errorf("创建输出目录失败: %v", err)
 	}
 
 	// 步骤2: 读取Excel文件
-	if err := p.readExcel(); err != nil {
+	if err := s.readExcel(); err != nil {
 		return fmt.Errorf("读取Excel文件失败: %v", err)
 	}
 
 	// 步骤3: 检查重复样品名称
-	if err := p.checkDuplicates(); err != nil {
+	if err := s.checkDuplicates(); err != nil {
 		return err
 	}
 
 	// 步骤4: 合并PE reads
 	fmt.Println("\n步骤4: 合并PE reads...")
-	if err := p.mergeReads(); err != nil {
+	if err := s.mergeReads(); err != nil {
 		return fmt.Errorf("合并reads失败: %v", err)
 	}
 
-	// 步骤5: 构建barcode索引
-	fmt.Println("\n步骤5: 构建barcode索引...")
-	if err := p.buildBarcodeIndex(); err != nil {
-		return fmt.Errorf("构建barcode索引失败: %v", err)
+	// 步骤5: 构建索引
+	fmt.Println("\n步骤5: 构建完全匹配索引...")
+	if err := s.buildIndex(); err != nil {
+		return fmt.Errorf("构建索引失败: %v", err)
 	}
 
 	// 步骤6: 拆分reads
 	fmt.Println("\n步骤6: 拆分reads...")
 	// 使用简单版本避免mmap问题
-	if err := p.splitReads(); err != nil {
+	if err := s.splitReads(); err != nil {
 		return fmt.Errorf("拆分reads失败: %v", err)
 	}
 
 	// 步骤7: 生成报告
 	fmt.Println("\n步骤7: 生成报告...")
-	if err := p.generateReport(); err != nil {
+	if err := s.generateReport(); err != nil {
 		return fmt.Errorf("生成报告失败: %v", err)
 	}
 
@@ -182,13 +123,13 @@ func (p *SplitProcessor) Run() error {
 }
 
 // 创建输出目录
-func (p *SplitProcessor) createOutputDir() error {
-	if err := os.MkdirAll(p.config.OutputDir, 0755); err != nil {
+func (s *ExactMatchSplitter) createOutputDir() error {
+	if err := os.MkdirAll(s.config.OutputDir, 0755); err != nil {
 		return err
 	}
 
 	// 创建日志目录
-	logDir := filepath.Join(p.config.OutputDir, "logs")
+	logDir := filepath.Join(s.config.OutputDir, "logs")
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return err
 	}
@@ -208,10 +149,10 @@ func (p *SplitProcessor) createOutputDir() error {
 }
 
 // 读取Excel文件
-func (p *SplitProcessor) readExcel() error {
-	fmt.Printf("步骤1: 读取Excel文件: %s\n", p.config.ExcelFile)
+func (s *ExactMatchSplitter) readExcel() error {
+	fmt.Printf("步骤1: 读取Excel文件: %s\n", s.config.ExcelFile)
 
-	xlFile, err := xlsx.OpenFile(p.config.ExcelFile)
+	xlFile, err := xlsx.OpenFile(s.config.ExcelFile)
 	if err != nil {
 		return fmt.Errorf("无法打开Excel文件: %v", err)
 	}
@@ -224,7 +165,6 @@ func (p *SplitProcessor) readExcel() error {
 	fmt.Printf("工作表: %s, 行数: %d\n", sheet.Name, sheet.MaxRow)
 
 	// 查找表头
-	// headerRow := 0
 	var headerMap = make(map[string]int)
 	for col := 0; col < sheet.MaxCol; col++ {
 		cell := sheet.Cell(0, col)
@@ -255,31 +195,30 @@ func (p *SplitProcessor) readExcel() error {
 			continue // 跳过空行
 		}
 
-		// 构建输出路径
-		sample.OutputPath = filepath.Join(p.config.OutputDir, sample.Name)
+		// 创建输出目录
+		sample.OutputPath = filepath.Join(s.config.OutputDir, sample.Name)
 		if err := os.MkdirAll(sample.OutputPath, 0755); err != nil {
 			return fmt.Errorf("创建样品目录失败: %v", err)
 		}
 
-		p.samples = append(p.samples, sample)
-		p.sampleMap[sample.Name] = sample
+		s.samples = append(s.samples, sample)
 
 		fmt.Printf("  读取样品: %s, R1: %s, R2: %s\n",
 			sample.Name, filepath.Base(sample.R1Path), filepath.Base(sample.R2Path))
 	}
 
-	fmt.Printf("  成功读取 %d 个样品\n", len(p.samples))
+	fmt.Printf("  成功读取 %d 个样品\n", len(s.samples))
 	return nil
 }
 
 // 检查重复样品名称
-func (p *SplitProcessor) checkDuplicates() error {
+func (s *ExactMatchSplitter) checkDuplicates() error {
 	fmt.Println("\n步骤2: 检查重复样品名称...")
 
 	seen := make(map[string]bool)
 	duplicates := []string{}
 
-	for _, sample := range p.samples {
+	for _, sample := range s.samples {
 		if seen[sample.Name] {
 			duplicates = append(duplicates, sample.Name)
 		} else {
@@ -296,11 +235,11 @@ func (p *SplitProcessor) checkDuplicates() error {
 }
 
 // 合并PE reads
-func (p *SplitProcessor) mergeReads() error {
+func (s *ExactMatchSplitter) mergeReads() error {
 	// 去重R1/R2文件对
 	filePairs := make(map[string][]*SampleInfo) // key: "R1|R2" -> 样品列表
 
-	for _, sample := range p.samples {
+	for _, sample := range s.samples {
 		key := sample.R1Path + "|" + sample.R2Path
 		filePairs[key] = append(filePairs[key], sample)
 	}
@@ -308,14 +247,14 @@ func (p *SplitProcessor) mergeReads() error {
 	fmt.Printf("  需要合并 %d 个唯一的R1/R2文件对\n", len(filePairs))
 
 	// 创建合并目录
-	mergedDir := filepath.Join(p.config.OutputDir, "merged")
+	mergedDir := filepath.Join(s.config.OutputDir, "merged")
 	if err := os.MkdirAll(mergedDir, 0755); err != nil {
 		return fmt.Errorf("创建合并目录失败: %v", err)
 	}
 
 	// 并行合并
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, p.config.Threads/2) // 限制并发数
+	sem := make(chan struct{}, s.config.Threads/2) // 限制并发数
 	results := make(chan struct {
 		key    string
 		output string
@@ -336,7 +275,7 @@ func (p *SplitProcessor) mergeReads() error {
 			}()
 
 			// 生成合并后的文件名
-			mergedFile, exists := p.getMergedFileName(samps[0])
+			mergedFile, exists := s.getMergedFileName(samps[0])
 
 			result := struct {
 				key    string
@@ -348,20 +287,20 @@ func (p *SplitProcessor) mergeReads() error {
 				err:    nil,
 			}
 
-			if exists && p.config.SkipExisting {
+			if exists && s.config.SkipExisting {
 				atomic.AddInt64(&skippedCount, 1)
 				results <- result
 				return
 			}
 
 			// 运行fastp
-			output, err := p.runFastpWithCheck(samps[0].R1Path, samps[0].R2Path, mergedFile)
+			output, err := s.runFastpWithCheck(samps[0].R1Path, samps[0].R2Path, mergedFile)
 			result.output = output
 			result.err = err
 			if err == nil {
 				atomic.AddInt64(&mergedCount, 1)
 				// 创建完成标签
-				if err := p.createDoneFile(output); err != nil {
+				if err := s.createDoneFile(output); err != nil {
 					log.Printf("警告: 创建完成标签失败: %v", err)
 				}
 
@@ -395,7 +334,7 @@ func (p *SplitProcessor) mergeReads() error {
 		for _, sample := range samples {
 			sample.Status = "merged"
 			sample.MergedFile = result.output
-			p.fileMap[result.output] = append(p.fileMap[result.output], sample)
+			s.fileMap[result.output] = append(s.fileMap[result.output], sample)
 		}
 
 		fmt.Printf("  合并完成: %s -> %s (%d个样品)\n",
@@ -406,7 +345,7 @@ func (p *SplitProcessor) mergeReads() error {
 		mergedCount, skippedCount, errorCount)
 
 	// 检查是否有样品合并失败
-	for _, sample := range p.samples {
+	for _, sample := range s.samples {
 		if sample.MergedFile == "" {
 			return fmt.Errorf("样品 %s 合并失败，请检查输入文件", sample.Name)
 		}
@@ -416,7 +355,7 @@ func (p *SplitProcessor) mergeReads() error {
 }
 
 // 生成合并文件名
-func (p *SplitProcessor) getMergedFileName(sample *SampleInfo) (string, bool) {
+func (s *ExactMatchSplitter) getMergedFileName(sample *SampleInfo) (string, bool) {
 	// 基于R1和R2路径生成唯一的文件名
 	base1 := filepath.Base(sample.R1Path)
 	base2 := filepath.Base(sample.R2Path)
@@ -435,7 +374,7 @@ func (p *SplitProcessor) getMergedFileName(sample *SampleInfo) (string, bool) {
 	}
 
 	// 合并目录
-	mergedDir := filepath.Join(p.config.OutputDir, "merged")
+	mergedDir := filepath.Join(s.config.OutputDir, "merged")
 	os.MkdirAll(mergedDir, 0755)
 
 	// 使用第一个样品的名称作为文件名
@@ -461,7 +400,7 @@ func (p *SplitProcessor) getMergedFileName(sample *SampleInfo) (string, bool) {
 }
 
 // 创建完成标签
-func (p *SplitProcessor) createDoneFile(filename string) error {
+func (s *ExactMatchSplitter) createDoneFile(filename string) error {
 	doneFile := filename + ".done"
 	content := fmt.Sprintf("Created: %s\nFile: %s\n",
 		time.Now().Format(time.RFC3339),
@@ -471,7 +410,7 @@ func (p *SplitProcessor) createDoneFile(filename string) error {
 }
 
 // 运行fastp进行合并
-func (p *SplitProcessor) runFastp(r1Path, r2Path, outputFile string) (string, error) {
+func (s *ExactMatchSplitter) runFastp(r1Path, r2Path, outputFile string) (string, error) {
 	// 创建临时目录
 	tempDir := filepath.Join(os.TempDir(), fmt.Sprintf("fastp_%d", time.Now().UnixNano()))
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
@@ -479,7 +418,7 @@ func (p *SplitProcessor) runFastp(r1Path, r2Path, outputFile string) (string, er
 	}
 
 	defer func() {
-		if !p.config.CleanupTemp {
+		if !s.config.CleanupTemp {
 			fmt.Printf("    临时文件保留在: %s\n", tempDir)
 			return
 		}
@@ -489,9 +428,9 @@ func (p *SplitProcessor) runFastp(r1Path, r2Path, outputFile string) (string, er
 		}
 	}()
 
-	if p.config.FastqDir != "" {
-		r1Path = filepath.Join(p.config.FastqDir, r1Path)
-		r2Path = filepath.Join(p.config.FastqDir, r2Path)
+	if s.config.FastqDir != "" {
+		r1Path = filepath.Join(s.config.FastqDir, r1Path)
+		r2Path = filepath.Join(s.config.FastqDir, r2Path)
 	}
 	// 检查文件是否存在
 	if _, err := os.Stat(r1Path); os.IsNotExist(err) {
@@ -502,7 +441,7 @@ func (p *SplitProcessor) runFastp(r1Path, r2Path, outputFile string) (string, er
 	}
 
 	// 构建fastp命令
-	args := p.buildFastpCommand(r1Path, r2Path, outputFile, tempDir)
+	args := s.buildFastpCommand(r1Path, r2Path, outputFile, tempDir)
 	cmd := exec.Command("fastp", args...)
 
 	// 捕获输出
@@ -539,7 +478,7 @@ func (p *SplitProcessor) runFastp(r1Path, r2Path, outputFile string) (string, er
 	}
 
 	// 读取合并统计
-	stats, _ := p.readFastpStats(outputFile + ".fastp.json")
+	stats, _ := s.readFastpStats(outputFile + ".fastp.json")
 	fmt.Printf("    合并完成: %s,%s -> %s (%.2f MB)\n\t(统计: %v)\n",
 		filepath.Base(r1Path),
 		filepath.Base(r2Path),
@@ -552,7 +491,7 @@ func (p *SplitProcessor) runFastp(r1Path, r2Path, outputFile string) (string, er
 }
 
 // 构建fastp命令
-func (p *SplitProcessor) buildFastpCommand(r1Path, r2Path, outputFile, tempDir string) []string {
+func (s *ExactMatchSplitter) buildFastpCommand(r1Path, r2Path, outputFile, tempDir string) []string {
 	args := []string{
 		"-i", r1Path,
 		"-I", r2Path,
@@ -561,8 +500,8 @@ func (p *SplitProcessor) buildFastpCommand(r1Path, r2Path, outputFile, tempDir s
 		"--merge",
 		"--overlap_len_require", "20",
 		"--overlap_diff_limit", "5",
-		"--qualified_quality_phred", fmt.Sprintf("%d", p.config.Quality),
-		"--length_required", fmt.Sprintf("%d", p.config.MergeLen-50),
+		"--qualified_quality_phred", fmt.Sprintf("%d", s.config.Quality),
+		"--length_required", fmt.Sprintf("%d", s.config.MergeLen-50),
 		"--correction",
 		"--detect_adapter_for_pe",
 		"--html", outputFile + ".fastp.html",
@@ -571,7 +510,7 @@ func (p *SplitProcessor) buildFastpCommand(r1Path, r2Path, outputFile, tempDir s
 
 	// 添加压缩选项
 	if strings.HasSuffix(outputFile, ".gz") {
-		args = append(args, "--compression", fmt.Sprintf("%d", p.config.CompressLevel))
+		args = append(args, "--compression", fmt.Sprintf("%d", s.config.CompressLevel))
 	} else {
 		args = append(args, "--uncompressed")
 	}
@@ -585,7 +524,7 @@ func (p *SplitProcessor) buildFastpCommand(r1Path, r2Path, outputFile, tempDir s
 }
 
 // 带检查的fastp运行函数
-func (p *SplitProcessor) runFastpWithCheck(r1Path, r2Path, outputFile string) (string, error) {
+func (s *ExactMatchSplitter) runFastpWithCheck(r1Path, r2Path, outputFile string) (string, error) {
 	// 确保输出文件以.gz结尾
 	if !strings.HasSuffix(outputFile, ".gz") {
 		outputFile = outputFile + ".gz"
@@ -597,7 +536,7 @@ func (p *SplitProcessor) runFastpWithCheck(r1Path, r2Path, outputFile string) (s
 	startTime := time.Now()
 
 	// 运行fastp
-	output, err := p.runFastp(r1Path, r2Path, outputFile)
+	output, err := s.runFastp(r1Path, r2Path, outputFile)
 
 	if err != nil {
 		return "", fmt.Errorf("fastp合并失败: %v", err)
@@ -622,7 +561,7 @@ func getFileSize(filename string) int64 {
 }
 
 // 读取fastp统计信息
-func (p *SplitProcessor) readFastpStats(jsonFile string) (map[string]interface{}, error) {
+func (s *ExactMatchSplitter) readFastpStats(jsonFile string) (map[string]interface{}, error) {
 	data, err := os.ReadFile(jsonFile)
 	if err != nil {
 		return nil, err
@@ -647,189 +586,21 @@ func (p *SplitProcessor) readFastpStats(jsonFile string) (map[string]interface{}
 	return stats, nil
 }
 
-// 构建barcode索引
-func (p *SplitProcessor) buildBarcodeIndex() error {
-	// 创建Bloom过滤器
-	p.bloomFilter = bloom.NewWithEstimates(
-		uint(len(p.samples)*2), // 估计元素数量
-		0.01,                   // 误报率
-	)
-
-	// 为每个样品提取barcode
-	for _, sample := range p.samples {
-		// 合成序列 = 靶标序列 + 合成序列 + 后靶标
-		synthesisSeq := sample.TargetSeq + sample.SynthesisSeq + sample.PostTargetSeq
-
-		// 提取barcode（从合成序列的开头和结尾）
-		if len(sample.TargetSeq) >= p.config.BarcodeStart {
-			sample.BarcodeStart = sample.TargetSeq[:p.config.BarcodeStart]
-		} else {
-			sample.BarcodeStart = sample.TargetSeq
-		}
-
-		if len(sample.PostTargetSeq) >= p.config.BarcodeEnd {
-			sample.BarcodeEnd = sample.PostTargetSeq[:p.config.BarcodeEnd]
-		} else {
-			sample.BarcodeEnd = sample.PostTargetSeq
-		}
-
-		// 添加到Bloom过滤器
-		key := sample.BarcodeStart + "|" + sample.BarcodeEnd
-		p.bloomFilter.Add([]byte(key))
-
-		// 添加到索引
-		p.barcodeIdx[key] = sample
-
-		fmt.Printf("  样品 %s: barcode=[%s...%s], 序列长度=%d\n",
-			sample.Name,
-			sample.BarcodeStart,
-			sample.BarcodeEnd,
-			len(synthesisSeq))
-	}
-
-	return nil
-}
-
-// 使用内存映射的替代方案 - 使用bufio读取
-func (p *SplitProcessor) splitReads() error {
-	totalReads := 0
-	totalSamples := 0
-
-	// 为每个merged文件启动一个拆分任务
-	for mergedFile, samples := range p.fileMap {
-		fmt.Printf("\n  处理合并文件: %s (%d个样品)\n",
-			filepath.Base(mergedFile), len(samples))
-
-		// 为每个样品创建输出文件
-		sampleFiles := make(map[string]*os.File)
-		sampleWriters := make(map[string]*gzip.Writer)
-
-		for _, sample := range samples {
-			outputFile := filepath.Join(sample.OutputPath, "split_reads.fastq.gz")
-			f, err := os.Create(outputFile)
-			if err != nil {
-				return fmt.Errorf("创建输出文件失败: %v", err)
-			}
-			sampleFiles[sample.Name] = f
-			sampleWriters[sample.Name] = gzip.NewWriter(f)
-		}
-
-		// 读取.gz文件
-		stats, err := p.processGzippedFastq(mergedFile, samples, sampleWriters)
-		if err != nil {
-			return fmt.Errorf("处理文件失败: %v", err)
-		}
-
-		// 刷新所有writer并关闭文件
-		for sampleName, writer := range sampleWriters {
-			writer.Close()
-			if f, ok := sampleFiles[sampleName]; ok {
-				f.Close()
-			}
-			fmt.Printf("    样品 %s: %d reads\n", sampleName, stats[sampleName])
-			totalSamples++
-			totalReads += stats[sampleName]
-		}
-	}
-
-	fmt.Printf("\n  总计: %d 个样品, %d 条reads\n", totalSamples, totalReads)
-	return nil
-}
-
-// 处理gzip压缩的FASTQ文件
-func (p *SplitProcessor) processGzippedFastq(filename string, samples []*SampleInfo,
-	writers map[string]*gzip.Writer) (map[string]int, error) {
-
-	stats := make(map[string]int)
-
-	// 打开gz文件
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	gzReader, err := gzip.NewReader(file)
-	if err != nil {
-		return nil, err
-	}
-	defer gzReader.Close()
-
-	scanner := bufio.NewScanner(gzReader)
-	var record bytes.Buffer
-	lineCount := 0
-
-	// 设置缓冲区大小以提高性能
-	const maxCapacity = 1024 * 1024 // 1MB
-	buf := make([]byte, maxCapacity)
-	scanner.Buffer(buf, maxCapacity)
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-
-		if lineCount == 0 {
-			// 处理前一个记录
-			if record.Len() > 0 {
-				recordData := record.Bytes()
-				sequence, found := extractSequence(recordData)
-				if found {
-					sample := p.matchSequence(sequence, samples)
-					if sample != nil {
-						if writer, ok := writers[sample.Name]; ok {
-							writer.Write(recordData)
-							stats[sample.Name]++
-						}
-					}
-				}
-				record.Reset()
-			}
-
-			// 检查是否以@开头
-			if len(line) > 0 && line[0] == '@' {
-				record.Write(line)
-				record.WriteByte('\n')
-				lineCount = 1
-			}
-		} else {
-			// 继续当前记录
-			record.Write(line)
-			record.WriteByte('\n')
-			lineCount = (lineCount + 1) % 4
-		}
-	}
-
-	// 处理最后一个记录
-	if record.Len() > 0 {
-		recordData := record.Bytes()
-		sequence, found := extractSequence(recordData)
-		if found {
-			sample := p.matchSequence(sequence, samples)
-			if sample != nil {
-				if writer, ok := writers[sample.Name]; ok {
-					writer.Write(recordData)
-					stats[sample.Name]++
-				}
-			}
-		}
-	}
-
-	return stats, scanner.Err()
-}
-
 // 使用goroutine管道处理
-func (p *SplitProcessor) splitReadsPipeline() error {
+func (s *ExactMatchSplitter) splitReadsPipeline() error {
 	fmt.Println("使用管道模式处理...")
 
 	totalProcessed := int64(0)
 	var wg sync.WaitGroup
 
-	for mergedFile, samples := range p.fileMap {
+	for mergedFile, samples := range s.fileMap {
 		fmt.Printf("  处理文件: %s\n", filepath.Base(mergedFile))
 
 		// 创建管道
 		recordChan := make(chan []byte, 10000)
 		resultChan := make(chan struct {
 			sampleName string
+			direction  string
 			record     []byte
 		}, 10000)
 
@@ -839,7 +610,7 @@ func (p *SplitProcessor) splitReadsPipeline() error {
 			defer wg.Done()
 			defer close(recordChan)
 
-			if err := p.readRecordsToChannel(filename, recordChan); err != nil {
+			if err := s.readRecordsToChannel(filename, recordChan); err != nil {
 				log.Printf("读取文件失败: %v", err)
 			}
 		}(mergedFile)
@@ -852,13 +623,15 @@ func (p *SplitProcessor) splitReadsPipeline() error {
 				for record := range recordChan {
 					sequence, found := extractSequence(record)
 					if found {
-						sample := p.matchSequence(sequence, samples)
+						sample, direction := s.matchSequence(sequence, samples)
 						if sample != nil {
 							resultChan <- struct {
 								sampleName string
+								direction  string
 								record     []byte
 							}{
 								sampleName: sample.Name,
+								direction:  direction,
 								record:     record,
 							}
 						}
@@ -912,7 +685,7 @@ func (p *SplitProcessor) splitReadsPipeline() error {
 }
 
 // 将记录读取到channel
-func (p *SplitProcessor) readRecordsToChannel(filename string, recordChan chan<- []byte) error {
+func (s *ExactMatchSplitter) readRecordsToChannel(filename string, recordChan chan<- []byte) error {
 
 	// 打开gz文件
 	file, err := os.Open(filename)
@@ -970,7 +743,7 @@ func (p *SplitProcessor) readRecordsToChannel(filename string, recordChan chan<-
 }
 
 // 处理数据块 - 修复版
-func (p *SplitProcessor) processChunk(data []byte, samples []*SampleInfo, sampleWriters map[string]*bufio.Writer) map[string]int {
+func (s *ExactMatchSplitter) processChunk(data []byte, samples []*SampleInfo, sampleWriters map[string]*bufio.Writer) map[string]int {
 	stats := make(map[string]int)
 
 	// 使用bufio.Scanner来逐行读取
@@ -988,11 +761,22 @@ func (p *SplitProcessor) processChunk(data []byte, samples []*SampleInfo, sample
 				recordData := record.Bytes()
 				sequence, found := extractSequence(recordData)
 				if found {
-					sample := p.matchSequence(sequence, samples)
+					sample, direction := s.matchSequence(sequence, samples)
 					if sample != nil {
 						if writer, ok := sampleWriters[sample.Name]; ok {
-							writer.Write(recordData)
 							stats[sample.Name]++
+							s.updateDirectionStats(direction)
+							// 如果是反向匹配，需要将序列反向互补
+							if direction == "reverse" {
+								// 对整个记录进行反向互补处理
+								recordData = s.reverseComplementRecord(recordData)
+							}
+
+							writer.Write(recordData)
+							s.statsMutex.Lock()
+							s.stats.matchedReads++
+							s.statsMutex.Unlock()
+
 						}
 					}
 				}
@@ -1018,11 +802,22 @@ func (p *SplitProcessor) processChunk(data []byte, samples []*SampleInfo, sample
 		recordData := record.Bytes()
 		sequence, found := extractSequence(recordData)
 		if found {
-			sample := p.matchSequence(sequence, samples)
+			sample, direction := s.matchSequence(sequence, samples)
 			if sample != nil {
 				if writer, ok := sampleWriters[sample.Name]; ok {
-					writer.Write(recordData)
 					stats[sample.Name]++
+					s.updateDirectionStats(direction)
+					// 如果是反向匹配，需要将序列反向互补
+					if direction == "reverse" {
+						// 对整个记录进行反向互补处理
+						recordData = s.reverseComplementRecord(recordData)
+					}
+
+					writer.Write(recordData)
+					s.statsMutex.Lock()
+					s.stats.matchedReads++
+					s.statsMutex.Unlock()
+
 				}
 			}
 		}
@@ -1041,74 +836,17 @@ func extractSequence(record []byte) ([]byte, bool) {
 }
 
 // 匹配序列到样品
-func (p *SplitProcessor) matchSequence(sequence []byte, samples []*SampleInfo) *SampleInfo {
+func (s *ExactMatchSplitter) matchSequence(sequence []byte, samples []*SampleInfo) (*SampleInfo, string) {
 	seqStr := string(sequence)
-
-	if len(seqStr) < p.config.BarcodeStart+p.config.BarcodeEnd {
-		return nil
+	// 完全匹配
+	sample, direction := s.exactMatch(seqStr)
+	if sample == nil {
+		s.statsMutex.Lock()
+		s.stats.failedReads++
+		s.statsMutex.Unlock()
+		return nil, ""
 	}
-
-	startBarcode := seqStr[:p.config.BarcodeStart]
-	endBarcode := seqStr[len(seqStr)-p.config.BarcodeEnd:]
-
-	// 使用Bloom过滤器快速检查
-	key := startBarcode + "|" + endBarcode
-	if !p.bloomFilter.Test([]byte(key)) {
-		// 尝试反向互补
-		rcKey := reverseComplement(startBarcode) + "|" + reverseComplement(endBarcode)
-		if !p.bloomFilter.Test([]byte(rcKey)) {
-			return nil // 不匹配任何barcode
-		} else {
-			key = rcKey
-		}
-	}
-
-	// 查找匹配的样品
-	sample, ok := p.barcodeIdx[key]
-	if !ok {
-		// 如果没有完全匹配，尝试模糊匹配
-		sample = p.fuzzyMatchBarcode(startBarcode, endBarcode, samples)
-	}
-
-	return sample
-}
-
-// 模糊匹配barcode
-func (p *SplitProcessor) fuzzyMatchBarcode(start, end string, samples []*SampleInfo) *SampleInfo {
-	var bestMatch *SampleInfo
-	bestScore := -1
-
-	for _, sample := range samples {
-		score := 0
-
-		// 比较start barcode
-		startLen := min(len(start), len(sample.BarcodeStart))
-		for i := 0; i < startLen; i++ {
-			if start[i] == sample.BarcodeStart[i] {
-				score++
-			}
-		}
-
-		// 比较end barcode
-		endLen := min(len(end), len(sample.BarcodeEnd))
-		for i := 0; i < endLen; i++ {
-			if end[i] == sample.BarcodeEnd[i] {
-				score++
-			}
-		}
-
-		// 计算总匹配率
-		totalLen := startLen + endLen
-		matchRate := float64(score) / float64(totalLen)
-
-		// 如果匹配率足够高
-		if matchRate >= 0.9 && score > bestScore { // 允许10%的错误
-			bestScore = score
-			bestMatch = sample
-		}
-	}
-
-	return bestMatch
+	return sample, direction
 }
 
 // 反向互补
@@ -1116,6 +854,7 @@ func reverseComplement(seq string) string {
 	var rc strings.Builder
 	rc.Grow(len(seq))
 
+	// 从尾部向头部遍历，同时互补
 	for i := len(seq) - 1; i >= 0; i-- {
 		switch seq[i] {
 		case 'A', 'a':
@@ -1135,8 +874,8 @@ func reverseComplement(seq string) string {
 }
 
 // 生成报告
-func (p *SplitProcessor) generateReport() error {
-	reportFile := filepath.Join(p.config.OutputDir, "split_report.csv")
+func (s *ExactMatchSplitter) generateReport() error {
+	reportFile := filepath.Join(s.config.OutputDir, "split_report.csv")
 	f, err := os.Create(reportFile)
 	if err != nil {
 		return err
@@ -1166,7 +905,7 @@ func (p *SplitProcessor) generateReport() error {
 	}
 
 	// 写入数据
-	for _, sample := range p.samples {
+	for _, sample := range s.samples {
 		// 统计输出文件中的reads数量
 		outputFile := filepath.Join(sample.OutputPath, "split_reads.fastq")
 		readCount := 0
@@ -1180,8 +919,6 @@ func (p *SplitProcessor) generateReport() error {
 			fmt.Sprintf("%d", len(sample.SynthesisSeq)),
 			fmt.Sprintf("%d", len(sample.PostTargetSeq)),
 			fmt.Sprintf("%d", len(sample.TargetSeq)+len(sample.SynthesisSeq)+len(sample.PostTargetSeq)),
-			sample.BarcodeStart,
-			sample.BarcodeEnd,
 			filepath.Base(sample.R1Path),
 			filepath.Base(sample.R2Path),
 			filepath.Base(sample.MergedFile),
@@ -1195,7 +932,7 @@ func (p *SplitProcessor) generateReport() error {
 	}
 
 	// 生成汇总统计
-	summaryFile := filepath.Join(p.config.OutputDir, "summary.txt")
+	summaryFile := filepath.Join(s.config.OutputDir, "summary.txt")
 	sf, err := os.Create(summaryFile)
 	if err != nil {
 		return err
@@ -1212,12 +949,6 @@ Excel文件: %s
 总样品数: %d
 使用的线程数: %d
 
-barcode配置:
-==========
-起始barcode长度: %d
-结束barcode长度: %d
-允许错配数: %d
-
 质量过滤:
 ========
 最低质量值: %d
@@ -1232,15 +963,12 @@ barcode配置:
 处理完成!
 `,
 		time.Now().Format("2006-01-02 15:04:05"),
-		p.config.ExcelFile,
-		p.config.OutputDir,
-		len(p.samples),
-		p.config.Threads,
-		p.config.BarcodeStart,
-		p.config.BarcodeEnd,
-		p.config.Mismatch,
-		p.config.Quality,
-		p.config.MergeLen,
+		s.config.ExcelFile,
+		s.config.OutputDir,
+		len(s.samples),
+		s.config.Threads,
+		s.config.Quality,
+		s.config.MergeLen,
 		reportFile,
 		summaryFile,
 	)
