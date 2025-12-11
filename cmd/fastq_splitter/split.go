@@ -6,12 +6,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
 
 	gzip "github.com/klauspost/pgzip"
 )
 
 // 主拆分函数
-func (s *ExactMatchSplitter) splitReads() error {
+func (s *RegexpSplitter) splitReads() error {
 	fmt.Println("\n步骤6: 开始拆分（完全匹配，支持反向互补）...")
 
 	// 重置统计
@@ -85,7 +89,7 @@ func (s *ExactMatchSplitter) splitReads() error {
 }
 
 // 处理gzip压缩的FASTQ文件
-func (s *ExactMatchSplitter) processGzippedFile(filename string,
+func (s *RegexpSplitter) processGzippedFile(filename string,
 	writers map[string]*gzip.Writer) (map[string]int, error) {
 	stats := make(map[string]int)
 
@@ -166,7 +170,7 @@ func (s *ExactMatchSplitter) processGzippedFile(filename string,
 }
 
 // 处理单个记录
-func (s *ExactMatchSplitter) processRecord(record []byte,
+func (s *RegexpSplitter) processRecord(record []byte,
 	writers map[string]*gzip.Writer) (*SampleInfo, string) {
 
 	// 解析FASTQ记录，提取序列
@@ -206,7 +210,7 @@ func (s *ExactMatchSplitter) processRecord(record []byte,
 }
 
 // 对整个FASTQ记录进行反向互补
-func (s *ExactMatchSplitter) reverseComplementRecord(record []byte) []byte {
+func (s *RegexpSplitter) reverseComplementRecord(record []byte) []byte {
 	lines := bytes.SplitN(record, []byte{'\n'}, 4)
 	if len(lines) < 4 {
 		return record
@@ -244,7 +248,7 @@ func reverseString(s string) string {
 }
 
 // 更新方向统计
-func (s *ExactMatchSplitter) updateDirectionStats(direction string) {
+func (s *RegexpSplitter) updateDirectionStats(direction string) {
 	s.statsMutex.Lock()
 	defer s.statsMutex.Unlock()
 
@@ -257,7 +261,7 @@ func (s *ExactMatchSplitter) updateDirectionStats(direction string) {
 }
 
 // 打印详细统计
-func (s *ExactMatchSplitter) printDetailedStats() {
+func (s *RegexpSplitter) printDetailedStats() {
 	fmt.Println("\n拆分统计:")
 	// fmt.Println("=" * 50)
 
@@ -296,4 +300,391 @@ func sumMap(m map[string]int) int {
 		total += v
 	}
 	return total
+}
+
+// 使用工作池并行处理
+func (s *RegexpSplitter) splitExtractTargetOnly() error {
+	fmt.Println("\n使用正则表达式拆分（并行模式）...")
+
+	startTime := time.Now()
+
+	// 为每个样本创建输出文件
+	writers := make(map[string]*gzip.Writer)
+	files := make(map[string]*os.File)
+
+	for _, sample := range s.samples {
+		outputFile := filepath.Join(sample.OutputPath, "split_reads.fastq.gz")
+		f, err := os.Create(outputFile)
+		if err != nil {
+			return fmt.Errorf("创建输出文件失败: %v", err)
+		}
+		files[sample.Name] = f
+		writers[sample.Name] = gzip.NewWriter(f)
+	}
+
+	defer func() {
+		// 关闭所有写入器
+		for name, writer := range writers {
+			writer.Close()
+			if f, ok := files[name]; ok {
+				f.Close()
+			}
+		}
+	}()
+
+	// 处理所有合并文件
+	totalProcessed := 0
+	totalMatched := 0
+
+	for mergedFile, _ := range s.fileMap {
+		fmt.Printf("处理文件: %s\n", filepath.Base(mergedFile))
+
+		// 使用工作池处理
+		matched, processed, err := s.processFileWithWorkers(mergedFile, writers)
+		if err != nil {
+			return fmt.Errorf("处理文件失败: %v", err)
+		}
+
+		totalProcessed += processed
+		totalMatched += matched
+
+		fmt.Printf("  本文件: 处理 %d 条, 匹配 %d 条 (%.1f%%)\n",
+			processed, matched, float64(matched)/float64(processed)*100)
+	}
+
+	elapsed := time.Since(startTime)
+
+	fmt.Printf("\n拆分完成!\n")
+	fmt.Printf("总处理: %d 条reads\n", totalProcessed)
+	fmt.Printf("总匹配: %d 条reads (%.1f%%)\n",
+		totalMatched, float64(totalMatched)/float64(totalProcessed)*100)
+	fmt.Printf("耗时: %v\n", elapsed)
+
+	// 打印各样本统计
+	s.printSampleStats()
+
+	return nil
+}
+
+// 使用工作池处理单个文件
+func (s *RegexpSplitter) processFileWithWorkers(filename string,
+	writers map[string]*gzip.Writer) (int, int, error) {
+
+	// 打开文件
+	file, err := os.Open(filename)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer file.Close()
+
+	gzReader, err := gzip.NewReader(file)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer gzReader.Close()
+
+	// 创建工作池
+	numWorkers := min(s.config.Threads, 16) // 限制最大工作线程数
+	recordChan := make(chan []byte, 10000)
+	resultChan := make(chan *MatchResult, 10000)
+
+	var wg sync.WaitGroup
+
+	// 启动worker
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go s.regexpWorker(i, recordChan, resultChan, &wg)
+	}
+
+	// 启动读取器
+	scanner := bufio.NewScanner(gzReader)
+	var record bytes.Buffer
+	lineCount := 0
+	totalReads := 0
+
+	// 设置缓冲区大小
+	const maxCapacity = 4 * 1024 * 1024
+	buf := make([]byte, maxCapacity)
+	scanner.Buffer(buf, maxCapacity)
+
+	// 读取并发送记录到channel
+	go func() {
+		for scanner.Scan() {
+			line := scanner.Bytes()
+
+			if lineCount == 0 {
+				if record.Len() > 0 {
+					recordData := make([]byte, len(record.Bytes()))
+					copy(recordData, record.Bytes())
+					recordChan <- recordData
+					totalReads++
+					record.Reset()
+				}
+
+				if len(line) > 0 && line[0] == '@' {
+					record.Write(line)
+					record.WriteByte('\n')
+					lineCount = 1
+				}
+			} else {
+				record.Write(line)
+				record.WriteByte('\n')
+				lineCount = (lineCount + 1) % 4
+			}
+		}
+
+		// 最后一个记录
+		if record.Len() > 0 {
+			recordData := make([]byte, len(record.Bytes()))
+			copy(recordData, record.Bytes())
+			recordChan <- recordData
+			totalReads++
+		}
+
+		close(recordChan)
+	}()
+
+	// 等待worker完成
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// 收集结果并写入文件
+	matchedReads := 0
+	for result := range resultChan {
+		if result.sample != nil && result.processedRecord != nil {
+			if writer, ok := writers[result.sample.Name]; ok {
+				writer.Write(result.processedRecord)
+				matchedReads++
+			}
+		}
+	}
+
+	return matchedReads, totalReads, scanner.Err()
+}
+
+// 匹配结果
+type MatchResult struct {
+	sample          *SampleInfo
+	processedRecord []byte
+}
+
+// regexp worker
+func (s *RegexpSplitter) regexpWorker(id int, recordChan <-chan []byte,
+	resultChan chan<- *MatchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for record := range recordChan {
+		sample, _, processedRecord := s.processRecordWithRegexp(record)
+		resultChan <- &MatchResult{
+			sample:          sample,
+			processedRecord: processedRecord,
+		}
+	}
+}
+
+// 使用预编译的正则表达式池
+type RegexpPool struct {
+	regexps []*regexp.Regexp
+	samples []*SampleInfo
+}
+
+// 构建优化的正则表达式
+func (s *RegexpSplitter) buildTargetOnlyRegexp() error {
+	fmt.Println("构建只保留靶标间序列的正则表达式...")
+
+	// 为所有样本创建正则表达式
+	for _, sample := range s.samples {
+		// 1. 正向正则表达式：捕获头靶标和尾靶标之间的序列（包括头尾靶标）
+		// 使用分组捕获：头靶标(.*?)尾靶标
+		forwardPattern := `(` + s.escapeRegexp(sample.TargetSeq) + `.*?` + s.escapeRegexp(sample.PostTargetSeq) + `)`
+		forwardRegex, err := regexp.Compile(forwardPattern)
+		if err != nil {
+			return fmt.Errorf("构建正向正则表达式失败（样本%s）: %v", sample.Name, err)
+		}
+
+		seqRegexp := &SeqRegexp{
+			sample:       sample,
+			forwardRegex: forwardRegex,
+		}
+
+		// 2. 反向正则表达式
+		if s.useRC {
+			// 反向互补序列：尾靶标在前，头靶标在后
+			sample.ReverseTarget = reverseComplement(sample.TargetSeq)
+			sample.ReversePostTarget = reverseComplement(sample.PostTargetSeq)
+			reversePattern := `(` + s.escapeRegexp(sample.ReversePostTarget) + `.*?` + s.escapeRegexp(sample.ReverseTarget) + `)`
+			reverseRegex, err := regexp.Compile(reversePattern)
+			if err != nil {
+				return fmt.Errorf("构建反向正则表达式失败（样本%s）: %v", sample.Name, err)
+			}
+
+			seqRegexp.reverseRegex = reverseRegex
+
+			fmt.Printf("  样本 %s:\n", sample.Name)
+			fmt.Printf("    正向模式: %s\n", forwardPattern)
+			fmt.Printf("    反向模式: %s\n", reversePattern)
+		}
+
+		s.seqRegexps = append(s.seqRegexps, seqRegexp)
+	}
+
+	return nil
+}
+
+// 优化的匹配函数
+func (s *RegexpSplitter) optimizedMatch(sequence string) (*SampleInfo, string) {
+	// 快速检查：如果序列太短，跳过
+	if len(sequence) < 50 {
+		return nil, ""
+	}
+
+	// 尝试正向匹配
+	for _, seqRegexp := range s.seqRegexps {
+		if seqRegexp.forwardRegex.MatchString(sequence) {
+			// 验证匹配位置
+			headIdx := strings.Index(sequence, seqRegexp.sample.TargetSeq)
+			tailIdx := strings.Index(sequence, seqRegexp.sample.PostTargetSeq)
+
+			if headIdx != -1 && tailIdx != -1 && headIdx < tailIdx {
+				// 确保头靶标在序列的前半部分
+				if headIdx < len(sequence)/2 {
+					return seqRegexp.sample, "forward"
+				}
+			}
+		}
+	}
+
+	// 尝试反向匹配
+	if s.useRC {
+		for _, seqRegexp := range s.seqRegexps {
+			if seqRegexp.reverseRegex != nil && seqRegexp.reverseRegex.MatchString(sequence) {
+				rcTarget := reverseComplement(seqRegexp.sample.TargetSeq)
+				rcPostTarget := reverseComplement(seqRegexp.sample.PostTargetSeq)
+
+				headIdx := strings.Index(sequence, rcTarget)
+				tailIdx := strings.Index(sequence, rcPostTarget)
+
+				if headIdx != -1 && tailIdx != -1 && headIdx < tailIdx {
+					if headIdx < len(sequence)/2 {
+						return seqRegexp.sample, "reverse"
+					}
+				}
+			}
+		}
+	}
+
+	return nil, ""
+}
+
+// 打印样本统计
+func (s *RegexpSplitter) printSampleStats() {
+	fmt.Println("\n各样本统计:")
+	fmt.Println(strings.Repeat("=", 80))
+
+	totalReads := 0
+	totalMatched := 0
+
+	for _, sample := range s.samples {
+		totalReads += sample.TotalReads
+		totalMatched += sample.MatchedReads
+
+		if sample.TotalReads > 0 {
+			matchRate := float64(sample.MatchedReads) / float64(sample.TotalReads) * 100
+			forwardRate := float64(sample.ForwardReads) / float64(sample.MatchedReads) * 100
+
+			fmt.Printf("  样本 %-20s: 处理 %6d, 匹配 %6d (%.1f%%), 正向 %.1f%%\n",
+				sample.Name,
+				sample.TotalReads,
+				sample.MatchedReads,
+				matchRate,
+				forwardRate)
+		}
+	}
+
+	fmt.Println(strings.Repeat("-", 80))
+	fmt.Printf("  总计: 处理 %d, 匹配 %d (%.1f%%)\n",
+		totalReads, totalMatched, float64(totalMatched)/float64(totalReads)*100)
+}
+
+// 调试模式：输出未匹配的序列
+func (s *RegexpSplitter) debugUnmatched(filename string, outputDir string) error {
+	debugFile := filepath.Join(outputDir, "unmatched_sequences.txt")
+	f, err := os.Create(debugFile)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	writer := bufio.NewWriter(f)
+	defer writer.Flush()
+
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	gzReader, err := gzip.NewReader(file)
+	if err != nil {
+		return err
+	}
+	defer gzReader.Close()
+
+	scanner := bufio.NewScanner(gzReader)
+	var record bytes.Buffer
+	lineCount := 0
+	unmatchedCount := 0
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+
+		if lineCount == 0 {
+			if record.Len() > 0 {
+				recordStr := record.String()
+				lines := strings.Split(recordStr, "\n")
+				if len(lines) > 1 {
+					sequence := lines[1]
+
+					// 尝试匹配
+					sample, _ := s.optimizedMatch(sequence)
+					if sample == nil {
+						// 未匹配，记录调试信息
+						writer.WriteString(fmt.Sprintf("未匹配序列 %d:\n", unmatchedCount+1))
+						writer.WriteString(fmt.Sprintf("序列: %s\n", sequence))
+						writer.WriteString("可能的匹配检查:\n")
+
+						// 检查每个样本的匹配情况
+						for _, testSample := range s.samples {
+							if strings.Contains(sequence, testSample.TargetSeq) {
+								writer.WriteString(fmt.Sprintf("  包含头靶标: %s (样本: %s)\n",
+									testSample.TargetSeq, testSample.Name))
+							}
+							if strings.Contains(sequence, testSample.PostTargetSeq) {
+								writer.WriteString(fmt.Sprintf("  包含尾靶标: %s (样本: %s)\n",
+									testSample.PostTargetSeq, testSample.Name))
+							}
+						}
+						writer.WriteString("\n")
+						unmatchedCount++
+					}
+				}
+				record.Reset()
+			}
+
+			if len(line) > 0 && line[0] == '@' {
+				record.Write(line)
+				record.WriteByte('\n')
+				lineCount = 1
+			}
+		} else {
+			record.Write(line)
+			record.WriteByte('\n')
+			lineCount = (lineCount + 1) % 4
+		}
+	}
+
+	fmt.Printf("调试完成: 找到 %d 条未匹配序列，详见 %s\n", unmatchedCount, debugFile)
+	return nil
 }

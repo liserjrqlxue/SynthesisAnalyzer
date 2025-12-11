@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/bits-and-blooms/bloom/v3"
 )
 
 // 构建完全匹配索引
-func (s *ExactMatchSplitter) buildIndex() error {
-	fmt.Println("步骤5: 构建完全匹配索引（支持反向互补）...")
+func (s *RegexpSplitter) buildIndex() error {
+	fmt.Println("构建正则表达式索引...")
 
 	// 创建Bloom过滤器
 	expectedElements := uint(len(s.samples) * 4) // 正向+反向各2个序列
@@ -19,6 +22,42 @@ func (s *ExactMatchSplitter) buildIndex() error {
 
 	// 为每个样品提取barcode
 	for _, sample := range s.samples {
+		// 1. 构建正向正则表达式
+		// 模式: 头靶标 + (.*?) + 尾靶标
+		forwardPattern := s.escapeRegexp(sample.TargetSeq) + `(.*?)` + s.escapeRegexp(sample.PostTargetSeq)
+		forwardRegex, err := regexp.Compile(forwardPattern)
+		if err != nil {
+			return fmt.Errorf("构建正向正则表达式失败（样本%s）: %v", sample.Name, err)
+		}
+
+		// 2. 如果需要，构建反向互补正则表达式
+		var reverseRegex *regexp.Regexp
+		var reversePattern string
+		if s.useRC {
+			// 计算反向互补序列
+			rcTarget := reverseComplement(sample.TargetSeq)
+			rcPostTarget := reverseComplement(sample.PostTargetSeq)
+
+			reversePattern := s.escapeRegexp(rcTarget) + `(.*?)` + s.escapeRegexp(rcPostTarget)
+			reverseRegex, err = regexp.Compile(reversePattern)
+			if err != nil {
+				return fmt.Errorf("构建反向正则表达式失败（样本%s）: %v", sample.Name, err)
+			}
+		}
+		s.seqRegexps = append(s.seqRegexps, &SeqRegexp{
+			sample:       sample,
+			forwardRegex: forwardRegex,
+			reverseRegex: reverseRegex,
+		})
+
+		fmt.Printf("  样本 %s: 正则表达式构建成功\n", sample.Name)
+		fmt.Printf("    正向: %s\n", forwardPattern)
+		if s.useRC && reverseRegex != nil {
+			fmt.Printf("    反向: %s\n", reversePattern)
+		}
+
+		fmt.Printf("正则表达式索引构建完成: %d 个样本\n", len(s.samples))
+
 		// 构建完整参考序列（用于后续分析）
 		sample.FullReference = sample.TargetSeq + sample.SynthesisSeq + sample.PostTargetSeq
 
@@ -53,6 +92,98 @@ func (s *ExactMatchSplitter) buildIndex() error {
 
 	fmt.Printf("索引构建完成: %d 个样本\n", len(s.samples))
 	return nil
+}
+
+// 转义正则表达式特殊字符
+func (s *RegexpSplitter) escapeRegexp(seq string) string {
+	// 正则表达式特殊字符: . * + ? ^ $ { } [ ] ( ) | \
+	specialChars := []string{".", "*", "+", "?", "^", "$", "{", "}", "[", "]", "(", ")", "|", "\\"}
+
+	escaped := seq
+	for _, char := range specialChars {
+		escaped = strings.ReplaceAll(escaped, char, "\\"+char)
+	}
+
+	return escaped
+}
+
+// 使用正则表达式匹配序列
+func (s *RegexpSplitter) matchWithRegexp(sequence string) (*SampleInfo, string, []string) {
+	// 首先尝试正向匹配
+	for _, seqRegexp := range s.seqRegexps {
+		if matches := seqRegexp.forwardRegex.FindStringSubmatch(sequence); matches != nil {
+			// 检查匹配位置：确保头靶标在前，尾靶标在后
+			headPos := strings.Index(sequence, seqRegexp.sample.TargetSeq)
+			tailPos := strings.Index(sequence, seqRegexp.sample.PostTargetSeq)
+
+			if headPos != -1 && tailPos != -1 && headPos < tailPos {
+				return seqRegexp.sample, "forward", matches
+			}
+		}
+	}
+
+	// 如果正向未匹配且允许反向互补，尝试反向匹配
+	if s.useRC {
+		for _, seqRegexp := range s.seqRegexps {
+			if seqRegexp.reverseRegex == nil {
+				continue
+			}
+
+			if matches := seqRegexp.reverseRegex.FindStringSubmatch(sequence); matches != nil {
+				// 检查匹配位置
+				// headPos := strings.Index(sequence, seqRegexp.sample.ReverseTarget)
+				// tailPos := strings.Index(sequence, seqRegexp.sample.ReversePostTarget)
+
+				// if headPos != -1 && tailPos != -1 && headPos < tailPos {
+				return seqRegexp.sample, "reverse", matches
+				// }
+			}
+		}
+	}
+
+	return nil, "", nil
+}
+
+// 处理单个FASTQ记录
+func (s *RegexpSplitter) processRecordWithRegexp(record []byte) (*SampleInfo, string, []byte) {
+	// 解析FASTQ记录，提取序列
+	lines := bytes.SplitN(record, []byte{'\n'}, 4)
+	if len(lines) < 2 {
+		return nil, "", nil
+	}
+
+	sequence := string(lines[1])
+
+	// 使用正则表达式匹配
+	sample, direction, matches := s.matchWithRegexp(sequence)
+	if sample == nil {
+		return nil, "", nil
+	}
+
+	// 更新样本统计
+	sample.TotalReads++
+	sample.MatchedReads++
+	if direction == "forward" {
+		sample.ForwardReads++
+	} else {
+		sample.ReverseReads++
+	}
+
+	// 如果是反向匹配，需要对序列进行反向互补
+	var processedRecord []byte
+	if direction == "reverse" {
+		processedRecord = s.reverseComplementRecord(record)
+	} else {
+		processedRecord = record
+	}
+
+	// 可选：提取中间序列用于后续分析
+	if matches != nil && len(matches) > 1 {
+		// matches[1] 是 (.*?) 匹配到的中间序列
+		// 这里可以保存中间序列用于分析
+	}
+
+	return sample, direction, processedRecord
 }
 
 // 在序列中搜索头靶标（从头部开始向后搜索）
@@ -108,7 +239,7 @@ func findTailBarcode(sequence, tailBarcode string, searchWindow int) (int, bool)
 }
 
 // 完全匹配函数（支持正向和反向）
-func (s *ExactMatchSplitter) exactMatch(sequence string) (*SampleInfo, string) {
+func (s *RegexpSplitter) exactMatch(sequence string) (*SampleInfo, string) {
 	seqLen := len(sequence)
 	if seqLen < 20 { // 序列太短
 		return nil, ""
@@ -128,7 +259,7 @@ func (s *ExactMatchSplitter) exactMatch(sequence string) (*SampleInfo, string) {
 }
 
 // 正向匹配
-func (s *ExactMatchSplitter) matchForward(sequence string) (*SampleInfo, string) {
+func (s *RegexpSplitter) matchForward(sequence string) (*SampleInfo, string) {
 	// 快速过滤：检查是否有可能匹配
 	if !s.mightContainAnyBarcode(sequence) {
 		return nil, ""
@@ -169,7 +300,7 @@ func (s *ExactMatchSplitter) matchForward(sequence string) (*SampleInfo, string)
 }
 
 // 反向匹配
-func (s *ExactMatchSplitter) matchReverse(sequence string) (*SampleInfo, string) {
+func (s *RegexpSplitter) matchReverse(sequence string) (*SampleInfo, string) {
 	// 计算反向互补序列
 	rcSequence := reverseComplement(sequence)
 
@@ -208,7 +339,7 @@ func (s *ExactMatchSplitter) matchReverse(sequence string) (*SampleInfo, string)
 }
 
 // Bloom过滤器预检查
-func (s *ExactMatchSplitter) mightContainAnyBarcode(sequence string) bool {
+func (s *RegexpSplitter) mightContainAnyBarcode(sequence string) bool {
 	// 提取序列的前后部分进行快速过滤
 	headRegion := ""
 	tailRegion := ""

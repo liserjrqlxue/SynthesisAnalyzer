@@ -53,6 +53,7 @@ func main() {
 		Quality:      20,
 		MergeLen:     80,
 
+		UseRC:         true, // 启用反向互补匹配
 		SkipExisting:  true, // 默认跳过已存在文件
 		Compression:   true, // 默认启用压缩
 		CompressLevel: 6,    // 默认压缩级别
@@ -63,7 +64,8 @@ func main() {
 	// 创建处理器
 	// processor := NewSplitProcessor(config)
 	// 创建拆分器
-	splitter := NewExactMatchSplitter(config)
+	splitter := NewRegexpSplitter(config)
+	fmt.Printf("%+v", splitter)
 
 	// 运行处理流程
 	if err := splitter.Run(); err != nil {
@@ -74,9 +76,9 @@ func main() {
 }
 
 // 主运行流程
-func (s *ExactMatchSplitter) Run() error {
+func (s *RegexpSplitter) Run() error {
 	startTime := time.Now()
-	fmt.Println("=== FASTQ拆分程序（完全匹配版）开始运行 ===")
+	fmt.Println("=== FASTQ正则表达式拆分程序开始运行 ===")
 
 	// 步骤1: 创建输出目录
 	if err := s.createOutputDir(); err != nil {
@@ -101,14 +103,18 @@ func (s *ExactMatchSplitter) Run() error {
 
 	// 步骤5: 构建索引
 	fmt.Println("\n步骤5: 构建完全匹配索引...")
-	if err := s.buildIndex(); err != nil {
+	// if err := s.buildIndex(); err != nil {
+	// 5. 构建正则表达式索引
+	if err := s.buildTargetOnlyRegexp(); err != nil {
 		return fmt.Errorf("构建索引失败: %v", err)
 	}
 
 	// 步骤6: 拆分reads
 	fmt.Println("\n步骤6: 拆分reads...")
 	// 使用简单版本避免mmap问题
-	if err := s.splitReads(); err != nil {
+	// if err := s.splitReads(); err != nil {
+	// 6. 使用正则表达式拆分
+	if err := s.splitExtractTargetOnly(); err != nil {
 		return fmt.Errorf("拆分reads失败: %v", err)
 	}
 
@@ -118,12 +124,20 @@ func (s *ExactMatchSplitter) Run() error {
 		return fmt.Errorf("生成报告失败: %v", err)
 	}
 
+	// 8. 可选：调试模式（输出未匹配的序列）
+	if os.Getenv("DEBUG") == "1" {
+		for mergedFile := range s.fileMap {
+			s.debugUnmatched(mergedFile, s.config.OutputDir)
+			break // 只调试第一个文件
+		}
+	}
+
 	fmt.Printf("\n=== 全部处理完成! 总耗时: %v ===\n", time.Since(startTime))
 	return nil
 }
 
 // 创建输出目录
-func (s *ExactMatchSplitter) createOutputDir() error {
+func (s *RegexpSplitter) createOutputDir() error {
 	if err := os.MkdirAll(s.config.OutputDir, 0755); err != nil {
 		return err
 	}
@@ -149,7 +163,7 @@ func (s *ExactMatchSplitter) createOutputDir() error {
 }
 
 // 读取Excel文件
-func (s *ExactMatchSplitter) readExcel() error {
+func (s *RegexpSplitter) readExcel() error {
 	fmt.Printf("步骤1: 读取Excel文件: %s\n", s.config.ExcelFile)
 
 	xlFile, err := xlsx.OpenFile(s.config.ExcelFile)
@@ -212,7 +226,7 @@ func (s *ExactMatchSplitter) readExcel() error {
 }
 
 // 检查重复样品名称
-func (s *ExactMatchSplitter) checkDuplicates() error {
+func (s *RegexpSplitter) checkDuplicates() error {
 	fmt.Println("\n步骤2: 检查重复样品名称...")
 
 	seen := make(map[string]bool)
@@ -235,7 +249,7 @@ func (s *ExactMatchSplitter) checkDuplicates() error {
 }
 
 // 合并PE reads
-func (s *ExactMatchSplitter) mergeReads() error {
+func (s *RegexpSplitter) mergeReads() error {
 	// 去重R1/R2文件对
 	filePairs := make(map[string][]*SampleInfo) // key: "R1|R2" -> 样品列表
 
@@ -355,7 +369,7 @@ func (s *ExactMatchSplitter) mergeReads() error {
 }
 
 // 生成合并文件名
-func (s *ExactMatchSplitter) getMergedFileName(sample *SampleInfo) (string, bool) {
+func (s *RegexpSplitter) getMergedFileName(sample *SampleInfo) (string, bool) {
 	// 基于R1和R2路径生成唯一的文件名
 	base1 := filepath.Base(sample.R1Path)
 	base2 := filepath.Base(sample.R2Path)
@@ -400,7 +414,7 @@ func (s *ExactMatchSplitter) getMergedFileName(sample *SampleInfo) (string, bool
 }
 
 // 创建完成标签
-func (s *ExactMatchSplitter) createDoneFile(filename string) error {
+func (s *RegexpSplitter) createDoneFile(filename string) error {
 	doneFile := filename + ".done"
 	content := fmt.Sprintf("Created: %s\nFile: %s\n",
 		time.Now().Format(time.RFC3339),
@@ -410,7 +424,7 @@ func (s *ExactMatchSplitter) createDoneFile(filename string) error {
 }
 
 // 运行fastp进行合并
-func (s *ExactMatchSplitter) runFastp(r1Path, r2Path, outputFile string) (string, error) {
+func (s *RegexpSplitter) runFastp(r1Path, r2Path, outputFile string) (string, error) {
 	// 创建临时目录
 	tempDir := filepath.Join(os.TempDir(), fmt.Sprintf("fastp_%d", time.Now().UnixNano()))
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
@@ -491,7 +505,7 @@ func (s *ExactMatchSplitter) runFastp(r1Path, r2Path, outputFile string) (string
 }
 
 // 构建fastp命令
-func (s *ExactMatchSplitter) buildFastpCommand(r1Path, r2Path, outputFile, tempDir string) []string {
+func (s *RegexpSplitter) buildFastpCommand(r1Path, r2Path, outputFile, tempDir string) []string {
 	args := []string{
 		"-i", r1Path,
 		"-I", r2Path,
@@ -524,7 +538,7 @@ func (s *ExactMatchSplitter) buildFastpCommand(r1Path, r2Path, outputFile, tempD
 }
 
 // 带检查的fastp运行函数
-func (s *ExactMatchSplitter) runFastpWithCheck(r1Path, r2Path, outputFile string) (string, error) {
+func (s *RegexpSplitter) runFastpWithCheck(r1Path, r2Path, outputFile string) (string, error) {
 	// 确保输出文件以.gz结尾
 	if !strings.HasSuffix(outputFile, ".gz") {
 		outputFile = outputFile + ".gz"
@@ -561,7 +575,7 @@ func getFileSize(filename string) int64 {
 }
 
 // 读取fastp统计信息
-func (s *ExactMatchSplitter) readFastpStats(jsonFile string) (map[string]interface{}, error) {
+func (s *RegexpSplitter) readFastpStats(jsonFile string) (map[string]interface{}, error) {
 	data, err := os.ReadFile(jsonFile)
 	if err != nil {
 		return nil, err
@@ -587,7 +601,7 @@ func (s *ExactMatchSplitter) readFastpStats(jsonFile string) (map[string]interfa
 }
 
 // 使用goroutine管道处理
-func (s *ExactMatchSplitter) splitReadsPipeline() error {
+func (s *RegexpSplitter) splitReadsPipeline() error {
 	fmt.Println("使用管道模式处理...")
 
 	totalProcessed := int64(0)
@@ -685,7 +699,7 @@ func (s *ExactMatchSplitter) splitReadsPipeline() error {
 }
 
 // 将记录读取到channel
-func (s *ExactMatchSplitter) readRecordsToChannel(filename string, recordChan chan<- []byte) error {
+func (s *RegexpSplitter) readRecordsToChannel(filename string, recordChan chan<- []byte) error {
 
 	// 打开gz文件
 	file, err := os.Open(filename)
@@ -742,90 +756,6 @@ func (s *ExactMatchSplitter) readRecordsToChannel(filename string, recordChan ch
 	return scanner.Err()
 }
 
-// 处理数据块 - 修复版
-func (s *ExactMatchSplitter) processChunk(data []byte, samples []*SampleInfo, sampleWriters map[string]*bufio.Writer) map[string]int {
-	stats := make(map[string]int)
-
-	// 使用bufio.Scanner来逐行读取
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	var record bytes.Buffer
-	lineCount := 0
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-
-		// 开始新记录
-		if lineCount == 0 {
-			// 处理前一个记录
-			if record.Len() > 0 {
-				recordData := record.Bytes()
-				sequence, found := extractSequence(recordData)
-				if found {
-					sample, direction := s.matchSequence(sequence, samples)
-					if sample != nil {
-						if writer, ok := sampleWriters[sample.Name]; ok {
-							stats[sample.Name]++
-							s.updateDirectionStats(direction)
-							// 如果是反向匹配，需要将序列反向互补
-							if direction == "reverse" {
-								// 对整个记录进行反向互补处理
-								recordData = s.reverseComplementRecord(recordData)
-							}
-
-							writer.Write(recordData)
-							s.statsMutex.Lock()
-							s.stats.matchedReads++
-							s.statsMutex.Unlock()
-
-						}
-					}
-				}
-				record.Reset()
-			}
-
-			// 检查是否以@开头
-			if len(line) > 0 && line[0] == '@' {
-				record.Write(line)
-				record.WriteByte('\n')
-				lineCount = 1
-			}
-		} else {
-			// 继续当前记录
-			record.Write(line)
-			record.WriteByte('\n')
-			lineCount = (lineCount + 1) % 4
-		}
-	}
-
-	// 处理最后一个记录
-	if record.Len() > 0 {
-		recordData := record.Bytes()
-		sequence, found := extractSequence(recordData)
-		if found {
-			sample, direction := s.matchSequence(sequence, samples)
-			if sample != nil {
-				if writer, ok := sampleWriters[sample.Name]; ok {
-					stats[sample.Name]++
-					s.updateDirectionStats(direction)
-					// 如果是反向匹配，需要将序列反向互补
-					if direction == "reverse" {
-						// 对整个记录进行反向互补处理
-						recordData = s.reverseComplementRecord(recordData)
-					}
-
-					writer.Write(recordData)
-					s.statsMutex.Lock()
-					s.stats.matchedReads++
-					s.statsMutex.Unlock()
-
-				}
-			}
-		}
-	}
-
-	return stats
-}
-
 // 提取序列
 func extractSequence(record []byte) ([]byte, bool) {
 	lines := bytes.SplitN(record, []byte{'\n'}, 4)
@@ -836,7 +766,7 @@ func extractSequence(record []byte) ([]byte, bool) {
 }
 
 // 匹配序列到样品
-func (s *ExactMatchSplitter) matchSequence(sequence []byte, samples []*SampleInfo) (*SampleInfo, string) {
+func (s *RegexpSplitter) matchSequence(sequence []byte, samples []*SampleInfo) (*SampleInfo, string) {
 	seqStr := string(sequence)
 	// 完全匹配
 	sample, direction := s.exactMatch(seqStr)
@@ -874,7 +804,7 @@ func reverseComplement(seq string) string {
 }
 
 // 生成报告
-func (s *ExactMatchSplitter) generateReport() error {
+func (s *RegexpSplitter) generateReport() error {
 	reportFile := filepath.Join(s.config.OutputDir, "split_report.csv")
 	f, err := os.Create(reportFile)
 	if err != nil {
