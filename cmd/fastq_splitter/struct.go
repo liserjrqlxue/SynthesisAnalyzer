@@ -53,12 +53,18 @@ type Config struct {
 	SearchWindow int // 搜索窗口大小（从头、从尾搜索的距离）
 	Quality      int // fastp质量阈值
 	MergeLen     int // 合并后长度
+	// 模糊匹配参数
+	AllowMismatch  int // 允许的错配数（0表示完全匹配）
+	MatchThreshold int // 匹配分数阈值
 
 	// 运行选项
 	SkipExisting  bool // 是否跳过已存在的文件
 	Compression   bool // 是否压缩输出
 	CompressLevel int  // 压缩级别 1-9，默认6
 	CleanupTemp   bool // 是否清理临时文件
+
+	// 输出选项
+	OutputMode string // "full"或"target-only"
 }
 
 // 更新后的拆分处理器

@@ -302,9 +302,9 @@ func sumMap(m map[string]int) int {
 	return total
 }
 
-// 使用工作池并行处理
+// 修改主拆分函数，只输出靶标间序列
 func (s *RegexpSplitter) splitExtractTargetOnly() error {
-	fmt.Println("\n使用正则表达式拆分（并行模式）...")
+	fmt.Println("\n开始拆分（只保留靶标间序列）...")
 
 	startTime := time.Now()
 
@@ -313,7 +313,7 @@ func (s *RegexpSplitter) splitExtractTargetOnly() error {
 	files := make(map[string]*os.File)
 
 	for _, sample := range s.samples {
-		outputFile := filepath.Join(sample.OutputPath, "split_reads.fastq.gz")
+		outputFile := filepath.Join(sample.OutputPath, "target_only_reads.fastq.gz")
 		f, err := os.Create(outputFile)
 		if err != nil {
 			return fmt.Errorf("创建输出文件失败: %v", err)
@@ -336,11 +336,11 @@ func (s *RegexpSplitter) splitExtractTargetOnly() error {
 	totalProcessed := 0
 	totalMatched := 0
 
-	for mergedFile, _ := range s.fileMap {
-		fmt.Printf("处理文件: %s\n", filepath.Base(mergedFile))
+	for mergedFile, samples := range s.fileMap {
+		fmt.Printf("处理文件: %s (%d个样本)\n", filepath.Base(mergedFile), len(samples))
 
 		// 使用工作池处理
-		matched, processed, err := s.processFileWithWorkers(mergedFile, writers)
+		matched, processed, err := s.processFileExtractTarget(mergedFile, writers)
 		if err != nil {
 			return fmt.Errorf("处理文件失败: %v", err)
 		}
@@ -356,18 +356,18 @@ func (s *RegexpSplitter) splitExtractTargetOnly() error {
 
 	fmt.Printf("\n拆分完成!\n")
 	fmt.Printf("总处理: %d 条reads\n", totalProcessed)
-	fmt.Printf("总匹配: %d 条reads (%.1f%%)\n",
+	fmt.Printf("总提取: %d 条reads (%.1f%%)\n",
 		totalMatched, float64(totalMatched)/float64(totalProcessed)*100)
 	fmt.Printf("耗时: %v\n", elapsed)
 
 	// 打印各样本统计
-	s.printSampleStats()
+	s.printExtractionStats()
 
 	return nil
 }
 
-// 使用工作池处理单个文件
-func (s *RegexpSplitter) processFileWithWorkers(filename string,
+// 处理文件，提取靶标间序列
+func (s *RegexpSplitter) processFileExtractTarget(filename string,
 	writers map[string]*gzip.Writer) (int, int, error) {
 
 	// 打开文件
@@ -400,7 +400,8 @@ func (s *RegexpSplitter) processFileWithWorkers(filename string,
 	scanner := bufio.NewScanner(gzReader)
 	var record bytes.Buffer
 	lineCount := 0
-	totalReads := 0
+	processedCount := 0
+	matchedCount := 0
 
 	// 设置缓冲区大小
 	const maxCapacity = 4 * 1024 * 1024
@@ -417,8 +418,8 @@ func (s *RegexpSplitter) processFileWithWorkers(filename string,
 					recordData := make([]byte, len(record.Bytes()))
 					copy(recordData, record.Bytes())
 					recordChan <- recordData
-					totalReads++
 					record.Reset()
+					processedCount++
 				}
 
 				if len(line) > 0 && line[0] == '@' {
@@ -438,7 +439,7 @@ func (s *RegexpSplitter) processFileWithWorkers(filename string,
 			recordData := make([]byte, len(record.Bytes()))
 			copy(recordData, record.Bytes())
 			recordChan <- recordData
-			totalReads++
+			processedCount++
 		}
 
 		close(recordChan)
@@ -451,17 +452,16 @@ func (s *RegexpSplitter) processFileWithWorkers(filename string,
 	}()
 
 	// 收集结果并写入文件
-	matchedReads := 0
 	for result := range resultChan {
 		if result.sample != nil && result.processedRecord != nil {
 			if writer, ok := writers[result.sample.Name]; ok {
 				writer.Write(result.processedRecord)
-				matchedReads++
+				matchedCount++
 			}
 		}
 	}
 
-	return matchedReads, totalReads, scanner.Err()
+	return matchedCount, processedCount, scanner.Err()
 }
 
 // 匹配结果
@@ -476,7 +476,7 @@ func (s *RegexpSplitter) regexpWorker(id int, recordChan <-chan []byte,
 	defer wg.Done()
 
 	for record := range recordChan {
-		sample, _, processedRecord := s.processRecordWithRegexp(record)
+		sample, _, processedRecord := s.processRecordExtractTarget(record)
 		resultChan <- &MatchResult{
 			sample:          sample,
 			processedRecord: processedRecord,
@@ -496,6 +496,13 @@ func (s *RegexpSplitter) buildTargetOnlyRegexp() error {
 
 	// 为所有样本创建正则表达式
 	for _, sample := range s.samples {
+		// 构建完整参考序列（用于后续分析）
+		sample.FullReference = sample.TargetSeq + sample.SynthesisSeq + sample.PostTargetSeq
+
+		// 计算反向互补序列
+		sample.ReverseTarget = reverseComplement(sample.TargetSeq)
+		sample.ReversePostTarget = reverseComplement(sample.PostTargetSeq)
+
 		// 1. 正向正则表达式：捕获头靶标和尾靶标之间的序列（包括头尾靶标）
 		// 使用分组捕获：头靶标(.*?)尾靶标
 		forwardPattern := `(` + s.escapeRegexp(sample.TargetSeq) + `.*?` + s.escapeRegexp(sample.PostTargetSeq) + `)`
@@ -512,8 +519,6 @@ func (s *RegexpSplitter) buildTargetOnlyRegexp() error {
 		// 2. 反向正则表达式
 		if s.useRC {
 			// 反向互补序列：尾靶标在前，头靶标在后
-			sample.ReverseTarget = reverseComplement(sample.TargetSeq)
-			sample.ReversePostTarget = reverseComplement(sample.PostTargetSeq)
 			reversePattern := `(` + s.escapeRegexp(sample.ReversePostTarget) + `.*?` + s.escapeRegexp(sample.ReverseTarget) + `)`
 			reverseRegex, err := regexp.Compile(reversePattern)
 			if err != nil {
@@ -579,22 +584,22 @@ func (s *RegexpSplitter) optimizedMatch(sequence string) (*SampleInfo, string) {
 }
 
 // 打印样本统计
-func (s *RegexpSplitter) printSampleStats() {
-	fmt.Println("\n各样本统计:")
+func (s *RegexpSplitter) printExtractionStats() {
+	fmt.Println("\n靶标提取统计:")
 	fmt.Println(strings.Repeat("=", 80))
 
 	totalReads := 0
-	totalMatched := 0
+	totalExtracted := 0
 
 	for _, sample := range s.samples {
 		totalReads += sample.TotalReads
-		totalMatched += sample.MatchedReads
+		totalExtracted += sample.MatchedReads
 
 		if sample.TotalReads > 0 {
 			matchRate := float64(sample.MatchedReads) / float64(sample.TotalReads) * 100
 			forwardRate := float64(sample.ForwardReads) / float64(sample.MatchedReads) * 100
 
-			fmt.Printf("  样本 %-20s: 处理 %6d, 匹配 %6d (%.1f%%), 正向 %.1f%%\n",
+			fmt.Printf("  样本 %-20s: 提取 %6d, 匹配 %6d (%.1f%%), 正向 %.1f%%\n",
 				sample.Name,
 				sample.TotalReads,
 				sample.MatchedReads,
@@ -604,8 +609,21 @@ func (s *RegexpSplitter) printSampleStats() {
 	}
 
 	fmt.Println(strings.Repeat("-", 80))
-	fmt.Printf("  总计: 处理 %d, 匹配 %d (%.1f%%)\n",
-		totalReads, totalMatched, float64(totalMatched)/float64(totalReads)*100)
+	fmt.Printf("  总计: 处理 %d, 提取 %d (%.1f%%)\n",
+		totalReads, totalExtracted, float64(totalExtracted)/float64(totalReads)*100)
+
+	// 输出每个样本的靶标信息
+	fmt.Println("\n各样本靶标信息:")
+	fmt.Println(strings.Repeat("=", 80))
+	for _, sample := range s.samples {
+		fullRef := sample.TargetSeq + sample.SynthesisSeq + sample.PostTargetSeq
+		fmt.Printf("  样本 %-20s: 头靶标(%d) + 合成序列(%d) + 尾靶标(%d) = 总长 %d\n",
+			sample.Name,
+			len(sample.TargetSeq),
+			len(sample.SynthesisSeq),
+			len(sample.PostTargetSeq),
+			len(fullRef))
+	}
 }
 
 // 调试模式：输出未匹配的序列

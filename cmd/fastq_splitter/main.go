@@ -59,11 +59,13 @@ func main() {
 		CompressLevel: 6,    // 默认压缩级别
 		CleanupTemp:   true, // 不保留临时文件
 
+		AllowMismatch:  2,             // 允许2个错配
+		MatchThreshold: 30,            // 匹配分数阈值
+		OutputMode:     "target-only", // 只输出靶标间序列
+
 	}
 
 	// 创建处理器
-	// processor := NewSplitProcessor(config)
-	// 创建拆分器
 	splitter := NewRegexpSplitter(config)
 	fmt.Printf("%+v", splitter)
 
@@ -120,7 +122,7 @@ func (s *RegexpSplitter) Run() error {
 
 	// 步骤7: 生成报告
 	fmt.Println("\n步骤7: 生成报告...")
-	if err := s.generateReport(); err != nil {
+	if err := s.generateExtractionReport(); err != nil {
 		return fmt.Errorf("生成报告失败: %v", err)
 	}
 
@@ -803,9 +805,9 @@ func reverseComplement(seq string) string {
 	return rc.String()
 }
 
-// 生成报告
-func (s *RegexpSplitter) generateReport() error {
-	reportFile := filepath.Join(s.config.OutputDir, "split_report.csv")
+// 生成提取报告
+func (s *RegexpSplitter) generateExtractionReport() error {
+	reportFile := filepath.Join(s.config.OutputDir, "extraction_report.csv")
 	f, err := os.Create(reportFile)
 	if err != nil {
 		return err
@@ -818,16 +820,17 @@ func (s *RegexpSplitter) generateReport() error {
 	// 写入表头
 	header := []string{
 		"样品名称",
-		"靶标序列长度",
+		"头靶标长度",
 		"合成序列长度",
-		"后靶标长度",
-		"总序列长度",
-		"barcode起始",
-		"barcode结束",
+		"尾靶标长度",
+		"总参考长度",
 		"R1文件",
 		"R2文件",
 		"合并文件",
 		"输出目录",
+		"处理reads数",
+		"提取reads数",
+		"提取率%",
 	}
 
 	if err := writer.Write(header); err != nil {
@@ -836,11 +839,9 @@ func (s *RegexpSplitter) generateReport() error {
 
 	// 写入数据
 	for _, sample := range s.samples {
-		// 统计输出文件中的reads数量
-		outputFile := filepath.Join(sample.OutputPath, "split_reads.fastq")
-		readCount := 0
-		if _, err := os.Stat(outputFile); err == nil {
-			readCount = countFastqRecords(outputFile)
+		extractionRate := 0.0
+		if sample.TotalReads > 0 {
+			extractionRate = float64(sample.MatchedReads) / float64(sample.TotalReads) * 100
 		}
 
 		record := []string{
@@ -848,18 +849,21 @@ func (s *RegexpSplitter) generateReport() error {
 			fmt.Sprintf("%d", len(sample.TargetSeq)),
 			fmt.Sprintf("%d", len(sample.SynthesisSeq)),
 			fmt.Sprintf("%d", len(sample.PostTargetSeq)),
-			fmt.Sprintf("%d", len(sample.TargetSeq)+len(sample.SynthesisSeq)+len(sample.PostTargetSeq)),
+			fmt.Sprintf("%d", len(sample.FullReference)),
 			filepath.Base(sample.R1Path),
 			filepath.Base(sample.R2Path),
 			filepath.Base(sample.MergedFile),
 			sample.OutputPath,
-			fmt.Sprintf("%d", readCount),
+			fmt.Sprintf("%d", sample.TotalReads),
+			fmt.Sprintf("%d", sample.MatchedReads),
+			fmt.Sprintf("%.1f", extractionRate),
 		}
 
 		if err := writer.Write(record); err != nil {
 			return err
 		}
 	}
+	fmt.Printf("提取报告已生成: %s\n", reportFile)
 
 	// 生成汇总统计
 	summaryFile := filepath.Join(s.config.OutputDir, "summary.txt")
@@ -909,28 +913,6 @@ Excel文件: %s
 	fmt.Printf("  汇总已生成: %s\n", summaryFile)
 
 	return nil
-}
-
-// 统计FASTQ记录数
-func countFastqRecords(filename string) int {
-	file, err := os.Open(filename)
-	if err != nil {
-		return 0
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	count := 0
-	lineNum := 0
-
-	for scanner.Scan() {
-		lineNum++
-		if lineNum%4 == 1 && len(scanner.Bytes()) > 0 && scanner.Bytes()[0] == '@' {
-			count++
-		}
-	}
-
-	return count
 }
 
 // 读取Mmap数据 - 修复版
