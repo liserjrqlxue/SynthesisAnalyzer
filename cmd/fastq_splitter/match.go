@@ -121,7 +121,7 @@ func (matcher *FileMatcher) extractTargetRegion(sequence string) (string, *Sampl
 	for _, sample := range matcher.fileInfo.Samples {
 		// 尝试正向匹配
 		if forwardRegex, exists := matcher.forwardRegex[sample.Name]; exists {
-			if matches := forwardRegex.FindStringSubmatch(sequence); matches != nil && len(matches) >= 2 {
+			if matches := forwardRegex.FindStringSubmatch(sequence); len(matches) >= 2 {
 				// matches[0] 是整个匹配，matches[1] 是第一个分组（靶标间序列）
 				targetRegion := matches[1]
 				return targetRegion, sample, "forward"
@@ -131,7 +131,7 @@ func (matcher *FileMatcher) extractTargetRegion(sequence string) (string, *Sampl
 		// 尝试反向匹配
 		if matcher.useRC {
 			if reverseRegex, exists := matcher.reverseRegex[sample.Name]; exists {
-				if matches := reverseRegex.FindStringSubmatch(sequence); matches != nil && len(matches) >= 2 {
+				if matches := reverseRegex.FindStringSubmatch(sequence); len(matches) >= 2 {
 					// 匹配到的是反向序列，需要反向互补
 					targetRegion := reverseComplement(matches[1])
 					return targetRegion, sample, "reverse"
@@ -154,7 +154,16 @@ func (s *EnhancedSplitter) processRecordForFile(record []byte, matcher *FileMatc
 
 	// 提取序列和质量值
 	sequence := string(lines[1])
-	quality := string(lines[3])
+	quality := strings.TrimRight(string(lines[3]), "\r\n")
+
+	// 验证序列和质量值长度是否一致
+	if len(sequence) != len(quality) {
+		// 记录错误但继续处理
+		fmt.Printf("警告: 序列长度(%d)与质量值长度(%d)不一致\n[%s]\n",
+			len(sequence), len(quality), record)
+		// 可以选择跳过或修复
+		return nil, "", nil
+	}
 
 	// 使用正则表达式匹配
 	targetRegion, sample, direction, method := s.extractTargetRegionEnhanced(sequence, matcher)
@@ -182,6 +191,15 @@ func (s *EnhancedSplitter) processRecordForFile(record []byte, matcher *FileMatc
 	// 提取对应位置的质量值
 	// 首先找到靶标间序列在原序列中的位置
 	extractedQuality := s.extractMatchingQuality(sequence, quality, targetRegion, direction)
+	// 验证提取的质量值与目标区域长度一致
+	if len(extractedQuality) != len(targetRegion) {
+		// 如果长度不匹配，用默认质量值填充
+		if len(extractedQuality) < len(targetRegion) {
+			extractedQuality += strings.Repeat("I", len(targetRegion)-len(extractedQuality))
+		} else {
+			extractedQuality = extractedQuality[:len(targetRegion)]
+		}
+	}
 
 	// 构建新的FASTQ记录（只包含靶标间序列）
 	newRecord := s.buildTargetOnlyFastqRecord(lines[0], lines[2], targetRegion, extractedQuality)
@@ -206,7 +224,7 @@ func (s *EnhancedSplitter) extractMatchingQuality(sequence, quality, targetRegio
 			if end <= len(quality) {
 				return quality[start:end]
 			}
-			return quality
+			return quality[start:]
 		}
 
 		return quality[start:end]
