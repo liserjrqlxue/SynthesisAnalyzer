@@ -32,6 +32,9 @@ type Config struct {
 
 	// 输出选项
 	OutputMode string // "full"或"target-only"
+
+	// 比对相关配置
+	Alignment AlignmentConfig
 }
 
 // 扩展SampleInfo结构，添加提取统计
@@ -47,7 +50,7 @@ type SampleInfo struct {
 	// 完整参考序列（用于分析）
 	FullReference string
 
-	// 正则表达式匹配结果
+	// 统计信息
 	TotalReads   int
 	MatchedReads int
 	ForwardReads int
@@ -70,6 +73,14 @@ type SampleInfo struct {
 
 	MergeTime time.Time
 	SplitTime time.Time
+
+	// 比对相关字段（新增）
+	ReferenceFile   string           // 参考序列文件路径
+	ReferenceSeq    string           // 完整参考序列
+	ReferenceLen    int              // 参考序列长度
+	AlignmentResult *SampleAlignment // 比对结果
+	BamFile         string           // BAM文件路径
+	PositionStats   []PositionStat   // 位置统计信息
 }
 
 // 合并文件与样品的关系
@@ -150,4 +161,45 @@ type FileMatcher struct {
 	forwardRegex map[string]*regexp.Regexp // 样品名称 -> 正向正则
 	reverseRegex map[string]*regexp.Regexp // 样品名称 -> 反向正则
 	useRC        bool
+}
+
+// 比对结果结构
+type SampleAlignment struct {
+	SampleName    string
+	ReferenceSeq  string
+	ReferenceLen  int
+	PositionStats []PositionStat
+	Summary       *AlignmentSummary
+	BamFile       string
+	BamIndex      string
+}
+
+// 位置统计结构
+type PositionStat struct {
+	Position       int
+	TotalReads     int64
+	MatchCount     int64
+	MismatchCount  int64
+	DeletionCount  int64
+	InsertionCount int64
+	Coverage       float64
+	ErrorRate      float64
+}
+
+// 比对汇总
+type AlignmentSummary struct {
+	TotalReads       int64
+	MappedReads      int64
+	MappingRate      float64
+	AverageCoverage  float64
+	AverageIdentity  float64
+	SynthesisSuccess float64 // 合成成功率
+	ErrorPositions   []int   // 高错误率位置
+}
+
+// 比对结果结构
+type AlignmentResult struct {
+	Sample    *SampleInfo
+	Alignment *SampleAlignment
+	Error     error
 }

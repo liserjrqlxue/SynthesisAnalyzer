@@ -137,6 +137,7 @@ func (s *EnhancedSplitter) buildFastpCommand(r1Path, r2Path, outputFile, tempDir
 		"--detect_adapter_for_pe",
 		"--html", outputFile + ".fastp.html",
 		"--json", outputFile + ".fastp.json",
+		"",
 	}
 
 	// 添加压缩选项

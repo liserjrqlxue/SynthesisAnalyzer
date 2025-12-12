@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -60,6 +61,35 @@ func main() {
 		MatchThreshold: 30,            // 匹配分数阈值
 		OutputMode:     "target-only", // 只输出靶标间序列
 
+		Alignment: AlignmentConfig{
+			UseMinimap2:    true,
+			AlignerThreads: 4,
+			MapQThreshold:  20,
+			MinIdentity:    0.90,
+			SkipAlignment:  false,
+			KeepBamFiles:   true,
+			AnalysisOnly:   false,
+		},
+	}
+
+	// 处理可选参数
+	for i := 4; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--skip-alignment":
+			config.Alignment.SkipAlignment = true
+		case "--analysis-only":
+			config.Alignment.AnalysisOnly = true
+		case "--keep-bam":
+			config.Alignment.KeepBamFiles = true
+		case "--threads":
+			if i+1 < len(os.Args) {
+				threads, err := strconv.Atoi(os.Args[i+1])
+				if err == nil && threads > 0 {
+					config.Threads = threads
+				}
+				i++
+			}
+		}
 	}
 
 	// 创建处理器
@@ -67,11 +97,103 @@ func main() {
 	fmt.Printf("%+v", splitter)
 
 	// 运行处理流程
-	if err := splitter.Run(); err != nil {
-		log.Fatalf("处理失败: %v", err)
+	if err := splitter.RunWithAlignment(); err != nil {
+		fmt.Printf("处理失败: %v\n", err)
+		os.Exit(1)
 	}
 
 	fmt.Println("处理完成!")
+}
+
+func printUsage() {
+	fmt.Println(`FASTQ拆分与比对分析系统 v2.0
+
+用法:
+  fastq_analyzer <Excel文件> [输出目录] [Fastq目录] [选项]
+
+示例:
+  fastq_analyzer samples.xlsx ./results
+  fastq_analyzer samples.xlsx ./output ./fastq --skip-alignment --threads 32
+
+选项:
+  --skip-alignment    跳过比对步骤（仅拆分）
+  --analysis-only    仅分析已有的BAM文件
+  --keep-bam         保留BAM文件（默认清理）
+  --threads N        设置线程数
+
+输入Excel格式:
+  Sheet1必须包含以下列：
+    - 样品名称
+    - 靶标序列
+    - 合成序列
+    - 后靶标
+    - 路径-R1
+    - 路径-R2
+
+依赖软件:
+  - fastp: 用于PE reads合并
+  - minimap2: 用于序列比对
+  - samtools: 用于BAM文件处理
+  - R: 用于统计绘图（可选）`)
+}
+
+// 创建比对分析器
+func NewAlignmentAnalyzer(config *AlignmentConfig, samples []*SampleInfo, outputDir string) *AlignmentAnalyzer {
+	return &AlignmentAnalyzer{
+		config:    config,
+		samples:   samples,
+		outputDir: outputDir,
+		stats:     &AlignmentStats{},
+	}
+}
+
+// 扩展的主运行函数，包含比对步骤
+func (s *EnhancedSplitter) RunWithAlignment() error {
+	fmt.Println("=== FASTQ拆分与比对分析完整流程 ===")
+
+	// 阶段1: 拆分
+	fmt.Println("\n--- 阶段1: FASTQ拆分 ---")
+	if err := s.Run(); err != nil {
+		return fmt.Errorf("拆分阶段失败: %v", err)
+	}
+
+	// 阶段2: 比对分析（如果启用）
+	if !s.config.Alignment.SkipAlignment {
+		fmt.Println("\n--- 阶段2: 序列比对分析 ---")
+
+		// 创建比对分析器
+		analyzer := NewAlignmentAnalyzer(&s.config.Alignment, s.samples, s.config.OutputDir)
+
+		// 步骤1: 创建参考序列
+		if err := analyzer.createReferenceFiles(); err != nil {
+			return fmt.Errorf("创建参考序列失败: %v", err)
+		}
+
+		// 步骤2: 运行比对
+		if !s.config.Alignment.AnalysisOnly {
+			if err := analyzer.runAlignment(); err != nil {
+				return fmt.Errorf("比对失败: %v", err)
+			}
+		}
+
+		// 步骤3: 生成报告
+		if err := analyzer.generateAlignmentReport(); err != nil {
+			return fmt.Errorf("生成报告失败: %v", err)
+		}
+
+		// 步骤4: 生成质量控制报告
+		if err := analyzer.generateQCReport(); err != nil {
+			fmt.Printf("警告: 生成QC报告失败: %v\n", err)
+		}
+	}
+
+	// 生成最终汇总
+	if err := s.generateFinalSummary(); err != nil {
+		return fmt.Errorf("生成最终汇总失败: %v", err)
+	}
+
+	fmt.Println("\n=== 所有处理完成! ===")
+	return nil
 }
 
 // 主运行流程
