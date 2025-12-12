@@ -136,8 +136,8 @@ func (s *RegexpSplitter) extractTargetRegion(sequence string) (string, *SampleIn
 	return "", nil, ""
 }
 
-// 修改处理函数，只输出靶标间序列
-func (s *RegexpSplitter) processRecordExtractTarget(record []byte) (*SampleInfo, string, []byte) {
+// 增强的处理记录函数
+func (s *RegexpSplitter) processRecordEnhanced(record []byte) (*SampleInfo, string, []byte) {
 	// 解析FASTQ记录，提取序列
 	lines := bytes.SplitN(record, []byte{'\n'}, 4)
 	if len(lines) < 2 {
@@ -149,14 +149,16 @@ func (s *RegexpSplitter) processRecordExtractTarget(record []byte) (*SampleInfo,
 	quality := string(lines[3])
 
 	// 使用正则表达式匹配
-	targetRegion, sample, direction := s.extractTargetRegion(sequence)
+	targetRegion, sample, direction := s.extractTargetRegionEnhanced(sequence)
 	if sample == nil {
 		return nil, "", nil
 	}
 
+	// 确定使用的匹配方法
+	method := "regexp" // 默认
+
 	// 更新样本统计
-	sample.TotalReads++
-	sample.MatchedReads++
+	// sample.MatchedReads++
 	if direction == "forward" {
 		sample.ForwardReads++
 	} else {
@@ -170,7 +172,7 @@ func (s *RegexpSplitter) processRecordExtractTarget(record []byte) (*SampleInfo,
 	// 构建新的FASTQ记录（只包含靶标间序列）
 	newRecord := s.buildTargetOnlyFastqRecord(lines[0], lines[2], targetRegion, extractedQuality)
 
-	return sample, direction, newRecord
+	return sample, method, newRecord
 }
 
 // 提取匹配位置的质量值

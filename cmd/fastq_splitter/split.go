@@ -303,8 +303,8 @@ func sumMap(m map[string]int) int {
 }
 
 // 修改主拆分函数，只输出靶标间序列
-func (s *RegexpSplitter) splitExtractTargetOnly() error {
-	fmt.Println("\n开始拆分（只保留靶标间序列）...")
+func (s *RegexpSplitter) splitExtractTargetOnlyEnhanced() error {
+	fmt.Println("\n开始拆分（增强版，只保留靶标间序列）...")
 
 	startTime := time.Now()
 
@@ -340,7 +340,7 @@ func (s *RegexpSplitter) splitExtractTargetOnly() error {
 		fmt.Printf("处理文件: %s (%d个样本)\n", filepath.Base(mergedFile), len(samples))
 
 		// 使用工作池处理
-		matched, processed, err := s.processFileExtractTarget(mergedFile, writers)
+		matched, processed, err := s.processFileEnhanced(mergedFile, writers)
 		if err != nil {
 			return fmt.Errorf("处理文件失败: %v", err)
 		}
@@ -348,8 +348,16 @@ func (s *RegexpSplitter) splitExtractTargetOnly() error {
 		totalProcessed += processed
 		totalMatched += matched
 
-		fmt.Printf("  本文件: 处理 %d 条, 匹配 %d 条 (%.1f%%)\n",
+		fmt.Printf("  本文件: 处理 %d 条, 提取 %d 条 (%.1f%%)\n",
 			processed, matched, float64(matched)/float64(processed)*100)
+
+		// 记录每个样本的统计
+		for _, sample := range samples {
+			sample.TotalReads = processed
+			if sample.MatchedReads > 0 {
+				fmt.Printf("    样本 %s: %d 条\n", sample.Name, sample.MatchedReads)
+			}
+		}
 	}
 
 	elapsed := time.Since(startTime)
@@ -361,13 +369,13 @@ func (s *RegexpSplitter) splitExtractTargetOnly() error {
 	fmt.Printf("耗时: %v\n", elapsed)
 
 	// 打印各样本统计
-	s.printExtractionStats()
+	s.printEnhancedStats()
 
 	return nil
 }
 
 // 处理文件，提取靶标间序列
-func (s *RegexpSplitter) processFileExtractTarget(filename string,
+func (s *RegexpSplitter) processFileEnhanced(filename string,
 	writers map[string]*gzip.Writer) (int, int, error) {
 
 	// 打开文件
@@ -407,6 +415,13 @@ func (s *RegexpSplitter) processFileExtractTarget(filename string,
 	const maxCapacity = 4 * 1024 * 1024
 	buf := make([]byte, maxCapacity)
 	scanner.Buffer(buf, maxCapacity)
+
+	// 统计各种匹配方法的成功率
+	matchMethodStats := map[string]int{
+		"regexp":   0,
+		"fuzzy":    0,
+		"position": 0,
+	}
 
 	// 读取并发送记录到channel
 	go func() {
@@ -457,16 +472,38 @@ func (s *RegexpSplitter) processFileExtractTarget(filename string,
 			if writer, ok := writers[result.sample.Name]; ok {
 				writer.Write(result.processedRecord)
 				matchedCount++
+
+				// 更新统计
+				result.sample.MatchedReads++
+				matchMethodStats[result.method]++
+
+				// 记录提取的序列长度
+				if result.sample.MinExtractedLen == 0 || len(result.processedRecord) < result.sample.MinExtractedLen {
+					result.sample.MinExtractedLen = len(result.processedRecord)
+				}
+				if len(result.processedRecord) > result.sample.MaxExtractedLen {
+					result.sample.MaxExtractedLen = len(result.processedRecord)
+				}
+				result.sample.TotalExtractedLen += len(result.processedRecord)
 			}
 		}
 	}
-
+	// 输出匹配方法统计
+	fmt.Printf("    匹配方法统计: ")
+	for method, count := range matchMethodStats {
+		if count > 0 {
+			fmt.Printf("%s=%d (%.1f%%) ",
+				method, count, float64(count)/float64(matchedCount)*100)
+		}
+	}
+	fmt.Println()
 	return matchedCount, processedCount, scanner.Err()
 }
 
 // 匹配结果
 type MatchResult struct {
 	sample          *SampleInfo
+	method          string
 	processedRecord []byte
 }
 
@@ -476,9 +513,10 @@ func (s *RegexpSplitter) regexpWorker(id int, recordChan <-chan []byte,
 	defer wg.Done()
 
 	for record := range recordChan {
-		sample, _, processedRecord := s.processRecordExtractTarget(record)
+		sample, method, processedRecord := s.processRecordEnhanced(record)
 		resultChan <- &MatchResult{
 			sample:          sample,
+			method:          method,
 			processedRecord: processedRecord,
 		}
 	}
@@ -583,34 +621,70 @@ func (s *RegexpSplitter) optimizedMatch(sequence string) (*SampleInfo, string) {
 	return nil, ""
 }
 
-// 打印样本统计
-func (s *RegexpSplitter) printExtractionStats() {
-	fmt.Println("\n靶标提取统计:")
-	fmt.Println(strings.Repeat("=", 80))
+// 增强的统计函数
+func (s *RegexpSplitter) printEnhancedStats() {
+	fmt.Println("\n增强版靶标提取统计:")
+	fmt.Println(strings.Repeat("=", 100))
 
 	totalReads := 0
 	totalExtracted := 0
+	totalLength := 0
+
+	fmt.Printf("  样本名称                 处理数    提取数    提取率%%   最短长度   最长长度   平均长度   正向%%   反向%%\n")
+	fmt.Println(strings.Repeat("-", 100))
 
 	for _, sample := range s.samples {
 		totalReads += sample.TotalReads
 		totalExtracted += sample.MatchedReads
+		totalLength += sample.TotalExtractedLen
+
+		extractionRate := 0.0
+		avgLength := 0.0
+		forwardRate := 0.0
 
 		if sample.TotalReads > 0 {
-			matchRate := float64(sample.MatchedReads) / float64(sample.TotalReads) * 100
-			forwardRate := float64(sample.ForwardReads) / float64(sample.MatchedReads) * 100
-
-			fmt.Printf("  样本 %-20s: 提取 %6d, 匹配 %6d (%.1f%%), 正向 %.1f%%\n",
-				sample.Name,
-				sample.TotalReads,
-				sample.MatchedReads,
-				matchRate,
-				forwardRate)
+			extractionRate = float64(sample.MatchedReads) / float64(sample.TotalReads) * 100
 		}
+
+		if sample.MatchedReads > 0 {
+			avgLength = float64(sample.TotalExtractedLen) / float64(sample.MatchedReads)
+			forwardRate = float64(sample.ForwardReads) / float64(sample.MatchedReads) * 100
+		}
+
+		fmt.Printf("  %-20s  %8d  %8d  %8.1f  %8d  %8d  %8.1f  %6.1f  %6.1f\n",
+			sample.Name,
+			sample.TotalReads,
+			sample.MatchedReads,
+			extractionRate,
+			sample.MinExtractedLen,
+			sample.MaxExtractedLen,
+			avgLength,
+			forwardRate,
+			100-forwardRate,
+		)
 	}
 
-	fmt.Println(strings.Repeat("-", 80))
-	fmt.Printf("  总计: 处理 %d, 提取 %d (%.1f%%)\n",
-		totalReads, totalExtracted, float64(totalExtracted)/float64(totalReads)*100)
+	fmt.Println(strings.Repeat("-", 100))
+
+	overallRate := 0.0
+	avgOverallLength := 0.0
+
+	if totalReads > 0 {
+		overallRate = float64(totalExtracted) / float64(totalReads) * 100
+	}
+	if totalExtracted > 0 {
+		avgOverallLength = float64(totalLength) / float64(totalExtracted)
+	}
+
+	fmt.Printf("  总计                  %8d  %8d  %8.1f  %8s  %8s  %8.1f  %6s  %6s\n",
+		totalReads,
+		totalExtracted,
+		overallRate,
+		"-",
+		"-",
+		avgOverallLength,
+		"-",
+		"-")
 
 	// 输出每个样本的靶标信息
 	fmt.Println("\n各样本靶标信息:")

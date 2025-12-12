@@ -8,7 +8,7 @@ import (
 	"github.com/bits-and-blooms/bloom/v3"
 )
 
-// 样品信息
+// 扩展SampleInfo结构，添加提取统计
 type SampleInfo struct {
 	Name          string
 	TargetSeq     string // 头靶标序列
@@ -26,6 +26,11 @@ type SampleInfo struct {
 	MatchedReads int
 	ForwardReads int
 	ReverseReads int
+
+	// 提取序列统计
+	MinExtractedLen   int
+	MaxExtractedLen   int
+	TotalExtractedLen int
 
 	// 状态信息
 	MergedFile string
