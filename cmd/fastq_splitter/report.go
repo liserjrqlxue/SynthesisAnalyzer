@@ -6,12 +6,88 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
-// 生成提取报告
-func (s *RegexpSplitter) generateEnhancedReport() error {
-	reportFile := filepath.Join(s.config.OutputDir, "extraction_report.csv")
+// 生成所有报告
+func (s *EnhancedSplitter) generateReports() error {
+	// 1. 样品报告
+	if err := s.generateSampleReport(); err != nil {
+		return err
+	}
+
+	// 2. 文件报告
+	if err := s.generateFileReport(); err != nil {
+		return err
+	}
+
+	/* 	// 3. 汇总报告
+	   	if err := s.generateSummaryReport(); err != nil {
+	   		return err
+	   	}
+	*/
+	return nil
+}
+
+// 生成文件报告
+func (s *EnhancedSplitter) generateFileReport() error {
+	reportFile := filepath.Join(s.config.OutputDir, "file_split_report.csv")
+	f, err := os.Create(reportFile)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	writer := csv.NewWriter(f)
+	defer writer.Flush()
+
+	// 写入表头
+	header := []string{
+		"合并文件",
+		"样品数",
+		"样品列表",
+		"总处理reads",
+		"匹配reads",
+		"匹配率%",
+		"状态",
+	}
+
+	if err := writer.Write(header); err != nil {
+		return err
+	}
+
+	// 写入数据
+	for _, mergedInfo := range s.mergedFiles {
+		matchRate := 0.0
+		if mergedInfo.TotalReads > 0 {
+			matchRate = float64(mergedInfo.MatchedReads) / float64(mergedInfo.TotalReads) * 100
+		}
+
+		sampleList := strings.Join(mergedInfo.SampleNames, ";")
+
+		record := []string{
+			filepath.Base(mergedInfo.FilePath),
+			fmt.Sprintf("%d", len(mergedInfo.Samples)),
+			sampleList,
+			fmt.Sprintf("%d", mergedInfo.TotalReads),
+			fmt.Sprintf("%d", mergedInfo.MatchedReads),
+			fmt.Sprintf("%.1f", matchRate),
+			mergedInfo.Status,
+		}
+
+		if err := writer.Write(record); err != nil {
+			return err
+		}
+	}
+
+	fmt.Printf("文件报告已生成: %s\n", reportFile)
+	return nil
+}
+
+// 生成详细的样品报告
+func (s *EnhancedSplitter) generateSampleReport() error {
+	reportFile := filepath.Join(s.config.OutputDir, "sample_split_report.csv")
 	f, err := os.Create(reportFile)
 	if err != nil {
 		return err
@@ -24,17 +100,17 @@ func (s *RegexpSplitter) generateEnhancedReport() error {
 	// 写入表头
 	header := []string{
 		"样品名称",
-		"头靶标长度",
+		"头靶标序列",
+		"尾靶标序列",
 		"合成序列长度",
-		"尾靶标长度",
 		"总参考长度",
-		"R1文件",
-		"R2文件",
+		"来源R1文件",
+		"来源R2文件",
 		"合并文件",
-		"输出目录",
-		"处理reads数",
-		"提取reads数",
-		"提取率%",
+		"输出文件",
+		"总处理reads",
+		"匹配reads",
+		"匹配率%",
 		"最短提取长度",
 		"最长提取长度",
 		"平均提取长度",
@@ -46,30 +122,37 @@ func (s *RegexpSplitter) generateEnhancedReport() error {
 
 	// 写入数据
 	for _, sample := range s.samples {
-		extractionRate := 0.0
+		matchRate := 0.0
 		avgLength := 0.0
 
 		if sample.TotalReads > 0 {
-			extractionRate = float64(sample.MatchedReads) / float64(sample.TotalReads) * 100
+			matchRate = float64(sample.MatchedReads) / float64(sample.TotalReads) * 100
 		}
 
 		if sample.MatchedReads > 0 {
 			avgLength = float64(sample.TotalExtractedLen) / float64(sample.MatchedReads)
 		}
 
+		// 确定合并文件
+		mergedFile := "unknown"
+		if sample.MergedFile != "" {
+			mergedFile = filepath.Base(sample.MergedFile)
+		}
+
 		record := []string{
 			sample.Name,
-			fmt.Sprintf("%d", len(sample.TargetSeq)),
+			sample.TargetSeq,
+			sample.PostTargetSeq,
 			fmt.Sprintf("%d", len(sample.SynthesisSeq)),
-			fmt.Sprintf("%d", len(sample.PostTargetSeq)),
 			fmt.Sprintf("%d", len(sample.FullReference)),
 			filepath.Base(sample.R1Path),
 			filepath.Base(sample.R2Path),
 			filepath.Base(sample.MergedFile),
-			sample.OutputPath,
+			mergedFile,
+			filepath.Join(sample.Name, "target_only_reads.fastq.gz"),
 			fmt.Sprintf("%d", sample.TotalReads),
 			fmt.Sprintf("%d", sample.MatchedReads),
-			fmt.Sprintf("%.1f", extractionRate),
+			fmt.Sprintf("%.1f", matchRate),
 			fmt.Sprintf("%d", sample.MinExtractedLen),
 			fmt.Sprintf("%d", sample.MaxExtractedLen),
 			fmt.Sprintf("%.1f", avgLength),
@@ -79,14 +162,14 @@ func (s *RegexpSplitter) generateEnhancedReport() error {
 			return err
 		}
 	}
-	fmt.Printf("增强版提取报告已生成: %s\n", reportFile)
+	fmt.Printf("样品报告已生成: %s\n", reportFile)
 
 	// 生成详细分析报告
 	return s.generateDetailedAnalysis()
 }
 
 // 生成详细分析报告
-func (s *RegexpSplitter) generateDetailedAnalysis() error {
+func (s *EnhancedSplitter) generateDetailedAnalysis() error {
 
 	// 生成汇总统计
 	analysisFile := filepath.Join(s.config.OutputDir, "detailed_analysis.txt")
@@ -203,7 +286,7 @@ Excel文件: %s
 }
 
 // 辅助统计函数
-func (s *RegexpSplitter) getTotalReads() int {
+func (s *EnhancedSplitter) getTotalReads() int {
 	total := 0
 	for _, sample := range s.samples {
 		total += sample.TotalReads
@@ -211,7 +294,7 @@ func (s *RegexpSplitter) getTotalReads() int {
 	return total
 }
 
-func (s *RegexpSplitter) getTotalMatched() int {
+func (s *EnhancedSplitter) getTotalMatched() int {
 	total := 0
 	for _, sample := range s.samples {
 		total += sample.MatchedReads
@@ -219,7 +302,7 @@ func (s *RegexpSplitter) getTotalMatched() int {
 	return total
 }
 
-func (s *RegexpSplitter) getExtractionRate() float64 {
+func (s *EnhancedSplitter) getExtractionRate() float64 {
 	totalReads := s.getTotalReads()
 	totalMatched := s.getTotalMatched()
 

@@ -11,8 +11,10 @@ import (
 	"time"
 )
 
-// 合并PE reads
-func (s *RegexpSplitter) mergeReads() error {
+// 更新合并流程，建立正确的文件-样品关系
+func (s *EnhancedSplitter) mergeAndMapFiles() error {
+	fmt.Println("合并PE reads并建立文件-样品映射...")
+
 	// 去重R1/R2文件对
 	filePairs := make(map[string][]*SampleInfo) // key: "R1|R2" -> 样品列表
 
@@ -21,7 +23,7 @@ func (s *RegexpSplitter) mergeReads() error {
 		filePairs[key] = append(filePairs[key], sample)
 	}
 
-	fmt.Printf("  需要合并 %d 个唯一的R1/R2文件对\n", len(filePairs))
+	fmt.Printf("发现 %d 个唯一的R1/R2文件对\n", len(filePairs))
 
 	// 创建合并目录
 	mergedDir := filepath.Join(s.config.OutputDir, "merged")
@@ -41,6 +43,7 @@ func (s *RegexpSplitter) mergeReads() error {
 	var mergedCount int64
 	var skippedCount int64
 
+	// 为每个文件对创建合并文件
 	for key, samples := range filePairs {
 		wg.Add(1)
 		sem <- struct{}{}
@@ -51,7 +54,7 @@ func (s *RegexpSplitter) mergeReads() error {
 				wg.Done()
 			}()
 
-			// 生成合并后的文件名
+			// 生成合并文件名（基于第一个样品）
 			mergedFile, exists := s.getMergedFileName(samps[0])
 
 			result := struct {
@@ -65,6 +68,7 @@ func (s *RegexpSplitter) mergeReads() error {
 			}
 
 			if exists && s.config.SkipExisting {
+				fmt.Printf("  合并文件已存在，跳过: %s\n", filepath.Base(mergedFile))
 				atomic.AddInt64(&skippedCount, 1)
 				results <- result
 				return
@@ -105,14 +109,27 @@ func (s *RegexpSplitter) mergeReads() error {
 			log.Printf("合并失败 (R1: %s): %v", result.key, result.err)
 			continue
 		}
-
 		// 更新对应样品的MergedFile字段
 		samples := filePairs[result.key]
-		for _, sample := range samples {
+
+		// 创建合并文件信息
+		mergedInfo := &MergedFileInfo{
+			FilePath:    result.output,
+			SampleNames: make([]string, len(samples)),
+			Samples:     samples,
+			Status:      "ready",
+		}
+
+		for i, sample := range samples {
+			mergedInfo.SampleNames[i] = sample.Name
 			sample.Status = "merged"
 			sample.MergedFile = result.output
 			s.fileMap[result.output] = append(s.fileMap[result.output], sample)
 		}
+
+		// 添加到列表
+		s.mergedFiles = append(s.mergedFiles, mergedInfo)
+		s.mergedFileMap[result.output] = mergedInfo
 
 		fmt.Printf("  合并完成: %s -> %s (%d个样品)\n",
 			result.key, filepath.Base(result.output), len(samples))
@@ -132,7 +149,7 @@ func (s *RegexpSplitter) mergeReads() error {
 }
 
 // 生成合并文件名
-func (s *RegexpSplitter) getMergedFileName(sample *SampleInfo) (string, bool) {
+func (s *EnhancedSplitter) getMergedFileName(sample *SampleInfo) (string, bool) {
 	// 基于R1和R2路径生成唯一的文件名
 	base1 := filepath.Base(sample.R1Path)
 	base2 := filepath.Base(sample.R2Path)
@@ -177,7 +194,7 @@ func (s *RegexpSplitter) getMergedFileName(sample *SampleInfo) (string, bool) {
 }
 
 // 创建完成标签
-func (s *RegexpSplitter) createDoneFile(filename string) error {
+func (s *EnhancedSplitter) createDoneFile(filename string) error {
 	doneFile := filename + ".done"
 	content := fmt.Sprintf("Created: %s\nFile: %s\n",
 		time.Now().Format(time.RFC3339),

@@ -13,7 +13,7 @@ import (
 )
 
 // 带检查的fastp运行函数
-func (s *RegexpSplitter) runFastpWithCheck(r1Path, r2Path, outputFile string) (string, error) {
+func (s *EnhancedSplitter) runFastpWithCheck(r1Path, r2Path, outputFile string) (string, error) {
 	// 确保输出文件以.gz结尾
 	if !strings.HasSuffix(outputFile, ".gz") {
 		outputFile = outputFile + ".gz"
@@ -41,7 +41,7 @@ func (s *RegexpSplitter) runFastpWithCheck(r1Path, r2Path, outputFile string) (s
 }
 
 // 运行fastp进行合并
-func (s *RegexpSplitter) runFastp(r1Path, r2Path, outputFile string) (string, error) {
+func (s *EnhancedSplitter) runFastp(r1Path, r2Path, outputFile string) (string, error) {
 	// 创建临时目录
 	tempDir := filepath.Join(os.TempDir(), fmt.Sprintf("fastp_%d", time.Now().UnixNano()))
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
@@ -122,7 +122,7 @@ func (s *RegexpSplitter) runFastp(r1Path, r2Path, outputFile string) (string, er
 }
 
 // 构建fastp命令
-func (s *RegexpSplitter) buildFastpCommand(r1Path, r2Path, outputFile, tempDir string) []string {
+func (s *EnhancedSplitter) buildFastpCommand(r1Path, r2Path, outputFile, tempDir string) []string {
 	args := []string{
 		"-i", r1Path,
 		"-I", r2Path,
@@ -164,7 +164,7 @@ func getFileSize(filename string) int64 {
 }
 
 // 读取fastp统计信息
-func (s *RegexpSplitter) readFastpStats(jsonFile string) (map[string]interface{}, error) {
+func (s *EnhancedSplitter) readFastpStats(jsonFile string) (map[string]interface{}, error) {
 	data, err := os.ReadFile(jsonFile)
 	if err != nil {
 		return nil, err

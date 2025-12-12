@@ -3,34 +3,34 @@ package main
 import "strings"
 
 // 增强的提取函数，处理更多边界情况
-func (s *RegexpSplitter) extractTargetRegionEnhanced(sequence string) (string, *SampleInfo, string) {
+func (s *EnhancedSplitter) extractTargetRegionEnhanced(sequence string, matcher *FileMatcher) (string, *SampleInfo, string, string) {
 	// 尝试多种匹配策略
 
 	// 策略1：精确正则匹配
-	targetRegion, sample, direction := s.extractTargetRegion(sequence)
+	targetRegion, sample, direction := matcher.extractTargetRegion(sequence)
 	if sample != nil {
-		return targetRegion, sample, direction
+		return targetRegion, sample, direction, "regexp"
 	}
 
 	// 方法2：如果正则失败，尝试模糊匹配（如果启用）
 	if s.config.AllowMismatch > 0 {
 		targetRegion, sample, direction = s.fuzzyExtractTargetRegion(sequence)
 		if sample != nil {
-			return targetRegion, sample, direction
+			return targetRegion, sample, direction, "fuzzy"
 		}
 
 		// 方法3：尝试基于位置的提取
 		targetRegion, sample, direction = s.positionBasedExtract(sequence)
 		if sample != nil {
-			return targetRegion, sample, direction
+			return targetRegion, sample, direction, "positon"
 		}
 	}
 
-	return "", nil, ""
+	return "", nil, "", ""
 }
 
 // 模糊提取（允许错配）
-func (s *RegexpSplitter) fuzzyExtractTargetRegion(sequence string) (string, *SampleInfo, string) {
+func (s *EnhancedSplitter) fuzzyExtractTargetRegion(sequence string) (string, *SampleInfo, string) {
 	bestMatch := ""
 	var bestSample *SampleInfo
 	bestDirection := ""
@@ -95,7 +95,7 @@ func (s *RegexpSplitter) fuzzyExtractTargetRegion(sequence string) (string, *Sam
 }
 
 // 模糊搜索（允许错配）
-func (s *RegexpSplitter) fuzzySearch(text, pattern string, maxMismatch int) int {
+func (s *EnhancedSplitter) fuzzySearch(text, pattern string, maxMismatch int) int {
 	patternLen := len(pattern)
 	textLen := len(text)
 
@@ -118,7 +118,7 @@ func (s *RegexpSplitter) fuzzySearch(text, pattern string, maxMismatch int) int 
 }
 
 // 计算匹配分数
-func (s *RegexpSplitter) calculateMatchScore(region, headSeq, tailSeq string) int {
+func (s *EnhancedSplitter) calculateMatchScore(region, headSeq, tailSeq string) int {
 	score := 0
 
 	// 检查头尾靶标是否完整
@@ -155,7 +155,7 @@ func (s *RegexpSplitter) calculateMatchScore(region, headSeq, tailSeq string) in
 }
 
 // 定义 positionBasedExtract 函数
-func (s *RegexpSplitter) positionBasedExtract(sequence string) (string, *SampleInfo, string) {
+func (s *EnhancedSplitter) positionBasedExtract(sequence string) (string, *SampleInfo, string) {
 	// 基于位置的提取方法，不依赖正则表达式
 	// 直接在序列中搜索头尾靶标，然后提取中间部分
 

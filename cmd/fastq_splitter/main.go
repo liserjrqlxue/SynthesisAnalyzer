@@ -56,18 +56,18 @@ func main() {
 		CompressLevel: 6,    // 默认压缩级别
 		CleanupTemp:   true, // 不保留临时文件
 
-		AllowMismatch:  2,             // 允许2个错配
+		AllowMismatch:  0,             // 允许2个错配
 		MatchThreshold: 30,            // 匹配分数阈值
 		OutputMode:     "target-only", // 只输出靶标间序列
 
 	}
 
 	// 创建处理器
-	splitter := NewRegexpSplitter(config)
+	splitter := NewEnhancedSplitter(config)
 	fmt.Printf("%+v", splitter)
 
 	// 运行处理流程
-	if err := splitter.RunEnhanced(); err != nil {
+	if err := splitter.Run(); err != nil {
 		log.Fatalf("处理失败: %v", err)
 	}
 
@@ -75,9 +75,16 @@ func main() {
 }
 
 // 主运行流程
-func (s *RegexpSplitter) RunEnhanced() error {
+func (s *EnhancedSplitter) Run() error {
 	startTime := time.Now()
-	fmt.Println("=== FASTQ正则表达式拆分程序（增强版）开始运行 ===")
+	fmt.Println("=== 增强版FASTQ拆分程序开始运行 ===")
+	fmt.Printf("配置: 线程数=%d, 反向互补=%v, 跳过已存在=%v\n",
+		s.config.Threads, s.config.UseRC, s.config.SkipExisting)
+
+	// 初始化统计
+	s.stats = &SplitStats{
+		startTime: startTime,
+	}
 
 	// 步骤1: 创建输出目录
 	if err := s.createOutputDir(); err != nil {
@@ -85,7 +92,7 @@ func (s *RegexpSplitter) RunEnhanced() error {
 	}
 
 	// 步骤2: 读取Excel文件
-	if err := s.readExcel(); err != nil {
+	if err := s.loadSamplesFromExcel(); err != nil {
 		return fmt.Errorf("读取Excel文件失败: %v", err)
 	}
 
@@ -94,32 +101,27 @@ func (s *RegexpSplitter) RunEnhanced() error {
 		return err
 	}
 
-	// 步骤4: 合并PE reads
-	fmt.Println("\n步骤4: 合并PE reads...")
-	if err := s.mergeReads(); err != nil {
+	// 步骤4: 合并PE reads并建立文件映射
+	fmt.Println("\n步骤4: 合并PE reads并建立文件映射...")
+	if err := s.mergeAndMapFiles(); err != nil {
 		return fmt.Errorf("合并reads失败: %v", err)
 	}
 
-	// 步骤5: 构建索引
-	fmt.Println("\n步骤5: 构建完全匹配索引...")
-	// if err := s.buildIndex(); err != nil {
-	// 5. 构建正则表达式索引
-	if err := s.buildTargetOnlyRegexp(); err != nil {
+	// 步骤5: 为每个合并文件构建匹配器
+	fmt.Println("\n步骤5: 为每个合并文件构建匹配器...")
+	if err := s.buildFileMatchers(); err != nil {
 		return fmt.Errorf("构建索引失败: %v", err)
 	}
 
-	// 步骤6: 拆分reads
-	fmt.Println("\n步骤6: 拆分reads...")
-	// 使用简单版本避免mmap问题
-	// if err := s.splitReads(); err != nil {
-	// 6. 使用正则表达式拆分
-	if err := s.splitExtractTargetOnlyEnhanced(); err != nil {
+	// 步骤6: 独立处理每个合并文件
+	fmt.Println("\n步骤6: 独立处理每个合并文件...")
+	if err := s.processEachFileSeparately(); err != nil {
 		return fmt.Errorf("拆分reads失败: %v", err)
 	}
 
 	// 步骤7: 生成报告
 	fmt.Println("\n步骤7: 生成报告...")
-	if err := s.generateEnhancedReport(); err != nil {
+	if err := s.generateReports(); err != nil {
 		return fmt.Errorf("生成报告失败: %v", err)
 	}
 
@@ -131,12 +133,18 @@ func (s *RegexpSplitter) RunEnhanced() error {
 		}
 	}
 
-	fmt.Printf("\n=== 全部处理完成! 总耗时: %v ===\n", time.Since(startTime))
+	s.stats.endTime = time.Now()
+
+	fmt.Printf("\n=== 全部处理完成! 总耗时: %v ===\n", s.stats.endTime.Sub(startTime))
+	fmt.Printf("处理统计: %d 个文件, %d 个样品, %d 条reads, %d 条匹配 (%.1f%%)\n",
+		s.stats.totalFiles, s.stats.totalSamples, s.stats.totalReads, s.stats.totalMatched,
+		float64(s.stats.totalMatched)/float64(s.stats.totalReads)*100)
+
 	return nil
 }
 
 // 创建输出目录
-func (s *RegexpSplitter) createOutputDir() error {
+func (s *EnhancedSplitter) createOutputDir() error {
 	if err := os.MkdirAll(s.config.OutputDir, 0755); err != nil {
 		return err
 	}
@@ -162,7 +170,7 @@ func (s *RegexpSplitter) createOutputDir() error {
 }
 
 // 读取Excel文件
-func (s *RegexpSplitter) readExcel() error {
+func (s *EnhancedSplitter) loadSamplesFromExcel() error {
 	fmt.Printf("步骤1: 读取Excel文件: %s\n", s.config.ExcelFile)
 
 	xlFile, err := xlsx.OpenFile(s.config.ExcelFile)
@@ -225,7 +233,7 @@ func (s *RegexpSplitter) readExcel() error {
 }
 
 // 检查重复样品名称
-func (s *RegexpSplitter) checkDuplicates() error {
+func (s *EnhancedSplitter) checkDuplicates() error {
 	fmt.Println("\n步骤2: 检查重复样品名称...")
 
 	seen := make(map[string]bool)
@@ -248,7 +256,7 @@ func (s *RegexpSplitter) checkDuplicates() error {
 }
 
 // 使用goroutine管道处理
-func (s *RegexpSplitter) splitReadsPipeline() error {
+func (s *EnhancedSplitter) splitReadsPipeline() error {
 	fmt.Println("使用管道模式处理...")
 
 	totalProcessed := int64(0)
@@ -307,7 +315,7 @@ func (s *RegexpSplitter) splitReadsPipeline() error {
 		writerFiles := make(map[string]*os.File)
 
 		for _, sample := range samples {
-			outputFile := filepath.Join(sample.OutputPath, "split_reads.fastq")
+			outputFile := filepath.Join(sample.OutputPath, "split_reads.fastq.gz")
 			f, err := os.Create(outputFile)
 			if err != nil {
 				return fmt.Errorf("创建输出文件失败: %v", err)
@@ -346,7 +354,7 @@ func (s *RegexpSplitter) splitReadsPipeline() error {
 }
 
 // 将记录读取到channel
-func (s *RegexpSplitter) readRecordsToChannel(filename string, recordChan chan<- []byte) error {
+func (s *EnhancedSplitter) readRecordsToChannel(filename string, recordChan chan<- []byte) error {
 
 	// 打开gz文件
 	file, err := os.Open(filename)
@@ -413,13 +421,13 @@ func extractSequence(record []byte) ([]byte, bool) {
 }
 
 // 匹配序列到样品
-func (s *RegexpSplitter) matchSequence(sequence []byte, samples []*SampleInfo) (*SampleInfo, string) {
+func (s *EnhancedSplitter) matchSequence(sequence []byte, samples []*SampleInfo) (*SampleInfo, string) {
 	seqStr := string(sequence)
 	// 完全匹配
 	sample, direction := s.exactMatch(seqStr)
 	if sample == nil {
 		s.statsMutex.Lock()
-		s.stats.failedReads++
+		s.stats.totalFailed++
 		s.statsMutex.Unlock()
 		return nil, ""
 	}

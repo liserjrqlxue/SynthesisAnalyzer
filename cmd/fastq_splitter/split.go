@@ -15,18 +15,8 @@ import (
 )
 
 // 主拆分函数
-func (s *RegexpSplitter) splitReads() error {
+func (s *EnhancedSplitter) splitReads() error {
 	fmt.Println("\n步骤6: 开始拆分（完全匹配，支持反向互补）...")
-
-	// 重置统计
-	s.stats = struct {
-		totalReads     int64
-		matchedReads   int64
-		ambiguousReads int64
-		failedReads    int64
-		forwardMatches int64
-		reverseMatches int64
-	}{}
 
 	totalSamples := 0
 
@@ -89,7 +79,7 @@ func (s *RegexpSplitter) splitReads() error {
 }
 
 // 处理gzip压缩的FASTQ文件
-func (s *RegexpSplitter) processGzippedFile(filename string,
+func (s *EnhancedSplitter) processGzippedFile(filename string,
 	writers map[string]*gzip.Writer) (map[string]int, error) {
 	stats := make(map[string]int)
 
@@ -110,7 +100,7 @@ func (s *RegexpSplitter) processGzippedFile(filename string,
 	var record bytes.Buffer
 	lineCount := 0
 	batchCount := 0
-	batchSize := 10000
+	batchSize := 100000
 	totalReads := 0
 
 	// 设置缓冲区大小以提高性能
@@ -134,7 +124,7 @@ func (s *RegexpSplitter) processGzippedFile(filename string,
 				batchCount++
 				// 定期输出进度
 				if batchCount%batchSize == 0 {
-					fmt.Printf("  已处理: %d / %d 条reads\n", s.stats.matchedReads, batchCount)
+					fmt.Printf("  已处理: %d / %d 条reads\n", s.stats.totalMatched, batchCount)
 				}
 			}
 
@@ -170,7 +160,7 @@ func (s *RegexpSplitter) processGzippedFile(filename string,
 }
 
 // 处理单个记录
-func (s *RegexpSplitter) processRecord(record []byte,
+func (s *EnhancedSplitter) processRecord(record []byte,
 	writers map[string]*gzip.Writer) (*SampleInfo, string) {
 
 	// 解析FASTQ记录，提取序列
@@ -185,7 +175,7 @@ func (s *RegexpSplitter) processRecord(record []byte,
 	sample, direction := s.exactMatch(sequence)
 	if sample == nil {
 		s.statsMutex.Lock()
-		s.stats.failedReads++
+		s.stats.totalFailed++
 		s.statsMutex.Unlock()
 		return nil, ""
 	}
@@ -200,7 +190,7 @@ func (s *RegexpSplitter) processRecord(record []byte,
 
 		writer.Write(record)
 		s.statsMutex.Lock()
-		s.stats.matchedReads++
+		s.stats.totalMatched++
 		s.statsMutex.Unlock()
 
 		return sample, direction
@@ -210,7 +200,7 @@ func (s *RegexpSplitter) processRecord(record []byte,
 }
 
 // 对整个FASTQ记录进行反向互补
-func (s *RegexpSplitter) reverseComplementRecord(record []byte) []byte {
+func (s *EnhancedSplitter) reverseComplementRecord(record []byte) []byte {
 	lines := bytes.SplitN(record, []byte{'\n'}, 4)
 	if len(lines) < 4 {
 		return record
@@ -248,7 +238,7 @@ func reverseString(s string) string {
 }
 
 // 更新方向统计
-func (s *RegexpSplitter) updateDirectionStats(direction string) {
+func (s *EnhancedSplitter) updateDirectionStats(direction string) {
 	s.statsMutex.Lock()
 	defer s.statsMutex.Unlock()
 
@@ -261,13 +251,13 @@ func (s *RegexpSplitter) updateDirectionStats(direction string) {
 }
 
 // 打印详细统计
-func (s *RegexpSplitter) printDetailedStats() {
+func (s *EnhancedSplitter) printDetailedStats() {
 	fmt.Println("\n拆分统计:")
 	// fmt.Println("=" * 50)
 
 	total := s.stats.totalReads
-	matched := s.stats.matchedReads
-	failed := s.stats.failedReads
+	matched := s.stats.totalMatched
+	failed := s.stats.totalFailed
 	ambiguous := s.stats.ambiguousReads
 	forward := s.stats.forwardMatches
 	reverse := s.stats.reverseMatches
@@ -303,14 +293,16 @@ func sumMap(m map[string]int) int {
 }
 
 // 修改主拆分函数，只输出靶标间序列
-func (s *RegexpSplitter) splitExtractTargetOnlyEnhanced() error {
-	fmt.Println("\n开始拆分（增强版，只保留靶标间序列）...")
+func (s *EnhancedSplitter) processEachFileSeparately() error {
+	fmt.Println("\n开始独立处理每个合并文件...")
 
-	startTime := time.Now()
+	s.stats.startTime = time.Now()
+	s.stats.totalFiles = len(s.mergedFiles)
+	s.stats.totalSamples = len(s.samples)
 
 	// 为每个样本创建输出文件
-	writers := make(map[string]*gzip.Writer)
-	files := make(map[string]*os.File)
+	outputWriters := make(map[string]*gzip.Writer)
+	outputFiles := make(map[string]*os.File)
 
 	for _, sample := range s.samples {
 		outputFile := filepath.Join(sample.OutputPath, "target_only_reads.fastq.gz")
@@ -318,76 +310,134 @@ func (s *RegexpSplitter) splitExtractTargetOnlyEnhanced() error {
 		if err != nil {
 			return fmt.Errorf("创建输出文件失败: %v", err)
 		}
-		files[sample.Name] = f
-		writers[sample.Name] = gzip.NewWriter(f)
+		outputFiles[sample.Name] = f
+		outputWriters[sample.Name] = gzip.NewWriter(f)
 	}
 
 	defer func() {
 		// 关闭所有写入器
-		for name, writer := range writers {
+		for name, writer := range outputWriters {
 			writer.Close()
-			if f, ok := files[name]; ok {
+			if f, ok := outputFiles[name]; ok {
 				f.Close()
 			}
 		}
 	}()
 
-	// 处理所有合并文件
-	totalProcessed := 0
-	totalMatched := 0
+	// 并行处理每个合并文件
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, s.config.Threads) // 控制并发数
 
-	for mergedFile, samples := range s.fileMap {
-		fmt.Printf("处理文件: %s (%d个样本)\n", filepath.Base(mergedFile), len(samples))
+	// 用于收集每个文件的统计
+	fileStatsChan := make(chan *FileProcessStats, len(s.mergedFiles))
 
-		// 使用工作池处理
-		matched, processed, err := s.processFileEnhanced(mergedFile, writers)
-		if err != nil {
-			return fmt.Errorf("处理文件失败: %v", err)
-		}
+	for _, mergedInfo := range s.mergedFiles {
+		fmt.Printf("处理文件: %s (%d个样本)\n", filepath.Base(mergedInfo.FilePath), len(mergedInfo.SampleNames))
 
-		totalProcessed += processed
-		totalMatched += matched
+		wg.Add(1)
+		sem <- struct{}{}
 
-		fmt.Printf("  本文件: 处理 %d 条, 提取 %d 条 (%.1f%%)\n",
-			processed, matched, float64(matched)/float64(processed)*100)
+		go func(fileInfo *MergedFileInfo) {
+			defer func() {
+				<-sem
+				wg.Done()
+			}()
+
+			stats, err := s.processSingleFile(fileInfo, outputWriters)
+			if err != nil {
+				fmt.Printf("  处理文件 %s 失败: %v\n", filepath.Base(fileInfo.FilePath), err)
+			}
+
+			fileStatsChan <- stats
+		}(mergedInfo)
+
+		// fmt.Printf("  本文件: 处理 %d 条, 提取 %d 条 (%.1f%%)\n",
+		// processed, matched, float64(matched)/float64(processed)*100)
 
 		// 记录每个样本的统计
-		for _, sample := range samples {
-			sample.TotalReads = processed
+		for _, sample := range mergedInfo.Samples {
+			// sample.TotalReads = processed
 			if sample.MatchedReads > 0 {
 				fmt.Printf("    样本 %s: %d 条\n", sample.Name, sample.MatchedReads)
 			}
 		}
 	}
 
-	elapsed := time.Since(startTime)
+	// 等待所有文件处理完成
+	go func() {
+		wg.Wait()
+		close(fileStatsChan)
+	}()
+
+	// 收集统计信息
+	totalFileReads := 0
+	totalFileMatched := 0
+
+	for stats := range fileStatsChan {
+		totalFileReads += stats.totalReads
+		totalFileMatched += stats.matchedReads
+
+		// 更新文件信息
+		if fileInfo, ok := s.mergedFileMap[stats.filePath]; ok {
+			fileInfo.TotalReads = stats.totalReads
+			fileInfo.MatchedReads = stats.matchedReads
+			fileInfo.Status = "done"
+		}
+
+		fmt.Printf("  文件 %s: 处理 %d 条, 匹配 %d 条 (%.1f%%)\n",
+			filepath.Base(stats.filePath),
+			stats.totalReads, stats.matchedReads,
+			float64(stats.matchedReads)/float64(stats.totalReads)*100)
+	}
+
+	// 更新全局统计
+	s.stats.totalReads = int64(totalFileReads)
+	s.stats.totalMatched = int64(totalFileMatched)
+	s.stats.totalFailed = int64(totalFileReads - totalFileMatched)
+	s.stats.endTime = time.Now()
+
+	elapsed := time.Since(s.stats.startTime)
 
 	fmt.Printf("\n拆分完成!\n")
-	fmt.Printf("总处理: %d 条reads\n", totalProcessed)
+	fmt.Printf("总处理: %d 条reads\n", totalFileReads)
 	fmt.Printf("总提取: %d 条reads (%.1f%%)\n",
-		totalMatched, float64(totalMatched)/float64(totalProcessed)*100)
+		totalFileMatched, float64(totalFileMatched)/float64(totalFileReads)*100)
 	fmt.Printf("耗时: %v\n", elapsed)
 
-	// 打印各样本统计
-	s.printEnhancedStats()
+	// 打印每个样品的统计
+	s.printPerSampleStats()
 
 	return nil
 }
 
-// 处理文件，提取靶标间序列
-func (s *RegexpSplitter) processFileEnhanced(filename string,
-	writers map[string]*gzip.Writer) (int, int, error) {
+// 处理单个文件
+func (s *EnhancedSplitter) processSingleFile(fileInfo *MergedFileInfo,
+	writers map[string]*gzip.Writer) (*FileProcessStats, error) {
+
+	stats := &FileProcessStats{
+		filePath:     fileInfo.FilePath,
+		totalReads:   0,
+		matchedReads: 0,
+	}
+
+	// 获取该文件的匹配器
+	matcher, exists := s.fileMatchers[fileInfo.FilePath]
+	if !exists {
+		return stats, fmt.Errorf("找不到匹配器")
+	}
 
 	// 打开文件
-	file, err := os.Open(filename)
+	file, err := os.Open(fileInfo.FilePath)
 	if err != nil {
-		return 0, 0, err
+		return stats, err
+
 	}
 	defer file.Close()
 
 	gzReader, err := gzip.NewReader(file)
 	if err != nil {
-		return 0, 0, err
+		return stats, err
+
 	}
 	defer gzReader.Close()
 
@@ -401,15 +451,15 @@ func (s *RegexpSplitter) processFileEnhanced(filename string,
 	// 启动worker
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go s.regexpWorker(i, recordChan, resultChan, &wg)
+		go s.regexpWorker(matcher, recordChan, resultChan, &wg)
 	}
 
 	// 启动读取器
 	scanner := bufio.NewScanner(gzReader)
 	var record bytes.Buffer
 	lineCount := 0
-	processedCount := 0
-	matchedCount := 0
+	batchSize := 10000
+	batchCount := 0
 
 	// 设置缓冲区大小
 	const maxCapacity = 4 * 1024 * 1024
@@ -423,6 +473,12 @@ func (s *RegexpSplitter) processFileEnhanced(filename string,
 		"position": 0,
 	}
 
+	// 为该文件创建样品统计
+	sampleStats := make(map[string]int)
+	for _, sample := range fileInfo.Samples {
+		sampleStats[sample.Name] = 0
+	}
+
 	// 读取并发送记录到channel
 	go func() {
 		for scanner.Scan() {
@@ -430,11 +486,19 @@ func (s *RegexpSplitter) processFileEnhanced(filename string,
 
 			if lineCount == 0 {
 				if record.Len() > 0 {
+					stats.totalReads++
+
 					recordData := make([]byte, len(record.Bytes()))
 					copy(recordData, record.Bytes())
 					recordChan <- recordData
+
 					record.Reset()
-					processedCount++
+					batchCount++
+
+					if batchCount%batchSize == 0 {
+						fmt.Printf("    文件 %s: 已处理 %d 条\n",
+							filepath.Base(fileInfo.FilePath), batchCount)
+					}
 				}
 
 				if len(line) > 0 && line[0] == '@' {
@@ -451,10 +515,11 @@ func (s *RegexpSplitter) processFileEnhanced(filename string,
 
 		// 最后一个记录
 		if record.Len() > 0 {
+			stats.totalReads++
+
 			recordData := make([]byte, len(record.Bytes()))
 			copy(recordData, record.Bytes())
 			recordChan <- recordData
-			processedCount++
 		}
 
 		close(recordChan)
@@ -471,9 +536,10 @@ func (s *RegexpSplitter) processFileEnhanced(filename string,
 		if result.sample != nil && result.processedRecord != nil {
 			if writer, ok := writers[result.sample.Name]; ok {
 				writer.Write(result.processedRecord)
-				matchedCount++
+				stats.matchedReads++
+				sampleStats[result.sample.Name]++
 
-				// 更新统计
+				// 更新样品统计
 				result.sample.MatchedReads++
 				matchMethodStats[result.method]++
 
@@ -493,11 +559,20 @@ func (s *RegexpSplitter) processFileEnhanced(filename string,
 	for method, count := range matchMethodStats {
 		if count > 0 {
 			fmt.Printf("%s=%d (%.1f%%) ",
-				method, count, float64(count)/float64(matchedCount)*100)
+				method, count, float64(count)/float64(stats.matchedReads)*100)
 		}
 	}
 	fmt.Println()
-	return matchedCount, processedCount, scanner.Err()
+
+	// 打印该文件的样品统计
+	fmt.Printf("    文件 %s 的样品统计:\n", filepath.Base(fileInfo.FilePath))
+	for sampleName, count := range sampleStats {
+		if count > 0 {
+			fmt.Printf("      %s: %d 条\n", sampleName, count)
+		}
+	}
+
+	return stats, scanner.Err()
 }
 
 // 匹配结果
@@ -508,12 +583,12 @@ type MatchResult struct {
 }
 
 // regexp worker
-func (s *RegexpSplitter) regexpWorker(id int, recordChan <-chan []byte,
+func (s *EnhancedSplitter) regexpWorker(matcher *FileMatcher, recordChan <-chan []byte,
 	resultChan chan<- *MatchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for record := range recordChan {
-		sample, method, processedRecord := s.processRecordEnhanced(record)
+		sample, method, processedRecord := s.processRecordForFile(record, matcher)
 		resultChan <- &MatchResult{
 			sample:          sample,
 			method:          method,
@@ -529,71 +604,87 @@ type RegexpPool struct {
 }
 
 // 构建优化的正则表达式
-func (s *RegexpSplitter) buildTargetOnlyRegexp() error {
-	fmt.Println("构建只保留靶标间序列的正则表达式...")
+func (s *EnhancedSplitter) buildFileMatchers() error {
+	fmt.Println("为每个合并文件构建匹配器...")
 
-	// 为所有样本创建正则表达式
-	for _, sample := range s.samples {
-		// 构建完整参考序列（用于后续分析）
-		sample.FullReference = sample.TargetSeq + sample.SynthesisSeq + sample.PostTargetSeq
+	s.fileMatchers = make(map[string]*FileMatcher)
 
-		// 计算反向互补序列
-		sample.ReverseTarget = reverseComplement(sample.TargetSeq)
-		sample.ReversePostTarget = reverseComplement(sample.PostTargetSeq)
-
-		// 1. 正向正则表达式：捕获头靶标和尾靶标之间的序列（包括头尾靶标）
-		// 使用分组捕获：头靶标(.*?)尾靶标
-		forwardPattern := `(` + s.escapeRegexp(sample.TargetSeq) + `.*?` + s.escapeRegexp(sample.PostTargetSeq) + `)`
-		forwardRegex, err := regexp.Compile(forwardPattern)
-		if err != nil {
-			return fmt.Errorf("构建正向正则表达式失败（样本%s）: %v", sample.Name, err)
+	for _, mergedInfo := range s.mergedFiles {
+		matcher := &FileMatcher{
+			fileInfo:     mergedInfo,
+			forwardRegex: make(map[string]*regexp.Regexp),
+			reverseRegex: make(map[string]*regexp.Regexp),
+			useRC:        s.config.UseRC,
 		}
 
-		seqRegexp := &SeqRegexp{
-			sample:       sample,
-			forwardRegex: forwardRegex,
-		}
+		// 只为该文件的样品构建正则表达式
+		// 为所有样本创建正则表达式
+		for _, sample := range mergedInfo.Samples {
+			// 构建完整参考序列（用于后续分析）
+			sample.FullReference = sample.TargetSeq + sample.SynthesisSeq + sample.PostTargetSeq
 
-		// 2. 反向正则表达式
-		if s.useRC {
-			// 反向互补序列：尾靶标在前，头靶标在后
-			reversePattern := `(` + s.escapeRegexp(sample.ReversePostTarget) + `.*?` + s.escapeRegexp(sample.ReverseTarget) + `)`
-			reverseRegex, err := regexp.Compile(reversePattern)
+			// 计算反向互补序列
+			sample.ReverseTarget = reverseComplement(sample.TargetSeq)
+			sample.ReversePostTarget = reverseComplement(sample.PostTargetSeq)
+
+			// 1. 正向正则表达式：捕获头靶标和尾靶标之间的序列（包括头尾靶标）
+			// 使用分组捕获：头靶标(.*?)尾靶标
+			forwardPattern := `(` + s.escapeRegexp(sample.TargetSeq) + `.*?` + s.escapeRegexp(sample.PostTargetSeq) + `)`
+			forwardRegex, err := regexp.Compile(forwardPattern)
 			if err != nil {
-				return fmt.Errorf("构建反向正则表达式失败（样本%s）: %v", sample.Name, err)
+				return fmt.Errorf("构建正向正则表达式失败（样本%s）: %v", sample.Name, err)
+			}
+			matcher.forwardRegex[sample.Name] = forwardRegex
+
+			// 2. 反向正则表达式
+			if s.config.UseRC {
+				// 反向互补序列：尾靶标在前，头靶标在后
+				reversePattern := `(` + s.escapeRegexp(sample.ReversePostTarget) + `.*?` + s.escapeRegexp(sample.ReverseTarget) + `)`
+				reverseRegex, err := regexp.Compile(reversePattern)
+				if err != nil {
+					return fmt.Errorf("构建反向正则表达式失败（样本%s）: %v", sample.Name, err)
+				}
+
+				matcher.reverseRegex[sample.Name] = reverseRegex
+
+				fmt.Printf("  样本 %s:\n", sample.Name)
+				fmt.Printf("    正向模式: %s\n", forwardPattern)
+				fmt.Printf("    反向模式: %s\n", reversePattern)
 			}
 
-			seqRegexp.reverseRegex = reverseRegex
+			s.fileMatchers[mergedInfo.FilePath] = matcher
 
-			fmt.Printf("  样本 %s:\n", sample.Name)
-			fmt.Printf("    正向模式: %s\n", forwardPattern)
-			fmt.Printf("    反向模式: %s\n", reversePattern)
+			fmt.Printf("  文件 %s: 为 %d 个样品构建了匹配器\n",
+				filepath.Base(mergedInfo.FilePath), len(mergedInfo.Samples))
 		}
-
-		s.seqRegexps = append(s.seqRegexps, seqRegexp)
 	}
 
 	return nil
 }
 
 // 优化的匹配函数
-func (s *RegexpSplitter) optimizedMatch(sequence string) (*SampleInfo, string) {
+func (s *FileMatcher) optimizedMatch(sequence string) (*SampleInfo, string) {
 	// 快速检查：如果序列太短，跳过
 	if len(sequence) < 50 {
 		return nil, ""
 	}
 
 	// 尝试正向匹配
-	for _, seqRegexp := range s.seqRegexps {
-		if seqRegexp.forwardRegex.MatchString(sequence) {
-			// 验证匹配位置
-			headIdx := strings.Index(sequence, seqRegexp.sample.TargetSeq)
-			tailIdx := strings.Index(sequence, seqRegexp.sample.PostTargetSeq)
+	for sampleName, forwardRegex := range s.forwardRegex {
+		if forwardRegex.MatchString(sequence) {
+			for _, sample := range s.fileInfo.Samples {
+				if sample.Name == sampleName {
+					// 验证匹配位置
+					headIdx := strings.Index(sequence, sample.TargetSeq)
+					tailIdx := strings.Index(sequence, sample.PostTargetSeq)
 
-			if headIdx != -1 && tailIdx != -1 && headIdx < tailIdx {
-				// 确保头靶标在序列的前半部分
-				if headIdx < len(sequence)/2 {
-					return seqRegexp.sample, "forward"
+					if headIdx != -1 && tailIdx != -1 && headIdx < tailIdx {
+						// 确保头靶标在序列的前半部分
+						if headIdx < len(sequence)/2 {
+							return sample, "forward"
+						}
+					}
+
 				}
 			}
 		}
@@ -601,17 +692,19 @@ func (s *RegexpSplitter) optimizedMatch(sequence string) (*SampleInfo, string) {
 
 	// 尝试反向匹配
 	if s.useRC {
-		for _, seqRegexp := range s.seqRegexps {
-			if seqRegexp.reverseRegex != nil && seqRegexp.reverseRegex.MatchString(sequence) {
-				rcTarget := reverseComplement(seqRegexp.sample.TargetSeq)
-				rcPostTarget := reverseComplement(seqRegexp.sample.PostTargetSeq)
+		for sampleName, reverseRegex := range s.reverseRegex {
+			if reverseRegex != nil && reverseRegex.MatchString(sequence) {
+				for _, sample := range s.fileInfo.Samples {
+					if sample.Name == sampleName {
+						headIdx := strings.Index(sequence, sample.ReverseTarget)
+						tailIdx := strings.Index(sequence, sample.ReversePostTarget)
 
-				headIdx := strings.Index(sequence, rcTarget)
-				tailIdx := strings.Index(sequence, rcPostTarget)
+						if headIdx != -1 && tailIdx != -1 && headIdx < tailIdx {
+							if headIdx < len(sequence)/2 {
+								return sample, "reverse"
+							}
+						}
 
-				if headIdx != -1 && tailIdx != -1 && headIdx < tailIdx {
-					if headIdx < len(sequence)/2 {
-						return seqRegexp.sample, "reverse"
 					}
 				}
 			}
@@ -621,29 +714,56 @@ func (s *RegexpSplitter) optimizedMatch(sequence string) (*SampleInfo, string) {
 	return nil, ""
 }
 
-// 增强的统计函数
-func (s *RegexpSplitter) printEnhancedStats() {
-	fmt.Println("\n增强版靶标提取统计:")
+// 打印每个样品的统计
+func (s *EnhancedSplitter) printPerSampleStats() {
+	fmt.Println("\n各样品详细统计:")
 	fmt.Println(strings.Repeat("=", 100))
 
 	totalReads := 0
-	totalExtracted := 0
+	totalMatched := 0
 	totalLength := 0
 
-	fmt.Printf("  样本名称                 处理数    提取数    提取率%%   最短长度   最长长度   平均长度   正向%%   反向%%\n")
+	// 计算每个样品的总reads数（来自所有文件）
+	for _, sample := range s.samples {
+		// 重置，重新计算
+		sample.TotalReads = 0
+		sample.MatchedReads = 0
+	}
+
+	// 从文件统计中汇总
+	for _, mergedInfo := range s.mergedFiles {
+		totalReads += mergedInfo.TotalReads
+		totalMatched += mergedInfo.MatchedReads
+		for _, sample := range mergedInfo.Samples {
+			// sample.TotalReads += mergedInfo.TotalReads / len(mergedInfo.Samples) // 估算
+			sample.TotalReads += mergedInfo.TotalReads
+		}
+	}
+
+	// 打印表头
+	fmt.Printf("  样品名称                 总处理数    匹配数    匹配率%%   最短长度   最长长度   平均长度   正向%%   反向%%   来源文件数   输出文件\n")
 	fmt.Println(strings.Repeat("-", 100))
 
 	for _, sample := range s.samples {
-		totalReads += sample.TotalReads
-		totalExtracted += sample.MatchedReads
 		totalLength += sample.TotalExtractedLen
 
-		extractionRate := 0.0
+		// 计算该样品的来源文件数
+		sourceFiles := 0
+		for _, mergedInfo := range s.mergedFiles {
+			for _, s := range mergedInfo.Samples {
+				if s.Name == sample.Name {
+					sourceFiles++
+					break
+				}
+			}
+		}
+
+		matchRate := 0.0
 		avgLength := 0.0
 		forwardRate := 0.0
 
 		if sample.TotalReads > 0 {
-			extractionRate = float64(sample.MatchedReads) / float64(sample.TotalReads) * 100
+			matchRate = float64(sample.MatchedReads) / float64(sample.TotalReads) * 100
 		}
 
 		if sample.MatchedReads > 0 {
@@ -651,16 +771,20 @@ func (s *RegexpSplitter) printEnhancedStats() {
 			forwardRate = float64(sample.ForwardReads) / float64(sample.MatchedReads) * 100
 		}
 
-		fmt.Printf("  %-20s  %8d  %8d  %8.1f  %8d  %8d  %8.1f  %6.1f  %6.1f\n",
+		outputFile := filepath.Join(sample.OutputPath, "target_only_reads.fastq.gz")
+
+		fmt.Printf("  %-20s  %10d  %8d  %8.1f  %8d  %8d  %8.1f  %6.1f  %6.1f  %10d  %s\n",
 			sample.Name,
 			sample.TotalReads,
 			sample.MatchedReads,
-			extractionRate,
+			matchRate,
 			sample.MinExtractedLen,
 			sample.MaxExtractedLen,
 			avgLength,
 			forwardRate,
 			100-forwardRate,
+			sourceFiles,
+			filepath.Base(outputFile),
 		)
 	}
 
@@ -670,21 +794,23 @@ func (s *RegexpSplitter) printEnhancedStats() {
 	avgOverallLength := 0.0
 
 	if totalReads > 0 {
-		overallRate = float64(totalExtracted) / float64(totalReads) * 100
+		overallRate = float64(totalMatched) / float64(totalReads) * 100
 	}
-	if totalExtracted > 0 {
-		avgOverallLength = float64(totalLength) / float64(totalExtracted)
+	if totalMatched > 0 {
+		avgOverallLength = float64(totalLength) / float64(totalMatched)
 	}
 
-	fmt.Printf("  总计                  %8d  %8d  %8.1f  %8s  %8s  %8.1f  %6s  %6s\n",
+	fmt.Printf("  总计                  %10d  %8d  %8.1f  %8s  %8s  %8.1f  %6s  %6s  %10d  %s\n",
 		totalReads,
-		totalExtracted,
+		totalMatched,
 		overallRate,
 		"-",
 		"-",
 		avgOverallLength,
 		"-",
-		"-")
+		"-",
+		len(s.mergedFiles), "-",
+	)
 
 	// 输出每个样本的靶标信息
 	fmt.Println("\n各样本靶标信息:")
@@ -701,7 +827,8 @@ func (s *RegexpSplitter) printEnhancedStats() {
 }
 
 // 调试模式：输出未匹配的序列
-func (s *RegexpSplitter) debugUnmatched(filename string, outputDir string) error {
+func (s *EnhancedSplitter) debugUnmatched(filename string, outputDir string) error {
+	var matcher = s.fileMatchers[filename]
 	debugFile := filepath.Join(outputDir, "unmatched_sequences.txt")
 	f, err := os.Create(debugFile)
 	if err != nil {
@@ -740,7 +867,7 @@ func (s *RegexpSplitter) debugUnmatched(filename string, outputDir string) error
 					sequence := lines[1]
 
 					// 尝试匹配
-					sample, _ := s.optimizedMatch(sequence)
+					sample, _ := matcher.optimizedMatch(sequence)
 					if sample == nil {
 						// 未匹配，记录调试信息
 						writer.WriteString(fmt.Sprintf("未匹配序列 %d:\n", unmatchedCount+1))
