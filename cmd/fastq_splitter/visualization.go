@@ -56,7 +56,7 @@ library(plotly)
 library(gridExtra)
 
 # 读取数据
-summary_data <- read.csv("alignment_summary.csv", stringsAsFactors = FALSE)
+summary_data <- read.csv("../alignment_summary.csv", stringsAsFactors = FALSE)
 
 # 1. 整体统计图
 p1 <- ggplot(summary_data, aes(x = Sample, y = Synthesis_Success)) +
@@ -87,7 +87,7 @@ colnames(error_matrix) <- sample_names
 # 填充矩阵
 for (i in 1:length(sample_names)) {
   sample_name <- sample_names[i]
-  pos_file <- sprintf("%s/position_stats.csv", sample_name)
+  pos_file <- sprintf("../%%s/position_stats.csv", sample_name)
   if (file.exists(pos_file)) {
     pos_data <- read.csv(pos_file)
     error_matrix[1:nrow(pos_data), i] <- pos_data$Error_Rate
@@ -108,7 +108,7 @@ png("synthesis_trend.png", width = 1200, height = 600)
 par(mfrow = c(2, 3))
 for (i in 1:min(6, length(sample_names))) {
   sample_name <- sample_names[i]
-  pos_file <- sprintf("%s/position_stats.csv", sample_name)
+  pos_file <- sprintf("../%%s/position_stats.csv", sample_name)
   if (file.exists(pos_file)) {
     pos_data <- read.csv(pos_file)
     plot(pos_data$Position, pos_data$Synthesis_Success, 
