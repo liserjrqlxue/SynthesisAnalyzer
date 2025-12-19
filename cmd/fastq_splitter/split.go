@@ -458,7 +458,7 @@ func (s *EnhancedSplitter) processSingleFile(fileInfo *MergedFileInfo,
 	scanner := bufio.NewScanner(gzReader)
 	var record bytes.Buffer
 	lineCount := 0
-	batchSize := 10000
+	batchSize := 100000
 	batchCount := 0
 
 	// 设置缓冲区大小
@@ -597,12 +597,6 @@ func (s *EnhancedSplitter) regexpWorker(matcher *FileMatcher, recordChan <-chan 
 	}
 }
 
-// 使用预编译的正则表达式池
-type RegexpPool struct {
-	regexps []*regexp.Regexp
-	samples []*SampleInfo
-}
-
 // 构建优化的正则表达式
 func (s *EnhancedSplitter) buildFileMatchers() error {
 	fmt.Println("为每个合并文件构建匹配器...")
@@ -646,17 +640,16 @@ func (s *EnhancedSplitter) buildFileMatchers() error {
 				}
 
 				matcher.reverseRegex[sample.Name] = reverseRegex
-
-				fmt.Printf("  样本 %s:\n", sample.Name)
-				fmt.Printf("    正向模式: %s\n", forwardPattern)
-				fmt.Printf("    反向模式: %s\n", reversePattern)
+				/*
+					fmt.Printf("  样本 %s:\n", sample.Name)
+					fmt.Printf("    正向模式: %s\n", forwardPattern)
+					fmt.Printf("    反向模式: %s\n", reversePattern)
+				*/
 			}
-
-			s.fileMatchers[mergedInfo.FilePath] = matcher
-
-			fmt.Printf("  文件 %s: 为 %d 个样品构建了匹配器\n",
-				filepath.Base(mergedInfo.FilePath), len(mergedInfo.Samples))
 		}
+		s.fileMatchers[mergedInfo.FilePath] = matcher
+		fmt.Printf("  文件 %s: 为 %d 个样品构建了匹配器\n",
+			filepath.Base(mergedInfo.FilePath), len(mergedInfo.Samples))
 	}
 
 	return nil
