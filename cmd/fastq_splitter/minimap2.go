@@ -114,14 +114,7 @@ func (a *AlignmentAnalyzer) alignSample(sample *SampleInfo) (*SampleAlignment, e
 	cmd := exec.Command("minimap2",
 		"-a",       // 输出SAM格式
 		"-x", "sr", // 针对高通量测序
-		"-O", "8,4",
-		"-E", "6,1",
-		"-B", "5",
-		"-A", "1",
-		"--score-N=0",
-		"-z", "100,50",
-		"-r", "500",
-		"--end-bonus=5",
+		"--end-bonus=10",
 		"--eqx",
 		"--MD",
 		"-t", fmt.Sprintf("%d", a.config.AlignerThreads/len(a.samples)+1),
