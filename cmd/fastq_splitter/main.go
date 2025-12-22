@@ -8,14 +8,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	// "compress/gzip"
 
@@ -578,34 +576,4 @@ func reverseComplement(seq string) string {
 	}
 
 	return rc.String()
-}
-
-// 读取Mmap数据 - 修复版
-func readMmapData(filename string) ([]byte, error) {
-	// 方法1: 直接读取整个文件到内存
-	return os.ReadFile(filename)
-}
-
-// 使用mmap的高级方法（如果需要）
-func getMmapData(mmapReader interface{}) ([]byte, error) {
-	// 使用反射访问未导出字段
-	rv := reflect.ValueOf(mmapReader).Elem()
-	dataField := rv.FieldByName("data")
-
-	if dataField.IsValid() && dataField.Kind() == reflect.Slice {
-		// 获取切片头
-		sliceHeader := (*reflect.SliceHeader)(unsafe.Pointer(dataField.UnsafeAddr()))
-
-		// 创建切片
-		length := dataField.Len()
-		data := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
-			Data: sliceHeader.Data,
-			Len:  length,
-			Cap:  length,
-		}))
-
-		return data, nil
-	}
-
-	return nil, fmt.Errorf("无法访问mmap数据")
 }
