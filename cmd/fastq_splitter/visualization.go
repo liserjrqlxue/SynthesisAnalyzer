@@ -76,7 +76,7 @@ png("summary_plots.png", width = 1600, height = 800)
 grid.arrange(p1, p2, ncol = 2)
 dev.off()
 
-# 2. 读取每个样品的位置数据并生成热图
+# 2. 读取每个样品的位置数据并生成热图，同时合并所有position_stats.csv
 sample_names <- unique(summary_data$Sample)
 
 # 创建一个空的错误率矩阵
@@ -84,19 +84,42 @@ max_length <- max(summary_data$Reference_Length)
 error_matrix <- matrix(NA, nrow = max_length, ncol = length(sample_names))
 colnames(error_matrix) <- sample_names
 
-# 填充矩阵
+# 创建一个空列表来存储所有样品的数据
+all_pos_data <- list()
+
+# 填充矩阵并合并数据
 for (i in 1:length(sample_names)) {
   sample_name <- sample_names[i]
   pos_file <- sprintf("../%%s/position_stats.csv", sample_name)
   if (file.exists(pos_file)) {
     pos_data <- read.csv(pos_file)
     error_matrix[1:nrow(pos_data), i] <- pos_data$Error_Rate
+    
+    # 添加样品名列到数据中
+    pos_data$Sample <- sample_name
+    # 将数据添加到列表
+    all_pos_data[[i]] <- pos_data
   }
+}
+
+# 合并所有样品的数据
+if (length(all_pos_data) > 0) {
+  combined_pos_data <- do.call(rbind, all_pos_data)
+  
+  # 重新排列列的顺序，使Sample列在前
+  combined_pos_data <- combined_pos_data[, c("Sample", setdiff(names(combined_pos_data), "Sample"))]
+  
+  # 输出合并后的CSV文件
+  write.csv(combined_pos_data, file = "combined_position_stats.csv", row.names = FALSE)
+  cat(sprintf("已成功合并 %%d 个样品的数据到 combined_position_stats.csv\n", length(all_pos_data)))
+} else {
+  cat("未找到任何position_stats.csv文件\n")
 }
 
 # 生成热图
 png("error_rate_heatmap.png", width = 1200, height = 800)
 heatmap(error_matrix, 
+		Rowv=NA,
         main = "错误率热图",
         xlab = "样品",
         ylab = "位置",
