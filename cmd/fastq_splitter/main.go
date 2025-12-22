@@ -553,27 +553,3 @@ func (s *EnhancedSplitter) matchSequence(sequence []byte, samples []*SampleInfo)
 	}
 	return sample, direction
 }
-
-// 反向互补
-func reverseComplement(seq string) string {
-	var rc strings.Builder
-	rc.Grow(len(seq))
-
-	// 从尾部向头部遍历，同时互补
-	for i := len(seq) - 1; i >= 0; i-- {
-		switch seq[i] {
-		case 'A', 'a':
-			rc.WriteByte('T')
-		case 'T', 't':
-			rc.WriteByte('A')
-		case 'C', 'c':
-			rc.WriteByte('G')
-		case 'G', 'g':
-			rc.WriteByte('C')
-		default:
-			rc.WriteByte('N')
-		}
-	}
-
-	return rc.String()
-}
