@@ -37,52 +37,6 @@ type Config struct {
 	Alignment AlignmentConfig
 }
 
-// 扩展SampleInfo结构，添加提取统计
-type SampleInfo struct {
-	Name          string
-	TargetSeq     string // 头靶标序列
-	SynthesisSeq  string // 合成序列
-	PostTargetSeq string // 尾靶标序列
-	R1Path        string
-	R2Path        string
-	OutputPath    string
-
-	// 完整参考序列（用于分析）
-	FullReference string
-
-	// 统计信息
-	TotalReads   int
-	MatchedReads int
-	ForwardReads int
-	ReverseReads int
-
-	// 提取序列统计
-	MinExtractedLen   int
-	MaxExtractedLen   int
-	TotalExtractedLen int
-
-	// 状态信息
-	MergedFile string
-	DoneFile   string // 完成标签文件
-	Status     string
-	ReadCount  int
-
-	// 反向互补序列（用于匹配）
-	ReverseTarget     string // 头靶标反向互补
-	ReversePostTarget string // 尾靶标反向互补
-
-	MergeTime time.Time
-	SplitTime time.Time
-
-	// 比对相关字段（新增）
-	ReferenceFile   string           // 参考序列文件路径
-	ReferenceSeq    string           // 完整参考序列
-	ReferenceLen    int              // 参考序列长度
-	AlignmentResult *SampleAlignment // 比对结果
-	BamFile         string           // BAM文件路径
-	PositionStats   []PositionStat   // 位置统计信息
-}
-
 // 合并文件与样品的关系
 type MergedFileInfo struct {
 	FilePath     string

@@ -182,112 +182,12 @@ func (a *AlignmentAnalyzer) generatePerSampleReports() error {
 		}
 
 		// 生成位置详细统计
-		if err := a.generatePositionReport(sample); err != nil {
+		if err := sample.generatePositionReport(); err != nil {
 			return err
 		}
 
 		// 生成错误率分布图数据
-		if err := a.generateErrorDistribution(sample); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// 生成位置详细统计
-func (a *AlignmentAnalyzer) generatePositionReport(sample *SampleInfo) error {
-	reportFile := filepath.Join(sample.OutputPath, "position_stats.csv")
-	f, err := os.Create(reportFile)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	writer := csv.NewWriter(f)
-	defer writer.Flush()
-
-	// 写入表头
-	header := []string{
-		"Position",
-		"Reference_Base",
-		"Total_Reads",
-		"Coverage",
-		"Match_Count",
-		"Mismatch_Count",
-		"Deletion_Count",
-		"Insertion_Count",
-		"Error_Rate",
-		"Synthesis_Success",
-	}
-
-	if err := writer.Write(header); err != nil {
-		return err
-	}
-
-	// 写入数据
-	alignment := sample.AlignmentResult
-	for i, pos := range alignment.PositionStats {
-		refBase := "N"
-		if i < len(alignment.ReferenceSeq) {
-			refBase = string(alignment.ReferenceSeq[i])
-		}
-
-		synthesisSuccess := 100.0
-		total := pos.MatchCount + pos.MismatchCount + pos.DeletionCount + pos.InsertionCount
-		if total > 0 {
-			synthesisSuccess = float64(pos.MatchCount) / float64(total) * 100
-		}
-
-		record := []string{
-			fmt.Sprintf("%d", pos.Position),
-			refBase,
-			fmt.Sprintf("%d", pos.TotalReads),
-			fmt.Sprintf("%.4f", pos.Coverage),
-			fmt.Sprintf("%d", pos.MatchCount),
-			fmt.Sprintf("%d", pos.MismatchCount),
-			fmt.Sprintf("%d", pos.DeletionCount),
-			fmt.Sprintf("%d", pos.InsertionCount),
-			fmt.Sprintf("%.4f", pos.ErrorRate),
-			fmt.Sprintf("%.2f", synthesisSuccess),
-		}
-
-		if err := writer.Write(record); err != nil {
-			return err
-		}
-	}
-
-	fmt.Printf("  样本 %s 位置统计已生成\n", sample.Name)
-	return nil
-}
-
-// 添加缺失的比对分析器函数
-func (a *AlignmentAnalyzer) generateErrorDistribution(sample *SampleInfo) error {
-	// 生成错误率分布数据
-	reportFile := filepath.Join(sample.OutputPath, "error_distribution.csv")
-	f, err := os.Create(reportFile)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	writer := csv.NewWriter(f)
-	defer writer.Flush()
-
-	// 写入表头
-	header := []string{"Position", "ErrorRate"}
-	if err := writer.Write(header); err != nil {
-		return err
-	}
-
-	// 写入数据
-	alignment := sample.AlignmentResult
-	for _, pos := range alignment.PositionStats {
-		record := []string{
-			fmt.Sprintf("%d", pos.Position),
-			fmt.Sprintf("%.6f", pos.ErrorRate),
-		}
-		if err := writer.Write(record); err != nil {
+		if err := sample.generateErrorDistribution(); err != nil {
 			return err
 		}
 	}
