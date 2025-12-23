@@ -366,7 +366,7 @@ func (a *AlignmentAnalyzer) generateQCReport() error {
 - 需要优化: %d 个样品
 
 建议:
-1. 对于成功率<80%的样品，建议优化合成条件
+1. 对于成功率<80%%的样品，建议优化合成条件
 2. 检查高错误率位置的序列特征
 3. 考虑使用更长的引物或调整合成参数
 `, excellentCount, goodCount, fairCount, poorCount)
