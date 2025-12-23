@@ -65,7 +65,7 @@ func main() {
 			MapQThreshold:  20,
 			MinIdentity:    0.90,
 			SkipAlignment:  false,
-			KeepBamFiles:   true,
+			KeepSamFiles:   false,
 			AnalysisOnly:   false,
 		},
 	}
@@ -78,7 +78,7 @@ func main() {
 		case "--analysis-only":
 			config.Alignment.AnalysisOnly = true
 		case "--keep-bam":
-			config.Alignment.KeepBamFiles = true
+			config.Alignment.KeepSamFiles = true
 		case "--threads":
 			if i+1 < len(os.Args) {
 				threads, err := strconv.Atoi(os.Args[i+1])
@@ -269,6 +269,12 @@ func (s *EnhancedSplitter) createOutputDir() error {
 		return err
 	}
 
+	// 创建样品目录
+	samplesDir := filepath.Join(s.config.OutputDir, "samples")
+	if err := os.MkdirAll(samplesDir, 0755); err != nil {
+		return err
+	}
+
 	// 创建日志目录
 	logDir := filepath.Join(s.config.OutputDir, "logs")
 	if err := os.MkdirAll(logDir, 0755); err != nil {
@@ -337,7 +343,7 @@ func (s *EnhancedSplitter) loadSamplesFromExcel() error {
 		}
 
 		// 创建输出目录
-		sample.OutputPath = filepath.Join(s.config.OutputDir, sample.Name)
+		sample.OutputPath = filepath.Join(s.config.OutputDir, "samples", sample.Name)
 		if err := os.MkdirAll(sample.OutputPath, 0755); err != nil {
 			return fmt.Errorf("创建样品目录失败: %v", err)
 		}

@@ -16,7 +16,7 @@ type AlignmentConfig struct {
 	MapQThreshold  int     // 比对质量阈值
 	MinIdentity    float64 // 最小identity百分比
 	SkipAlignment  bool    // 是否跳过比对步骤
-	KeepBamFiles   bool    // 是否保留BAM文件
+	KeepSamFiles   bool    // 是否保留SAM文件
 	AnalysisOnly   bool    // 仅分析已有的BAM文件
 }
 
