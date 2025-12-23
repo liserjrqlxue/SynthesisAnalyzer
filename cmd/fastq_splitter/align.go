@@ -97,7 +97,7 @@ func (a *AlignmentAnalyzer) generateAlignmentReport() error {
 	}
 
 	// 2. 生成每个样品的详细报告
-	if err := a.generatePerSampleReports(reportDir); err != nil {
+	if err := a.generatePerSampleReports(); err != nil {
 		return err
 	}
 
@@ -175,24 +175,19 @@ func (a *AlignmentAnalyzer) generateSummaryReport(reportDir string) error {
 }
 
 // 生成每个样品的详细报告
-func (a *AlignmentAnalyzer) generatePerSampleReports(reportDir string) error {
+func (a *AlignmentAnalyzer) generatePerSampleReports() error {
 	for _, sample := range a.samples {
 		if sample.AlignmentResult == nil {
 			continue
 		}
 
-		sampleReportDir := filepath.Join(reportDir, sample.Name)
-		if err := os.MkdirAll(sampleReportDir, 0755); err != nil {
-			return err
-		}
-
 		// 生成位置详细统计
-		if err := a.generatePositionReport(sample, sampleReportDir); err != nil {
+		if err := a.generatePositionReport(sample); err != nil {
 			return err
 		}
 
 		// 生成错误率分布图数据
-		if err := a.generateErrorDistribution(sample, sampleReportDir); err != nil {
+		if err := a.generateErrorDistribution(sample); err != nil {
 			return err
 		}
 	}
@@ -201,8 +196,8 @@ func (a *AlignmentAnalyzer) generatePerSampleReports(reportDir string) error {
 }
 
 // 生成位置详细统计
-func (a *AlignmentAnalyzer) generatePositionReport(sample *SampleInfo, reportDir string) error {
-	reportFile := filepath.Join(reportDir, "position_stats.csv")
+func (a *AlignmentAnalyzer) generatePositionReport(sample *SampleInfo) error {
+	reportFile := filepath.Join(sample.OutputPath, "position_stats.csv")
 	f, err := os.Create(reportFile)
 	if err != nil {
 		return err
@@ -267,9 +262,9 @@ func (a *AlignmentAnalyzer) generatePositionReport(sample *SampleInfo, reportDir
 }
 
 // 添加缺失的比对分析器函数
-func (a *AlignmentAnalyzer) generateErrorDistribution(sample *SampleInfo, reportDir string) error {
+func (a *AlignmentAnalyzer) generateErrorDistribution(sample *SampleInfo) error {
 	// 生成错误率分布数据
-	reportFile := filepath.Join(reportDir, "error_distribution.csv")
+	reportFile := filepath.Join(sample.OutputPath, "error_distribution.csv")
 	f, err := os.Create(reportFile)
 	if err != nil {
 		return err
