@@ -16,13 +16,13 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 
 	a.stats.startTime = time.Now()
 	a.stats.totalSamples = len(a.samples)
-
-	// 创建比对结果目录
-	alignDir := filepath.Join(a.outputDir, "alignment")
-	if err := os.MkdirAll(alignDir, 0755); err != nil {
-		return fmt.Errorf("创建比对目录失败: %v", err)
-	}
-
+	/*
+		// 创建比对结果目录
+		alignDir := filepath.Join(a.outputDir, "alignment")
+		if err := os.MkdirAll(alignDir, 0755); err != nil {
+			return fmt.Errorf("创建比对目录失败: %v", err)
+		}
+	*/
 	// 并行处理每个样品
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, a.config.AlignerThreads)
@@ -104,7 +104,8 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 // 单个样品的比对
 func (a *AlignmentAnalyzer) alignSample(sample *SampleInfo) (*SampleAlignment, error) {
 	// 创建样品特定的输出目录
-	sampleAlignDir := filepath.Join(a.outputDir, "alignment", sample.Name)
+	// sampleAlignDir := filepath.Join(a.outputDir, "alignment", sample.Name)
+	sampleAlignDir := sample.OutputPath
 	if err := os.MkdirAll(sampleAlignDir, 0755); err != nil {
 		return nil, fmt.Errorf("创建比对目录失败: %v", err)
 	}
@@ -168,7 +169,7 @@ func (a *AlignmentAnalyzer) alignSample(sample *SampleInfo) (*SampleAlignment, e
 	}
 
 	// 5. 清理临时文件（可选）
-	if !a.config.KeepBamFiles {
+	if !a.config.KeepSamFiles {
 		os.Remove(samFile)
 	}
 
