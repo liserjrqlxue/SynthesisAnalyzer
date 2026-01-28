@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -32,7 +33,216 @@ func NewMutationStats() *MutationStats {
 	}
 }
 
-// parseCigarAndMD 解析CIGAR和MD标签
+// parseCigarX 专门解析CIGAR中的X操作
+func parseCigarX(read *sam.Record) []Mutation {
+	var mutations []Mutation
+
+	// 检查是否有MD标签
+	_, hasMD := read.Tag([]byte{'M', 'D'})
+	if !hasMD {
+		return mutations
+	}
+
+	// 获取参考起始位置（1-based）
+	refStart := int(read.Pos)
+
+	// 获取read序列
+	seq := read.Seq.Expand()
+	if len(seq) == 0 {
+		return mutations
+	}
+
+	// 解析MD标签获取参考碱基信息
+	mdTag, _ := read.Tag([]byte{'M', 'D'})
+	mdStr := mdTag.String()
+
+	// 去掉MD:Z:前缀
+	mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
+
+	// 遍历CIGAR操作
+	refPos := refStart - 1 // 转换为0-based，用于位置计算
+	readPos := 0
+
+	// 计数器，用于调试
+	xCount := 0
+
+	for _, cigarOp := range read.Cigar {
+		op := cigarOp.Type() // 这是整数，不是字符
+		length := cigarOp.Len()
+
+		switch op {
+		case 0, 7, 8: // 0=M, 7==, 8=X
+			// 处理匹配/错配
+			for i := 0; i < length; i++ {
+				currentPos := refPos + i + 1 // 1-based位置
+
+				// 如果是X操作，记录突变
+				if op == 8 {
+					xCount++
+
+					// 我们需要获取参考碱基和替代碱基
+					refBase := getRefBaseFromMD(mdStr, currentPos-refStart+1)
+
+					// 获取read碱基
+					altBase := "N"
+					if readPos+i < len(seq) {
+						altBase = string(seq[readPos+i])
+					}
+
+					// 记录所有X操作，即使refBase或altBase是N
+					// 因为我们知道X操作一定代表一个错配
+					mutations = append(mutations, Mutation{
+						Position: currentPos,
+						Ref:      refBase,
+						Alt:      altBase,
+					})
+				}
+			}
+
+			refPos += length
+			readPos += length
+
+		case 1: // 1=I (插入)
+			// 插入，只增加read位置
+			readPos += length
+
+		case 2, 3: // 2=D, 3=N (删除或跳过)
+			// 删除，只增加参考位置
+			refPos += length
+
+		case 4: // 4=S (软剪接)
+			// 软剪接，只增加read位置
+			readPos += length
+
+		case 5, 6: // 5=H, 6=P (硬剪接或填充)
+			// 硬剪接或填充，不处理
+		}
+	}
+
+	return mutations
+}
+
+// getRefBaseFromMD 从MD字符串获取指定位置的参考碱基
+func getRefBaseFromMD(mdStr string, pos int) string {
+	if mdStr == "" {
+		return "N"
+	}
+
+	// 当前位置（相对于refStart，1-based）
+	currentPos := 0
+	i := 0
+
+	for i < len(mdStr) {
+		// 读取数字（匹配长度）
+		if mdStr[i] >= '0' && mdStr[i] <= '9' {
+			j := i
+			for j < len(mdStr) && mdStr[j] >= '0' && mdStr[j] <= '9' {
+				j++
+			}
+			numStr := mdStr[i:j]
+			num, err := strconv.Atoi(numStr)
+			if err != nil {
+				i = j
+				continue
+			}
+
+			// 检查位置是否在这个匹配区域内
+			if pos > currentPos && pos <= currentPos+num {
+				// 在匹配区域内，参考碱基是未知的
+				// 但我们可以从上下文中推断，或者返回占位符
+				return "N"
+			}
+
+			currentPos += num
+			i = j
+		} else if isBase(mdStr[i]) {
+			// 错配（碱基）
+			currentPos++
+			if currentPos == pos {
+				// 找到对应位置的错配
+				return string(mdStr[i])
+			}
+			i++
+		} else if mdStr[i] == '^' {
+			// 删除
+			i++
+			// 跳过删除的碱基
+			for i < len(mdStr) && isBase(mdStr[i]) {
+				// 删除的位置在参考序列上，但不在read中
+				currentPos++
+				if currentPos == pos {
+					// 如果位置在删除区域，参考碱基是删除的碱基
+					return string(mdStr[i])
+				}
+				i++
+			}
+		} else {
+			i++
+		}
+	}
+
+	return "N"
+}
+
+// parseMDString 解析MD字符串，返回位置到参考碱基的映射
+func parseMDString(mdStr string, refStart int) map[int]string {
+	refMap := make(map[int]string)
+
+	if mdStr == "" {
+		return refMap
+	}
+
+	// 当前位置（相对于refStart，1-based）
+	posOffset := 0
+	i := 0
+
+	for i < len(mdStr) {
+		// 读取数字（匹配长度）
+		if mdStr[i] >= '0' && mdStr[i] <= '9' {
+			j := i
+			for j < len(mdStr) && mdStr[j] >= '0' && mdStr[j] <= '9' {
+				j++
+			}
+			numStr := mdStr[i:j]
+			num, err := strconv.Atoi(numStr)
+			if err == nil {
+				posOffset += num
+			}
+			i = j
+		} else if isBase(mdStr[i]) {
+			// 错配（碱基）
+			position := refStart + posOffset
+			refMap[position] = string(mdStr[i])
+			posOffset++
+			i++
+		} else if mdStr[i] == '^' {
+			// 删除
+			i++
+			// 跳过删除的碱基
+			for i < len(mdStr) && isBase(mdStr[i]) {
+				posOffset++
+				i++
+			}
+		} else {
+			i++
+		}
+	}
+
+	return refMap
+}
+
+// inferRefBaseFromContext 从MD字符串上下文推断参考碱基
+func inferRefBaseFromContext(mdStr string, pos int) string {
+	// 简化实现：返回N表示未知
+	return "N"
+}
+
+// isBase 判断字符是否为有效碱基
+func isBase(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+}
+
+// parseCigarAndMD 解析CIGAR和MD标签 - 只关注CIGAR中的X操作
 func parseCigarAndMD(read *sam.Record) []Mutation {
 	var mutations []Mutation
 
@@ -42,108 +252,124 @@ func parseCigarAndMD(read *sam.Record) []Mutation {
 		return mutations
 	}
 
-	mdStr, ok := mdTag.(string)
-	if !ok {
+	// 提取MD字符串
+	mdStr := mdTag.String()
+	const mdPrefix = "MD:Z:"
+	if strings.HasPrefix(mdStr, mdPrefix) {
+		mdStr = mdStr[len(mdPrefix):]
+	}
+
+	if mdStr == "" {
 		return mutations
 	}
 
-	// 解析CIGAR
-	refPos := int(read.Pos) - 1 // 0-based
-	readPos := 0
+	// 解析MD字符串构建参考序列信息
+	refStart := int(read.Pos) - 1
 	seq := read.Seq.Expand()
 
-	// 解析MD字符串
-	var mdOps []MDOp
+	// 解析MD字符串，构建一个映射：参考位置 -> 参考碱基（只记录错配和匹配）
+	refMap := make(map[int]byte)
+
 	i := 0
+	refPos := refStart
+
 	for i < len(mdStr) {
 		if mdStr[i] >= '0' && mdStr[i] <= '9' {
+			// 匹配长度
 			j := i
 			for j < len(mdStr) && mdStr[j] >= '0' && mdStr[j] <= '9' {
 				j++
 			}
-			num := parseNumber(mdStr[i:j])
-			mdOps = append(mdOps, MDOp{Type: 'M', Length: num})
-			i = j
-		} else if mdStr[i] == '^' {
-			j := i + 1
-			for j < len(mdStr) && !isDigit(mdStr[j]) {
-				j++
+			numStr := mdStr[i:j]
+			num, err := strconv.Atoi(numStr)
+			if err != nil {
+				i = j
+				continue
 			}
-			bases := mdStr[i+1 : j]
-			mdOps = append(mdOps, MDOp{Type: 'D', Bases: bases})
+
+			// 匹配区域，不记录到refMap
+			refPos += num
 			i = j
+		} else if (mdStr[i] >= 'A' && mdStr[i] <= 'Z') || (mdStr[i] >= 'a' && mdStr[i] <= 'z') {
+			// 错配，记录参考碱基
+			refMap[refPos] = mdStr[i]
+			refPos++
+			i++
+		} else if mdStr[i] == '^' {
+			// 删除
+			i++
+			for i < len(mdStr) && ((mdStr[i] >= 'A' && mdStr[i] <= 'Z') || (mdStr[i] >= 'a' && mdStr[i] <= 'z')) {
+				// 删除的碱基不记录到refMap
+				refPos++
+				i++
+			}
 		} else {
-			mdOps = append(mdOps, MDOp{Type: 'X', Base: mdStr[i]})
 			i++
 		}
 	}
 
-	// 遍历CIGAR操作
-	mdIdx := 0
-	mdOffset := 0
+	// 遍历CIGAR操作，只处理X操作
+	refOffset := 0
+	readPos := 0
 
 	for _, cigarOp := range read.Cigar {
-		switch cigarOp.Type() {
-		case 'M', '=', 'X':
-			for k := 0; k < cigarOp.Len(); k++ {
-				// 处理当前位置的MD操作
-				for mdIdx < len(mdOps) {
-					mdOp := mdOps[mdIdx]
+		op := cigarOp.Type()
+		length := cigarOp.Len()
 
-					if mdOp.Type == 'M' {
-						if mdOffset < mdOp.Length {
-							// 匹配位置
-							mdOffset++
-							break
-						} else {
-							mdIdx++
-							mdOffset = 0
-							continue
-						}
-					} else if mdOp.Type == 'X' {
-						// 错配位置
-						if cigarOp.Type() == 'X' {
-							// CIGAR中的X操作
-							refBase := mdOp.Base
-							if readPos < len(seq) {
-								altBase := seq[readPos]
-								mutations = append(mutations, Mutation{
-									Position: refPos + 1, // 1-based
-									Ref:      string(refBase),
-									Alt:      string(altBase),
-								})
-							}
-						}
-						mdIdx++
-						break
-					} else if mdOp.Type == 'D' {
-						if mdOffset < len(mdOp.Bases) {
-							mdOffset++
-						} else {
-							mdIdx++
-							mdOffset = 0
-							continue
-						}
+		switch op {
+		case 'M', '=':
+			refOffset += length
+			readPos += length
+
+		case 'X':
+			// CIGAR中的X操作
+			for j := 0; j < length; j++ {
+				position := refStart + refOffset + 1 // 1-based
+
+				// 获取参考碱基
+				var refBase byte
+				if base, ok := refMap[refStart+refOffset]; ok {
+					refBase = base
+				} else {
+					// 如果不在refMap中，尝试从序列推断
+					if readPos < len(seq) {
+						refBase = seq[readPos]
+					} else {
+						refBase = 'N'
 					}
 				}
 
-				if cigarOp.Type() != 'D' {
-					readPos++
+				// 获取替代碱基
+				var altBase byte
+				if readPos < len(seq) {
+					altBase = seq[readPos]
+				} else {
+					altBase = 'N'
 				}
-				refPos++
+
+				if refBase != altBase {
+					mutations = append(mutations, Mutation{
+						Position: position,
+						Ref:      string(refBase),
+						Alt:      string(altBase),
+					})
+				}
+
+				refOffset++
+				readPos++
 			}
 
 		case 'I':
-			readPos += cigarOp.Len()
+			readPos += length
 
 		case 'D', 'N':
-			refPos += cigarOp.Len()
+			refOffset += length
 
 		case 'S':
-			readPos += cigarOp.Len()
+			readPos += length
 
 		case 'H', 'P':
-			// 硬剪接和填充，不处理
+			// 忽略
 		}
 	}
 
@@ -196,6 +422,11 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 
 	var totalReads, readsWithMutations, totalMutations int
 
+	var totalXReads int
+	var debugCount int
+	var totalXOps, totalReadsWithX int
+	var xOpsInMutations int
+
 	// 遍历所有记录
 	for {
 		read, err := br.Read()
@@ -210,8 +441,39 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 			continue
 		}
 
+		// 统计X操作
+		xCount := countXOperations(read)
+		if xCount > 0 {
+			totalReadsWithX++
+			totalXOps += xCount
+
+			// 解析突变
+			mutations := parseCigarXWithMD(read)
+			xOpsInMutations += len(mutations)
+
+			// 如果突变数不等于X操作数，记录差异
+			if len(mutations) != xCount && len(mutations) > 0 {
+				fmt.Printf("  警告: 突变数(%d) != X操作数(%d)\n", len(mutations), xCount)
+			}
+		}
+
+		// 调试：检查是否有X操作
+		hasX := debugCigar(read)
+		if hasX {
+			totalXReads++
+
+			// 只打印前几个有X操作的read进行调试
+			if debugCount < 5 {
+				fmt.Printf("调试: 发现CIGAR X操作, CIGAR: %v, POS: %d\n",
+					read.Cigar, read.Pos)
+				debugCount++
+			}
+		}
+
 		// 解析突变
-		mutations := parseCigarAndMD(read)
+		// mutations := parseCigarAndMD(read)
+		// mutations := parseCigarX(read)
+		mutations := parseCigarXWithMD(read)
 
 		if len(mutations) > 0 {
 			readsWithMutations++
@@ -257,11 +519,37 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 		}
 	}
 
+	// 打印调试信息
+
 	fmt.Printf("  总reads数: %d\n", totalReads)
+	fmt.Printf("  有CIGAR X操作的reads数: %d\n", totalXReads)
+	fmt.Printf("  有CIGAR X操作的reads数: %d\n", totalReadsWithX)
+	fmt.Printf("  总X操作数: %d\n", totalXOps)
+	fmt.Printf("  统计到的突变数: %d\n", xOpsInMutations)
 	fmt.Printf("  包含突变的reads数: %d\n", readsWithMutations)
 	fmt.Printf("  总突变数: %d\n", totalMutations)
 
 	return nil
+}
+
+// debugCigar 调试函数，检查CIGAR中是否有X操作
+func debugCigar(read *sam.Record) bool {
+	hasX := false
+	for _, cigarOp := range read.Cigar {
+		/* 	if cigarOp.Type().String() == "X" {
+			return true
+		} */
+		op := cigarOp.Type()
+		// 在sam包中，CIGAR操作类型是整数，不是字符
+		// 0=M, 1=I, 2=D, 3=N, 4=S, 5=H, 6=P, 7==, 8=X
+		if op == 8 { // 8代表X操作
+			hasX = true
+			// 打印详细信息以便调试
+			// fmt.Printf("  发现X操作: CIGAR=%v, 位置=%d, 操作类型=%d\n",
+			// read.Cigar, read.Pos, op)
+		}
+	}
+	return hasX
 }
 
 // findBAMFiles 查找所有BAM文件
