@@ -420,12 +420,12 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 
 	fmt.Printf("处理样本: %s\n", sampleName)
 
-	var totalReads, readsWithMutations, totalMutations int
+	var totalReads, readsWithMutations int
 
 	var totalXReads int
 	var debugCount int
-	var totalXOps, totalReadsWithX int
-	var xOpsInMutations int
+	var totalXOps int
+	var mutationsFound int
 
 	// 遍历所有记录
 	for {
@@ -441,43 +441,41 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 			continue
 		}
 
-		// 统计X操作
-		xCount := countXOperations(read)
-		if xCount > 0 {
-			totalReadsWithX++
-			totalXOps += xCount
-
-			// 解析突变
-			mutations := parseCigarXWithMD(read)
-			xOpsInMutations += len(mutations)
-
-			// 如果突变数不等于X操作数，记录差异
-			if len(mutations) != xCount && len(mutations) > 0 {
-				fmt.Printf("  警告: 突变数(%d) != X操作数(%d)\n", len(mutations), xCount)
-			}
-		}
-
 		// 调试：检查是否有X操作
 		hasX := debugCigar(read)
 		if hasX {
 			totalXReads++
 
-			// 只打印前几个有X操作的read进行调试
+			/* 		// 只打印前几个有X操作的read进行调试
 			if debugCount < 5 {
 				fmt.Printf("调试: 发现CIGAR X操作, CIGAR: %v, POS: %d\n",
 					read.Cigar, read.Pos)
 				debugCount++
-			}
+			} */
 		}
 
-		// 解析突变
-		// mutations := parseCigarAndMD(read)
-		// mutations := parseCigarX(read)
-		mutations := parseCigarXWithMD(read)
-
-		if len(mutations) > 0 {
+		// 统计X操作
+		xCount := countXOperations(read)
+		if xCount > 0 {
 			readsWithMutations++
-			totalMutations += len(mutations)
+			totalXOps += xCount
+
+			// 解析突变
+			mutations := parseCigarXWithMD(read)
+			mutationsFound += len(mutations)
+
+			// 如果突变数不等于X操作数，记录差异
+			if len(mutations) != xCount {
+				// 如果有差异，记录详细信息（仅前几个）
+				if debugCount < 3 {
+					fmt.Printf("  差异: X操作数=%d, 解析到的突变数=%d\n", xCount, len(mutations))
+					fmt.Printf("  CIGAR: %v, POS: %d\n", read.Cigar, read.Pos)
+					if mdTag, found := read.Tag([]byte{'M', 'D'}); found {
+						fmt.Printf("  MD标签: %s\n", mdTag.String())
+					}
+					debugCount++
+				}
+			}
 
 			// 更新统计
 			stats.Lock()
@@ -522,12 +520,10 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	// 打印调试信息
 
 	fmt.Printf("  总reads数: %d\n", totalReads)
-	fmt.Printf("  有CIGAR X操作的reads数: %d\n", totalXReads)
-	fmt.Printf("  有CIGAR X操作的reads数: %d\n", totalReadsWithX)
-	fmt.Printf("  总X操作数: %d\n", totalXOps)
-	fmt.Printf("  统计到的突变数: %d\n", xOpsInMutations)
+	fmt.Printf("  [DEBUG]有CIGAR X操作的reads数: %d\n", totalXReads)
 	fmt.Printf("  包含突变的reads数: %d\n", readsWithMutations)
-	fmt.Printf("  总突变数: %d\n", totalMutations)
+	fmt.Printf("  总X操作数: %d\n", totalXOps)
+	fmt.Printf("  解析到的突变数: %d\n", mutationsFound)
 
 	return nil
 }
