@@ -21,6 +21,8 @@ type MutationStats struct {
 	SampleMutations   map[string]map[string]int            // sample -> mutation -> count
 	TotalMutations    map[string]int                       // mutation -> total count
 	PositionDetails   map[string]map[string]map[string]int // sample -> position -> mutation -> count
+	SampleReadCounts  map[string]int                       // sample -> total reads count
+	TotalReadCount    int                                  // 所有样本的总reads数
 }
 
 // NewMutationStats 创建新的统计对象
@@ -30,350 +32,9 @@ func NewMutationStats() *MutationStats {
 		SampleMutations:   make(map[string]map[string]int),
 		TotalMutations:    make(map[string]int),
 		PositionDetails:   make(map[string]map[string]map[string]int),
+		SampleReadCounts:  make(map[string]int),
+		TotalReadCount:    0,
 	}
-}
-
-// parseCigarX 专门解析CIGAR中的X操作
-func parseCigarX(read *sam.Record) []Mutation {
-	var mutations []Mutation
-
-	// 检查是否有MD标签
-	_, hasMD := read.Tag([]byte{'M', 'D'})
-	if !hasMD {
-		return mutations
-	}
-
-	// 获取参考起始位置（1-based）
-	refStart := int(read.Pos)
-
-	// 获取read序列
-	seq := read.Seq.Expand()
-	if len(seq) == 0 {
-		return mutations
-	}
-
-	// 解析MD标签获取参考碱基信息
-	mdTag, _ := read.Tag([]byte{'M', 'D'})
-	mdStr := mdTag.String()
-
-	// 去掉MD:Z:前缀
-	mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
-
-	// 遍历CIGAR操作
-	refPos := refStart - 1 // 转换为0-based，用于位置计算
-	readPos := 0
-
-	// 计数器，用于调试
-	xCount := 0
-
-	for _, cigarOp := range read.Cigar {
-		op := cigarOp.Type() // 这是整数，不是字符
-		length := cigarOp.Len()
-
-		switch op {
-		case 0, 7, 8: // 0=M, 7==, 8=X
-			// 处理匹配/错配
-			for i := 0; i < length; i++ {
-				currentPos := refPos + i + 1 // 1-based位置
-
-				// 如果是X操作，记录突变
-				if op == 8 {
-					xCount++
-
-					// 我们需要获取参考碱基和替代碱基
-					refBase := getRefBaseFromMD(mdStr, currentPos-refStart+1)
-
-					// 获取read碱基
-					altBase := "N"
-					if readPos+i < len(seq) {
-						altBase = string(seq[readPos+i])
-					}
-
-					// 记录所有X操作，即使refBase或altBase是N
-					// 因为我们知道X操作一定代表一个错配
-					mutations = append(mutations, Mutation{
-						Position: currentPos,
-						Ref:      refBase,
-						Alt:      altBase,
-					})
-				}
-			}
-
-			refPos += length
-			readPos += length
-
-		case 1: // 1=I (插入)
-			// 插入，只增加read位置
-			readPos += length
-
-		case 2, 3: // 2=D, 3=N (删除或跳过)
-			// 删除，只增加参考位置
-			refPos += length
-
-		case 4: // 4=S (软剪接)
-			// 软剪接，只增加read位置
-			readPos += length
-
-		case 5, 6: // 5=H, 6=P (硬剪接或填充)
-			// 硬剪接或填充，不处理
-		}
-	}
-
-	return mutations
-}
-
-// getRefBaseFromMD 从MD字符串获取指定位置的参考碱基
-func getRefBaseFromMD(mdStr string, pos int) string {
-	if mdStr == "" {
-		return "N"
-	}
-
-	// 当前位置（相对于refStart，1-based）
-	currentPos := 0
-	i := 0
-
-	for i < len(mdStr) {
-		// 读取数字（匹配长度）
-		if mdStr[i] >= '0' && mdStr[i] <= '9' {
-			j := i
-			for j < len(mdStr) && mdStr[j] >= '0' && mdStr[j] <= '9' {
-				j++
-			}
-			numStr := mdStr[i:j]
-			num, err := strconv.Atoi(numStr)
-			if err != nil {
-				i = j
-				continue
-			}
-
-			// 检查位置是否在这个匹配区域内
-			if pos > currentPos && pos <= currentPos+num {
-				// 在匹配区域内，参考碱基是未知的
-				// 但我们可以从上下文中推断，或者返回占位符
-				return "N"
-			}
-
-			currentPos += num
-			i = j
-		} else if isBase(mdStr[i]) {
-			// 错配（碱基）
-			currentPos++
-			if currentPos == pos {
-				// 找到对应位置的错配
-				return string(mdStr[i])
-			}
-			i++
-		} else if mdStr[i] == '^' {
-			// 删除
-			i++
-			// 跳过删除的碱基
-			for i < len(mdStr) && isBase(mdStr[i]) {
-				// 删除的位置在参考序列上，但不在read中
-				currentPos++
-				if currentPos == pos {
-					// 如果位置在删除区域，参考碱基是删除的碱基
-					return string(mdStr[i])
-				}
-				i++
-			}
-		} else {
-			i++
-		}
-	}
-
-	return "N"
-}
-
-// parseMDString 解析MD字符串，返回位置到参考碱基的映射
-func parseMDString(mdStr string, refStart int) map[int]string {
-	refMap := make(map[int]string)
-
-	if mdStr == "" {
-		return refMap
-	}
-
-	// 当前位置（相对于refStart，1-based）
-	posOffset := 0
-	i := 0
-
-	for i < len(mdStr) {
-		// 读取数字（匹配长度）
-		if mdStr[i] >= '0' && mdStr[i] <= '9' {
-			j := i
-			for j < len(mdStr) && mdStr[j] >= '0' && mdStr[j] <= '9' {
-				j++
-			}
-			numStr := mdStr[i:j]
-			num, err := strconv.Atoi(numStr)
-			if err == nil {
-				posOffset += num
-			}
-			i = j
-		} else if isBase(mdStr[i]) {
-			// 错配（碱基）
-			position := refStart + posOffset
-			refMap[position] = string(mdStr[i])
-			posOffset++
-			i++
-		} else if mdStr[i] == '^' {
-			// 删除
-			i++
-			// 跳过删除的碱基
-			for i < len(mdStr) && isBase(mdStr[i]) {
-				posOffset++
-				i++
-			}
-		} else {
-			i++
-		}
-	}
-
-	return refMap
-}
-
-// inferRefBaseFromContext 从MD字符串上下文推断参考碱基
-func inferRefBaseFromContext(mdStr string, pos int) string {
-	// 简化实现：返回N表示未知
-	return "N"
-}
-
-// isBase 判断字符是否为有效碱基
-func isBase(c byte) bool {
-	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
-}
-
-// parseCigarAndMD 解析CIGAR和MD标签 - 只关注CIGAR中的X操作
-func parseCigarAndMD(read *sam.Record) []Mutation {
-	var mutations []Mutation
-
-	// 获取MD标签
-	mdTag, found := read.Tag([]byte{'M', 'D'})
-	if !found {
-		return mutations
-	}
-
-	// 提取MD字符串
-	mdStr := mdTag.String()
-	const mdPrefix = "MD:Z:"
-	if strings.HasPrefix(mdStr, mdPrefix) {
-		mdStr = mdStr[len(mdPrefix):]
-	}
-
-	if mdStr == "" {
-		return mutations
-	}
-
-	// 解析MD字符串构建参考序列信息
-	refStart := int(read.Pos) - 1
-	seq := read.Seq.Expand()
-
-	// 解析MD字符串，构建一个映射：参考位置 -> 参考碱基（只记录错配和匹配）
-	refMap := make(map[int]byte)
-
-	i := 0
-	refPos := refStart
-
-	for i < len(mdStr) {
-		if mdStr[i] >= '0' && mdStr[i] <= '9' {
-			// 匹配长度
-			j := i
-			for j < len(mdStr) && mdStr[j] >= '0' && mdStr[j] <= '9' {
-				j++
-			}
-			numStr := mdStr[i:j]
-			num, err := strconv.Atoi(numStr)
-			if err != nil {
-				i = j
-				continue
-			}
-
-			// 匹配区域，不记录到refMap
-			refPos += num
-			i = j
-		} else if (mdStr[i] >= 'A' && mdStr[i] <= 'Z') || (mdStr[i] >= 'a' && mdStr[i] <= 'z') {
-			// 错配，记录参考碱基
-			refMap[refPos] = mdStr[i]
-			refPos++
-			i++
-		} else if mdStr[i] == '^' {
-			// 删除
-			i++
-			for i < len(mdStr) && ((mdStr[i] >= 'A' && mdStr[i] <= 'Z') || (mdStr[i] >= 'a' && mdStr[i] <= 'z')) {
-				// 删除的碱基不记录到refMap
-				refPos++
-				i++
-			}
-		} else {
-			i++
-		}
-	}
-
-	// 遍历CIGAR操作，只处理X操作
-	refOffset := 0
-	readPos := 0
-
-	for _, cigarOp := range read.Cigar {
-		op := cigarOp.Type()
-		length := cigarOp.Len()
-
-		switch op {
-		case 'M', '=':
-			refOffset += length
-			readPos += length
-
-		case 'X':
-			// CIGAR中的X操作
-			for j := 0; j < length; j++ {
-				position := refStart + refOffset + 1 // 1-based
-
-				// 获取参考碱基
-				var refBase byte
-				if base, ok := refMap[refStart+refOffset]; ok {
-					refBase = base
-				} else {
-					// 如果不在refMap中，尝试从序列推断
-					if readPos < len(seq) {
-						refBase = seq[readPos]
-					} else {
-						refBase = 'N'
-					}
-				}
-
-				// 获取替代碱基
-				var altBase byte
-				if readPos < len(seq) {
-					altBase = seq[readPos]
-				} else {
-					altBase = 'N'
-				}
-
-				if refBase != altBase {
-					mutations = append(mutations, Mutation{
-						Position: position,
-						Ref:      string(refBase),
-						Alt:      string(altBase),
-					})
-				}
-
-				refOffset++
-				readPos++
-			}
-
-		case 'I':
-			readPos += length
-
-		case 'D', 'N':
-			refOffset += length
-
-		case 'S':
-			readPos += length
-
-		case 'H', 'P':
-			// 忽略
-		}
-	}
-
-	return mutations
 }
 
 // Mutation 表示一个碱基突变
@@ -425,7 +86,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	var totalXReads int
 	var debugCount int
 	var totalXOps int
-	var mutationsFound int
+	var totalMutations int
 
 	// 遍历所有记录
 	for {
@@ -441,29 +102,19 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 			continue
 		}
 
+		// 解析突变
+		mutations := parseCigarXWithMD(read)
+
 		// 调试：检查是否有X操作
 		hasX := debugCigar(read)
 		if hasX {
 			totalXReads++
-
-			/* 		// 只打印前几个有X操作的read进行调试
-			if debugCount < 5 {
-				fmt.Printf("调试: 发现CIGAR X操作, CIGAR: %v, POS: %d\n",
-					read.Cigar, read.Pos)
-				debugCount++
-			} */
 		}
 
 		// 统计X操作
 		xCount := countXOperations(read)
 		if xCount > 0 {
-			readsWithMutations++
 			totalXOps += xCount
-
-			// 解析突变
-			mutations := parseCigarXWithMD(read)
-			mutationsFound += len(mutations)
-
 			// 如果突变数不等于X操作数，记录差异
 			if len(mutations) != xCount {
 				// 如果有差异，记录详细信息（仅前几个）
@@ -476,6 +127,11 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 					debugCount++
 				}
 			}
+		}
+
+		if len(mutations) > 0 {
+			readsWithMutations++
+			totalMutations += len(mutations)
 
 			// 更新统计
 			stats.Lock()
@@ -517,13 +173,19 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 		}
 	}
 
+	// 更新reads计数
+	stats.Lock()
+	stats.SampleReadCounts[sampleName] = totalReads
+	stats.TotalReadCount += totalReads
+	stats.Unlock()
+
 	// 打印调试信息
 
 	fmt.Printf("  总reads数: %d\n", totalReads)
 	fmt.Printf("  [DEBUG]有CIGAR X操作的reads数: %d\n", totalXReads)
 	fmt.Printf("  包含突变的reads数: %d\n", readsWithMutations)
 	fmt.Printf("  总X操作数: %d\n", totalXOps)
-	fmt.Printf("  解析到的突变数: %d\n", mutationsFound)
+	fmt.Printf("  总突变数: %d\n", totalMutations)
 
 	return nil
 }
@@ -578,7 +240,10 @@ func writePositionStats(stats *MutationStats, outputDir string) error {
 		defer file.Close()
 
 		writer := bufio.NewWriter(file)
-		writer.WriteString("Position,Ref>Alt,Count\n")
+		writer.WriteString("Sample,Position,Ref>Alt,Count,TotalReads\n")
+
+		// 获取样本的总reads数
+		totalReads := stats.SampleReadCounts[sampleName]
 
 		// 收集所有位置
 		var positions []string
@@ -588,7 +253,9 @@ func writePositionStats(stats *MutationStats, outputDir string) error {
 
 		// 按位置排序
 		sort.Slice(positions, func(i, j int) bool {
-			return parseNumber(positions[i]) < parseNumber(positions[j])
+			numI, _ := strconv.Atoi(positions[i])
+			numJ, _ := strconv.Atoi(positions[j])
+			return numI < numJ
 		})
 
 		for _, pos := range positions {
@@ -601,7 +268,7 @@ func writePositionStats(stats *MutationStats, outputDir string) error {
 
 			for _, mut := range mutations {
 				count := posDetails[pos][mut]
-				writer.WriteString(fmt.Sprintf("%s,%s,%d\n", pos, mut, count))
+				fmt.Fprintf(writer, "%s,%s,%s,%d,%d\n", sampleName, pos, mut, count, totalReads)
 			}
 		}
 
@@ -623,7 +290,10 @@ func writeSampleMutationStats(stats *MutationStats, outputDir string) error {
 		defer file.Close()
 
 		writer := bufio.NewWriter(file)
-		writer.WriteString("Ref>Alt,Count\n")
+		writer.WriteString("Sample,Ref>Alt,Count,TotalReads\n")
+
+		// 获取样本的总reads数
+		totalReads := stats.SampleReadCounts[sampleName]
 
 		// 收集所有突变
 		var mutations []string
@@ -634,7 +304,7 @@ func writeSampleMutationStats(stats *MutationStats, outputDir string) error {
 
 		for _, mut := range mutations {
 			count := mutCounts[mut]
-			writer.WriteString(fmt.Sprintf("%s,%d\n", mut, count))
+			fmt.Fprintf(writer, "%s,%s,%d,%d\n", sampleName, mut, count, totalReads)
 		}
 
 		writer.Flush()
@@ -654,7 +324,7 @@ func writeTotalMutationStats(stats *MutationStats, outputDir string) error {
 	defer file.Close()
 
 	writer := bufio.NewWriter(file)
-	writer.WriteString("Ref>Alt,Count\n")
+	writer.WriteString("Ref>Alt,Count,TotalReads\n")
 
 	// 收集所有突变
 	var mutations []string
@@ -663,9 +333,12 @@ func writeTotalMutationStats(stats *MutationStats, outputDir string) error {
 	}
 	sort.Strings(mutations)
 
+	// 获取所有样本的总reads数
+	totalReads := stats.TotalReadCount
+
 	for _, mut := range mutations {
 		count := stats.TotalMutations[mut]
-		writer.WriteString(fmt.Sprintf("%s,%d\n", mut, count))
+		fmt.Fprintf(writer, "%s,%d,%d\n", mut, count, totalReads)
 	}
 
 	writer.Flush()
@@ -702,7 +375,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	sort.Strings(mutationTypes)
 
 	// 写入表头
-	header := "Sample,Total_Mutations"
+	header := "Sample,Total_Reads,Total_Mutations"
 	for _, mut := range mutationTypes {
 		header += "," + mut
 	}
@@ -718,12 +391,13 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	// 写入每行数据
 	for _, sampleName := range sampleNames {
 		sampleMuts := stats.SampleMutations[sampleName]
-		total := 0
+		totalReads := stats.SampleReadCounts[sampleName]
+		totalMutations := 0
 		for _, count := range sampleMuts {
-			total += count
+			totalMutations += count
 		}
 
-		row := fmt.Sprintf("%s,%d", sampleName, total)
+		row := fmt.Sprintf("%s,%d,%d", sampleName, totalReads, totalMutations)
 		for _, mut := range mutationTypes {
 			count := sampleMuts[mut]
 			row += fmt.Sprintf(",%d", count)
@@ -751,15 +425,15 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	}
 	sort.Strings(mutations)
 
-	total := 0
+	totalMutations := 0
 	for _, count := range stats.TotalMutations {
-		total += count
+		totalMutations += count
 	}
 
 	for _, mut := range mutations {
 		count := stats.TotalMutations[mut]
-		frequency := float64(count) / float64(total)
-		writer.WriteString(fmt.Sprintf("%s,%d,%.6f\n", mut, count, frequency))
+		frequency := float64(count) / float64(totalMutations)
+		fmt.Fprintf(writer, "%s,%d,%.6f\n", mut, count, frequency)
 	}
 
 	writer.Flush()
@@ -843,57 +517,5 @@ func main() {
 		fmt.Printf("写入汇总报告失败: %v\n", err)
 	}
 
-	fmt.Println("\n处理完成!")
-}
-
-// 简化版本，使用samtools命令行工具
-func simpleVersion() {
-	// 这是一个简化的shell脚本版本，可以快速处理
-	script := `#!/bin/bash
-INPUT_DIR="input-0116B-2.splitter/samples"
-OUTPUT_DIR="mutation_stats_simple"
-mkdir -p $OUTPUT_DIR
-
-echo "开始处理BAM文件..."
-
-for bam in $INPUT_DIR/*/*.sorted.bam; do
-    SAMPLE=$(basename $(dirname $bam))
-    echo "处理样本: $SAMPLE"
-    
-    # 提取MD标签并统计
-    samtools view $bam | grep -o "MD:Z:[^[:space:]]*" | cut -d: -f3 | \
-    awk '{
-        md = $1
-        pos = 1
-        while(match(md, /[0-9]+[ACGTN]/)) {
-            start = RSTART
-            len = RLENGTH
-            num = substr(md, start, len-1)
-            base = substr(md, start+len-1, 1)
-            pos += num
-            print pos ":" base
-            md = substr(md, start+len)
-            pos++
-        }
-    }' > $OUTPUT_DIR/${SAMPLE}_mutations.txt
-    
-    # 统计突变
-    cat $OUTPUT_DIR/${SAMPLE}_mutations.txt | sort | uniq -c | \
-    awk '{print $2","$1}' > $OUTPUT_DIR/${SAMPLE}_mutation_stats.csv
-done
-
-echo "生成汇总统计..."
-cat $OUTPUT_DIR/*_mutation_stats.csv | awk -F, '{
-    counts[$1]+=$2
-} END {
-    for (mut in counts) {
-        print mut "," counts[mut]
-    }
-}' | sort > $OUTPUT_DIR/total_mutation_stats.csv
-
-echo "处理完成! 结果保存在 $OUTPUT_DIR/"
-`
-
-	fmt.Println("简化脚本:")
-	fmt.Println(script)
+	fmt.Printf("\n处理完成! 总reads数: %d\n", stats.TotalReadCount)
 }

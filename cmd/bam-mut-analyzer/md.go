@@ -78,107 +78,6 @@ func parseCigarXWithMD(read *sam.Record) []Mutation {
 	return mutations
 }
 
-/*
-// parseCigarXUsingSAM 使用sam包的内置功能解析CIGAR X操作
-func parseCigarXUsingSAM(read *sam.Record) []Mutation {
-	var mutations []Mutation
-
-	// 检查是否有MD标签
-	mdTag, hasMD := read.Tag([]byte{'M', 'D'})
-	if !hasMD {
-		return mutations
-	}
-
-	// 使用sam.NewMD方法解析MD标签
-	md, err := sam.NewMD(mdTag.String())
-	if err != nil {
-		return mutations
-	}
-
-	refStart := int(read.Pos) // 0-based起始位置
-	seq := read.Seq.Expand()
-
-	if len(seq) == 0 {
-		return mutations
-	}
-
-	// 遍历CIGAR操作
-	refPos := refStart // 0-based
-	readPos := 0
-
-	for _, cigarOp := range read.Cigar {
-		op := cigarOp.Type()
-		length := cigarOp.Len()
-
-		if op == 8 { // X操作
-			for i := 0; i < length; i++ {
-				position := refPos + i + 1 // 转换为1-based输出
-
-				// 尝试从MD标签获取参考碱基
-				refBase := getRefBaseFromSAMMD(md, (refPos+i)-refStart)
-
-				// 获取read碱基
-				altBase := "N"
-				if readPos+i < len(seq) {
-					altBase = string(seq[readPos+i])
-				}
-
-				mutations = append(mutations, Mutation{
-					Position: position,
-					Ref:      refBase,
-					Alt:      altBase,
-				})
-			}
-		}
-
-		// 更新位置
-		switch op {
-		case 0, 7, 8: // M, =, X
-			refPos += length
-			readPos += length
-		case 1, 4: // I, S
-			readPos += length
-		case 2, 3: // D, N
-			refPos += length
-		}
-	}
-
-	return mutations
-}
-
-// getRefBaseFromSAMMD 从sam.MD对象获取参考碱基
-func getRefBaseFromSAMMD(md *sam.MD, pos int) string {
-	// sam.MD类型没有直接的方法获取特定位置的碱基
-	// 我们需要遍历MD操作
-	mdPos := 0
-
-	for _, op := range md.Ops {
-		switch op.Type {
-		case 0: // 匹配
-			if pos >= mdPos && pos < mdPos+op.Len {
-				// 在匹配区域，参考碱基未知
-				return "N"
-			}
-			mdPos += op.Len
-		case 1: // 错配
-			if mdPos == pos {
-				return string(op.Base)
-			}
-			mdPos++
-		case 2: // 删除
-			for _, base := range op.Seq {
-				if mdPos == pos {
-					return string(base)
-				}
-				mdPos++
-			}
-		}
-	}
-
-	return "N"
-}
-*/
-
 // parseMDToMap 解析MD字符串，返回位置(0-based)->参考碱基的映射
 func parseMDToMap(mdStr string, refStart int) map[int]string {
 	result := make(map[int]string)
@@ -277,6 +176,11 @@ func inferRefBaseFromMD(mdStr string, relPos int) string {
 	}
 
 	return "N"
+}
+
+// isBase 判断字符是否为有效碱基
+func isBase(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
 }
 
 // countXOperations 统计CIGAR中的X操作数
