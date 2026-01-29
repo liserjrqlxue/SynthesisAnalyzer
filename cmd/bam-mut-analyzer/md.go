@@ -193,3 +193,64 @@ func countXOperations(read *sam.Record) int {
 	}
 	return count
 }
+
+// analyzeReadType 分析read的类型
+func analyzeReadType(read *sam.Record) ReadType {
+	hasInsert := false
+	hasDelete := false
+	hasSubstitution := false
+
+	// 检查是否有MD标签
+	mdTag, hasMD := read.Tag([]byte{'M', 'D'})
+	if !hasMD {
+		return ReadTypeMatch // 没有MD标签，默认为匹配
+	}
+
+	// 检查CIGAR操作
+	for _, cigarOp := range read.Cigar {
+		op := cigarOp.Type()
+
+		switch op {
+		case 1: // I: 插入
+			hasInsert = true
+		case 2, 3: // D, N: 缺失或跳过
+			hasDelete = true
+		case 8: // X: 替换
+			hasSubstitution = true
+		}
+	}
+
+	// 如果没有CIGAR中的X操作，检查MD标签中是否有错配
+	if !hasSubstitution && hasMD {
+		mdStr := mdTag.String()
+		mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
+		// 检查MD字符串中是否有错配（大写字母）
+		for i := 0; i < len(mdStr); i++ {
+			if (mdStr[i] >= 'A' && mdStr[i] <= 'Z') && mdStr[i] != '^' {
+				hasSubstitution = true
+				break
+			}
+		}
+	}
+
+	// 根据组合确定类型
+	if !hasInsert && !hasDelete && !hasSubstitution {
+		return ReadTypeMatch
+	} else if hasInsert && !hasDelete && !hasSubstitution {
+		return ReadTypeInsert
+	} else if !hasInsert && hasDelete && !hasSubstitution {
+		return ReadTypeDelete
+	} else if !hasInsert && !hasDelete && hasSubstitution {
+		return ReadTypeSubstitution
+	} else if hasInsert && hasDelete && !hasSubstitution {
+		return ReadTypeInsertDelete
+	} else if hasInsert && !hasDelete && hasSubstitution {
+		return ReadTypeInsertSubstitution
+	} else if !hasInsert && hasDelete && hasSubstitution {
+		return ReadTypeDeleteSubstitution
+	} else if hasInsert && hasDelete && hasSubstitution {
+		return ReadTypeAll
+	}
+
+	return ReadTypeMatch
+}

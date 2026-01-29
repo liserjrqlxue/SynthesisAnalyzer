@@ -13,30 +13,60 @@ import (
 	"github.com/biogo/hts/sam"
 )
 
+// ReadType 表示read的类型
+type ReadType int
+
+const (
+	ReadTypeMatch              ReadType = iota // 匹配
+	ReadTypeInsert                             // 插入
+	ReadTypeDelete                             // 缺失
+	ReadTypeSubstitution                       // 替换
+	ReadTypeInsertDelete                       // 插入+缺失
+	ReadTypeInsertSubstitution                 // 插入+替换
+	ReadTypeDeleteSubstitution                 // 缺失+替换
+	ReadTypeAll                                // 插入+缺失+替换
+)
+
+// ReadTypeNames ReadType对应的名称
+var ReadTypeNames = map[ReadType]string{
+	ReadTypeMatch:              "匹配",
+	ReadTypeInsert:             "插入",
+	ReadTypeDelete:             "缺失",
+	ReadTypeSubstitution:       "替换",
+	ReadTypeInsertDelete:       "插入+缺失",
+	ReadTypeInsertSubstitution: "插入+替换",
+	ReadTypeDeleteSubstitution: "缺失+替换",
+	ReadTypeAll:                "插入+缺失+替换",
+}
+
 // MutationStats 存储突变统计
 type MutationStats struct {
 	sync.RWMutex
-	PositionMutations   map[string]map[string]int            // sample -> position:mutation -> count
-	SampleMutations     map[string]map[string]int            // sample -> mutation -> count
-	TotalMutations      map[string]int                       // mutation -> total count
-	PositionDetails     map[string]map[string]map[string]int // sample -> position -> mutation -> count
-	SampleReadCounts    map[string]int                       // sample -> total reads count
-	SampleReadsWithMuts map[string]int                       // sample -> 包含突变的reads数
-	TotalReadCount      int                                  // 所有样本的总reads数
-	TotalReadsWithMuts  int                                  // 所有样本的包含突变reads数的和
+	PositionMutations    map[string]map[string]int            // sample -> position:mutation -> count
+	SampleMutations      map[string]map[string]int            // sample -> mutation -> count
+	TotalMutations       map[string]int                       // mutation -> total count
+	PositionDetails      map[string]map[string]map[string]int // sample -> position -> mutation -> count
+	SampleReadCounts     map[string]int                       // sample -> total reads count
+	SampleReadsWithMuts  map[string]int                       // sample -> 包含突变的reads数
+	SampleReadTypeCounts map[string]map[ReadType]int          // sample -> read type -> count
+	TotalReadCount       int                                  // 所有样本的总reads数
+	TotalReadsWithMuts   int                                  // 所有样本的包含突变reads数的和
+	TotalReadTypeCounts  map[ReadType]int                     // 所有样本的read type统计
 }
 
 // NewMutationStats 创建新的统计对象
 func NewMutationStats() *MutationStats {
 	return &MutationStats{
-		PositionMutations:   make(map[string]map[string]int),
-		SampleMutations:     make(map[string]map[string]int),
-		TotalMutations:      make(map[string]int),
-		PositionDetails:     make(map[string]map[string]map[string]int),
-		SampleReadCounts:    make(map[string]int),
-		SampleReadsWithMuts: make(map[string]int),
-		TotalReadCount:      0,
-		TotalReadsWithMuts:  0,
+		PositionMutations:    make(map[string]map[string]int),
+		SampleMutations:      make(map[string]map[string]int),
+		TotalMutations:       make(map[string]int),
+		PositionDetails:      make(map[string]map[string]map[string]int),
+		SampleReadCounts:     make(map[string]int),
+		SampleReadsWithMuts:  make(map[string]int),
+		SampleReadTypeCounts: make(map[string]map[ReadType]int),
+		TotalReadCount:       0,
+		TotalReadsWithMuts:   0,
+		TotalReadTypeCounts:  make(map[ReadType]int),
 	}
 }
 
@@ -105,6 +135,13 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	var debugCount int
 	var totalXOps int
 
+	// 初始化样本的read type统计
+	stats.Lock()
+	if _, ok := stats.SampleReadTypeCounts[sampleName]; !ok {
+		stats.SampleReadTypeCounts[sampleName] = make(map[ReadType]int)
+	}
+	stats.Unlock()
+
 	// 遍历所有记录
 	for {
 		read, err := br.Read()
@@ -118,6 +155,15 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 		if read.Flags&sam.Unmapped != 0 {
 			continue
 		}
+
+		// 分析read类型
+		readType := analyzeReadType(read)
+
+		// 更新read type统计
+		stats.Lock()
+		stats.SampleReadTypeCounts[sampleName][readType]++
+		stats.TotalReadTypeCounts[readType]++
+		stats.Unlock()
 
 		// 解析突变
 		mutations := parseCigarXWithMD(read)
@@ -198,11 +244,24 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	stats.TotalReadsWithMuts += readsWithMutations
 	stats.Unlock()
 
+	// 打印read type统计
+	stats.RLock()
+	readTypeCounts := stats.SampleReadTypeCounts[sampleName]
+	stats.RUnlock()
+
 	fmt.Printf("  总reads数: %d\n", totalReads)
 	fmt.Printf("  [DEBUG]有CIGAR X操作的reads数: %d\n", totalXReads)
 	fmt.Printf("  包含突变的reads数: %d\n", readsWithMutations)
 	fmt.Printf("  总X操作数: %d\n", totalXOps)
 	fmt.Printf("  总突变数: %d\n", totalMutations)
+	fmt.Printf("  Read类型统计:\n")
+	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
+		count := readTypeCounts[rt]
+		if count > 0 {
+			percentage := float64(count) / float64(totalReads) * 100
+			fmt.Printf("    %s: %d (%.2f%%)\n", ReadTypeNames[rt], count, percentage)
+		}
+	}
 
 	return nil
 }
@@ -355,11 +414,26 @@ func main() {
 		fmt.Printf("写入总突变统计失败: %v\n", err)
 	}
 
+	// 写入read类型统计
+	if err := writeReadTypeStats(stats, outputDir); err != nil {
+		fmt.Printf("写入read类型统计失败: %v\n", err)
+	}
 	// 写入汇总报告
 	if err := writeSummaryReport(stats, outputDir); err != nil {
 		fmt.Printf("写入汇总报告失败: %v\n", err)
 	}
 
-	fmt.Printf("\n处理完成! 总reads数: %d, 总包含突变reads数: %d\n",
-		stats.TotalReadCount, stats.TotalReadsWithMuts)
+	// 打印总体统计
+	fmt.Printf("\n处理完成!\n")
+	fmt.Printf("总体统计:\n")
+	fmt.Printf("  总reads数: %d\n", stats.TotalReadCount)
+	fmt.Printf("  总包含突变reads数: %d\n", stats.TotalReadsWithMuts)
+	fmt.Printf("  Read类型分布:\n")
+	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
+		count := stats.TotalReadTypeCounts[rt]
+		if count > 0 {
+			percentage := float64(count) / float64(stats.TotalReadCount) * 100
+			fmt.Printf("    %s: %d (%.2f%%)\n", ReadTypeNames[rt], count, percentage)
+		}
+	}
 }
