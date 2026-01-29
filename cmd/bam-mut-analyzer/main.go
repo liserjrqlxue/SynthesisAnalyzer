@@ -293,11 +293,15 @@ func findBAMFiles() ([]string, error) {
 	if excelFile != "" && len(sampleOrder) > 0 {
 		// 使用Excel中的样本顺序
 		for _, sampleName := range sampleOrder {
-			bamPath := filepath.Join(inputDir, "samples", sampleName, sampleName+".sorted.bam")
-			if _, err := os.Stat(bamPath); err == nil {
-				bamFiles = append(bamFiles, bamPath)
+			sortBam := filepath.Join(inputDir, "samples", sampleName, sampleName+".sorted.bam")
+			filterBam := filepath.Join(inputDir, sampleName, sampleName+".filter.bam")
+			if _, err := os.Stat(sortBam); err == nil {
+				bamFiles = append(bamFiles, sortBam)
+			} else if _, err := os.Stat(filterBam); err == nil {
+				bamFiles = append(bamFiles, filterBam)
+
 			} else {
-				fmt.Printf("警告: 找不到样本 %s 的BAM文件: %s\n", sampleName, bamPath)
+				fmt.Printf("警告: 找不到样本 %s 的BAM文件: %s or %s\n", sampleName, sortBam, filterBam)
 			}
 		}
 	} else {
@@ -307,8 +311,12 @@ func findBAMFiles() ([]string, error) {
 				return err
 			}
 
-			if !info.IsDir() && strings.HasSuffix(path, ".sorted.bam") {
-				bamFiles = append(bamFiles, path)
+			if !info.IsDir() {
+				if strings.HasSuffix(path, ".sorted.bam") {
+					bamFiles = append(bamFiles, path)
+				} else if strings.HasSuffix(path, ".filter.bam") {
+					bamFiles = append(bamFiles, path)
+				}
 			}
 
 			return nil
