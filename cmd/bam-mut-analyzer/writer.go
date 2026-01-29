@@ -7,23 +7,33 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // writePositionStats 写入各bam各位置各碱基变化组合的个数分布统计
 func writePositionStats(stats *MutationStats, outputDir string) error {
 	for sampleName, posDetails := range stats.PositionDetails {
 		filename := filepath.Join(outputDir, fmt.Sprintf("%s_position_stats.csv", sampleName))
+		filename2 := filepath.Join(outputDir, fmt.Sprintf("%s_position_stats2.csv", sampleName))
 		file, err := os.Create(filename)
 		if err != nil {
 			return fmt.Errorf("创建文件失败 %s: %v", filename, err)
 		}
 		defer file.Close()
+		file2, err := os.Create(filename2)
+		if err != nil {
+			return fmt.Errorf("创建文件失败 %s: %v", filename2, err)
+		}
+		defer file2.Close()
 
 		writer := bufio.NewWriter(file)
-		writer.WriteString("Sample,Position,Ref>Alt,Count,TotalReads\n")
+		writer.WriteString("Sample,Position,Ref>Alt,Count,TotalReads,ReadsWithMutations\n")
+		writer2 := bufio.NewWriter(file2)
+		writer2.WriteString("Sample,Position,Count,TotalReads,ReadsWithMutations\n")
 
-		// 获取样本的总reads数
+		// 获取样本的总reads数和包含突变的reads数
 		totalReads := stats.SampleReadCounts[sampleName]
+		readsWithMuts := stats.SampleReadsWithMuts[sampleName]
 
 		// 收集所有位置
 		var positions []string
@@ -46,14 +56,21 @@ func writePositionStats(stats *MutationStats, outputDir string) error {
 			}
 			sort.Strings(mutations)
 
+			count2 := 0
 			for _, mut := range mutations {
 				count := posDetails[pos][mut]
-				fmt.Fprintf(writer, "%s,%s,%s,%d,%d\n", sampleName, pos, mut, count, totalReads)
+				fmt.Fprintf(writer, "%s,%s,%s,%d,%d,%d\n",
+					sampleName, pos, mut, count, totalReads, readsWithMuts)
+				count2 += count
 			}
+			fmt.Fprintf(writer2, "%s,%s,%d,%d,%d\n",
+				sampleName, pos, count2, totalReads, readsWithMuts)
 		}
 
 		writer.Flush()
 		fmt.Printf("  已写入: %s\n", filename)
+		writer2.Flush()
+		fmt.Printf("  已写入: %s\n", filename2)
 	}
 
 	return nil
@@ -70,10 +87,11 @@ func writeSampleMutationStats(stats *MutationStats, outputDir string) error {
 		defer file.Close()
 
 		writer := bufio.NewWriter(file)
-		writer.WriteString("Sample,Ref>Alt,Count,TotalReads\n")
+		writer.WriteString("Sample,Ref>Alt,Count,TotalReads,ReadsWithMutations\n")
 
-		// 获取样本的总reads数
+		// 获取样本的总reads数和包含突变的reads数
 		totalReads := stats.SampleReadCounts[sampleName]
+		readsWithMuts := stats.SampleReadsWithMuts[sampleName]
 
 		// 收集所有突变
 		var mutations []string
@@ -84,7 +102,8 @@ func writeSampleMutationStats(stats *MutationStats, outputDir string) error {
 
 		for _, mut := range mutations {
 			count := mutCounts[mut]
-			fmt.Fprintf(writer, "%s,%s,%d,%d\n", sampleName, mut, count, totalReads)
+			fmt.Fprintf(writer, "%s,%s,%d,%d,%d\n",
+				sampleName, mut, count, totalReads, readsWithMuts)
 		}
 
 		writer.Flush()
@@ -104,7 +123,7 @@ func writeTotalMutationStats(stats *MutationStats, outputDir string) error {
 	defer file.Close()
 
 	writer := bufio.NewWriter(file)
-	writer.WriteString("Ref>Alt,Count,TotalReads\n")
+	writer.WriteString("Ref>Alt,Count,TotalReads,TotalReadsWithMutations\n")
 
 	// 收集所有突变
 	var mutations []string
@@ -113,12 +132,14 @@ func writeTotalMutationStats(stats *MutationStats, outputDir string) error {
 	}
 	sort.Strings(mutations)
 
-	// 获取所有样本的总reads数
+	// 获取所有样本的总reads数和包含突变reads数的和
 	totalReads := stats.TotalReadCount
+	totalReadsWithMuts := stats.TotalReadsWithMuts
 
 	for _, mut := range mutations {
 		count := stats.TotalMutations[mut]
-		fmt.Fprintf(writer, "%s,%d,%d\n", mut, count, totalReads)
+		fmt.Fprintf(writer, "%s,%d,%d,%d\n",
+			mut, count, totalReads, totalReadsWithMuts)
 	}
 
 	writer.Flush()
@@ -155,11 +176,12 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	sort.Strings(mutationTypes)
 
 	// 写入表头
-	header := "Sample,Total_Reads,Total_Mutations"
+	var header strings.Builder
+	header.WriteString("Sample,Total_Reads,Reads_With_Mutations,Total_Mutations")
 	for _, mut := range mutationTypes {
-		header += "," + mut
+		header.WriteString("," + mut)
 	}
-	writer.WriteString(header + "\n")
+	writer.WriteString(header.String() + "\n")
 
 	// 收集样本名并排序
 	var sampleNames []string
@@ -172,17 +194,19 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	for _, sampleName := range sampleNames {
 		sampleMuts := stats.SampleMutations[sampleName]
 		totalReads := stats.SampleReadCounts[sampleName]
+		readsWithMuts := stats.SampleReadsWithMuts[sampleName]
 		totalMutations := 0
 		for _, count := range sampleMuts {
 			totalMutations += count
 		}
 
-		row := fmt.Sprintf("%s,%d,%d", sampleName, totalReads, totalMutations)
+		var row strings.Builder
+		fmt.Fprintf(&row, "%s,%d,%d,%d", sampleName, totalReads, readsWithMuts, totalMutations)
 		for _, mut := range mutationTypes {
 			count := sampleMuts[mut]
-			row += fmt.Sprintf(",%d", count)
+			fmt.Fprintf(&row, ",%d", count)
 		}
-		writer.WriteString(row + "\n")
+		writer.WriteString(row.String() + "\n")
 	}
 
 	writer.Flush()

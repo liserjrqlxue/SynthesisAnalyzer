@@ -14,23 +14,27 @@ import (
 // MutationStats 存储突变统计
 type MutationStats struct {
 	sync.RWMutex
-	PositionMutations map[string]map[string]int            // sample -> position:mutation -> count
-	SampleMutations   map[string]map[string]int            // sample -> mutation -> count
-	TotalMutations    map[string]int                       // mutation -> total count
-	PositionDetails   map[string]map[string]map[string]int // sample -> position -> mutation -> count
-	SampleReadCounts  map[string]int                       // sample -> total reads count
-	TotalReadCount    int                                  // 所有样本的总reads数
+	PositionMutations   map[string]map[string]int            // sample -> position:mutation -> count
+	SampleMutations     map[string]map[string]int            // sample -> mutation -> count
+	TotalMutations      map[string]int                       // mutation -> total count
+	PositionDetails     map[string]map[string]map[string]int // sample -> position -> mutation -> count
+	SampleReadCounts    map[string]int                       // sample -> total reads count
+	SampleReadsWithMuts map[string]int                       // sample -> 包含突变的reads数
+	TotalReadCount      int                                  // 所有样本的总reads数
+	TotalReadsWithMuts  int                                  // 所有样本的包含突变reads数的和
 }
 
 // NewMutationStats 创建新的统计对象
 func NewMutationStats() *MutationStats {
 	return &MutationStats{
-		PositionMutations: make(map[string]map[string]int),
-		SampleMutations:   make(map[string]map[string]int),
-		TotalMutations:    make(map[string]int),
-		PositionDetails:   make(map[string]map[string]map[string]int),
-		SampleReadCounts:  make(map[string]int),
-		TotalReadCount:    0,
+		PositionMutations:   make(map[string]map[string]int),
+		SampleMutations:     make(map[string]map[string]int),
+		TotalMutations:      make(map[string]int),
+		PositionDetails:     make(map[string]map[string]map[string]int),
+		SampleReadCounts:    make(map[string]int),
+		SampleReadsWithMuts: make(map[string]int),
+		TotalReadCount:      0,
+		TotalReadsWithMuts:  0,
 	}
 }
 
@@ -78,12 +82,11 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 
 	fmt.Printf("处理样本: %s\n", sampleName)
 
-	var totalReads, readsWithMutations int
+	var totalReads, readsWithMutations, totalMutations int
 
 	var totalXReads int
 	var debugCount int
 	var totalXOps int
-	var totalMutations int
 
 	// 遍历所有记录
 	for {
@@ -173,7 +176,9 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	// 更新reads计数
 	stats.Lock()
 	stats.SampleReadCounts[sampleName] = totalReads
+	stats.SampleReadsWithMuts[sampleName] = readsWithMutations
 	stats.TotalReadCount += totalReads
+	stats.TotalReadsWithMuts += readsWithMutations
 	stats.Unlock()
 
 	// 打印调试信息
