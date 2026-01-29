@@ -194,17 +194,41 @@ func countXOperations(read *sam.Record) int {
 	return count
 }
 
-// analyzeReadType 分析read的类型
+// checkMismatchInMD 检查MD字符串中是否有错配和删除 - 简化版本
+func checkMismatchInMD(mdStr string) (bool, bool) {
+	hasDelete := false
+	hasSubstitution := false
+
+	i := 0
+	for i < len(mdStr) {
+		if mdStr[i] >= '0' && mdStr[i] <= '9' {
+			// 跳过数字
+			i++
+			for i < len(mdStr) && mdStr[i] >= '0' && mdStr[i] <= '9' {
+				i++
+			}
+		} else if mdStr[i] == '^' {
+			hasDelete = true
+			i++
+			// 跳过所有非数字字符（删除的碱基）
+			for i < len(mdStr) && !(mdStr[i] >= '0' && mdStr[i] <= '9') {
+				i++
+			}
+		} else {
+			// 不是数字也不是'^'，就是错配碱基
+			hasSubstitution = true
+			i++
+		}
+	}
+
+	return hasDelete, hasSubstitution
+}
+
+// analyzeReadType 分析read的类型 - 修正版本
 func analyzeReadType(read *sam.Record) ReadType {
 	hasInsert := false
 	hasDelete := false
 	hasSubstitution := false
-
-	// 检查是否有MD标签
-	mdTag, hasMD := read.Tag([]byte{'M', 'D'})
-	if !hasMD {
-		return ReadTypeMatch // 没有MD标签，默认为匹配
-	}
 
 	// 检查CIGAR操作
 	for _, cigarOp := range read.Cigar {
@@ -220,16 +244,19 @@ func analyzeReadType(read *sam.Record) ReadType {
 		}
 	}
 
-	// 如果没有CIGAR中的X操作，检查MD标签中是否有错配
-	if !hasSubstitution && hasMD {
+	// 检查是否有MD标签
+	mdTag, hasMD := read.Tag([]byte{'M', 'D'})
+	if hasMD {
 		mdStr := mdTag.String()
 		mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
-		// 检查MD字符串中是否有错配（大写字母）
-		for i := 0; i < len(mdStr); i++ {
-			if (mdStr[i] >= 'A' && mdStr[i] <= 'Z') && mdStr[i] != '^' {
-				hasSubstitution = true
-				break
-			}
+
+		// 从MD字符串检查删除和错配
+		mdHasDelete, mdHasSubstitution := checkMismatchInMD(mdStr)
+		if mdHasDelete {
+			hasDelete = true
+		}
+		if mdHasSubstitution {
+			hasSubstitution = true
 		}
 	}
 
