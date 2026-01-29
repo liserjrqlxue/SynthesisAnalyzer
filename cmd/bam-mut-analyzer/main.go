@@ -1,9 +1,11 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -51,6 +53,21 @@ type MDOp struct {
 	Length int
 	Base   byte
 	Bases  string
+}
+
+// 全局变量，用于存储命令行参数
+var (
+	inputDir    string
+	outputDir   string
+	excelFile   string
+	sampleOrder []string // 样本顺序列表
+)
+
+func init() {
+	// 定义命令行参数
+	flag.StringVar(&inputDir, "d", "", "输入目录，包含样本子目录")
+	flag.StringVar(&outputDir, "o", "", "输出目录")
+	flag.StringVar(&excelFile, "i", "", "可选参数：输入Excel文件，包含样本顺序")
 }
 
 func isDigit(c byte) bool {
@@ -181,8 +198,6 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	stats.TotalReadsWithMuts += readsWithMutations
 	stats.Unlock()
 
-	// 打印调试信息
-
 	fmt.Printf("  总reads数: %d\n", totalReads)
 	fmt.Printf("  [DEBUG]有CIGAR X操作的reads数: %d\n", totalXReads)
 	fmt.Printf("  包含突变的reads数: %d\n", readsWithMutations)
@@ -213,46 +228,85 @@ func debugCigar(read *sam.Record) bool {
 }
 
 // findBAMFiles 查找所有BAM文件
-func findBAMFiles(inputDir string) ([]string, error) {
+func findBAMFiles() ([]string, error) {
 	var bamFiles []string
 
-	err := filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
+	if excelFile != "" && len(sampleOrder) > 0 {
+		// 使用Excel中的样本顺序
+		for _, sampleName := range sampleOrder {
+			bamPath := filepath.Join(inputDir, "samples", sampleName, sampleName+".sorted.bam")
+			if _, err := os.Stat(bamPath); err == nil {
+				bamFiles = append(bamFiles, bamPath)
+			} else {
+				fmt.Printf("警告: 找不到样本 %s 的BAM文件: %s\n", sampleName, bamPath)
+			}
+		}
+	} else {
+		// 原来的方法：递归查找所有BAM文件
+		err := filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if !info.IsDir() && strings.HasSuffix(path, ".sorted.bam") {
+				bamFiles = append(bamFiles, path)
+			}
+
+			return nil
+		})
+
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		if !info.IsDir() && strings.HasSuffix(path, ".sorted.bam") {
-			bamFiles = append(bamFiles, path)
-		}
+		// 按路径排序
+		sort.Strings(bamFiles)
+	}
 
-		return nil
-	})
-
-	return bamFiles, err
+	return bamFiles, nil
 }
 
 func main() {
 	// 解析命令行参数
-	if len(os.Args) < 3 {
-		fmt.Println("使用方法: bam-mut-analyzer <输入目录> <输出目录>")
-		fmt.Println("示例: bam-mut-analyzer input-0116B-2.splitter/samples mutation_stats")
+	flag.Parse()
+
+	// 验证必需参数
+	if inputDir == "" || outputDir == "" {
+		fmt.Println("错误: 必需参数缺失")
+		fmt.Println("使用方法:")
+		flag.PrintDefaults()
 		os.Exit(1)
 	}
 
-	inputDir := os.Args[1]
-	outputDir := os.Args[2]
+	// 检查输入目录是否存在
+	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
+		fmt.Printf("错误: 输入目录不存在: %s\n", inputDir)
+		os.Exit(1)
+	}
+
+	// 如果指定了Excel文件，读取样本顺序
+	if excelFile != "" {
+		fmt.Printf("读取Excel文件: %s\n", excelFile)
+		var err error
+		sampleOrder, err = readExcelSampleOrder(excelFile)
+		if err != nil {
+			fmt.Printf("错误: 读取Excel文件失败: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("从Excel读取到 %d 个样本\n", len(sampleOrder))
+	}
 
 	// 创建输出目录
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		fmt.Printf("创建输出目录失败: %v\n", err)
-		return
+		os.Exit(1)
 	}
 
 	// 查找所有BAM文件
-	bamFiles, err := findBAMFiles(inputDir)
+	bamFiles, err := findBAMFiles()
 	if err != nil {
 		fmt.Printf("查找BAM文件失败: %v\n", err)
-		return
+		os.Exit(1)
 	}
 
 	fmt.Printf("找到 %d 个BAM文件\n", len(bamFiles))
@@ -306,5 +360,6 @@ func main() {
 		fmt.Printf("写入汇总报告失败: %v\n", err)
 	}
 
-	fmt.Printf("\n处理完成! 总reads数: %d\n", stats.TotalReadCount)
+	fmt.Printf("\n处理完成! 总reads数: %d, 总包含突变reads数: %d\n",
+		stats.TotalReadCount, stats.TotalReadsWithMuts)
 }

@@ -12,7 +12,25 @@ import (
 
 // writePositionStats 写入各bam各位置各碱基变化组合的个数分布统计
 func writePositionStats(stats *MutationStats, outputDir string) error {
-	for sampleName, posDetails := range stats.PositionDetails {
+	// 确定样本顺序
+	var sampleNames []string
+	if excelFile != "" && len(sampleOrder) > 0 {
+		// 使用Excel中的样本顺序
+		sampleNames = sampleOrder
+	} else {
+		// 收集所有样本名并按字母排序
+		for sampleName := range stats.PositionDetails {
+			sampleNames = append(sampleNames, sampleName)
+		}
+		sort.Strings(sampleNames)
+	}
+
+	for _, sampleName := range sampleNames {
+		posDetails, exists := stats.PositionDetails[sampleName]
+		if !exists {
+			continue
+		}
+
 		filename := filepath.Join(outputDir, fmt.Sprintf("%s_position_stats.csv", sampleName))
 		filename2 := filepath.Join(outputDir, fmt.Sprintf("%s_position_stats2.csv", sampleName))
 		file, err := os.Create(filename)
@@ -78,7 +96,25 @@ func writePositionStats(stats *MutationStats, outputDir string) error {
 
 // writeSampleMutationStats 写入各bam各碱基变化组合的分布
 func writeSampleMutationStats(stats *MutationStats, outputDir string) error {
-	for sampleName, mutCounts := range stats.SampleMutations {
+	// 确定样本顺序
+	var sampleNames []string
+	if excelFile != "" && len(sampleOrder) > 0 {
+		// 使用Excel中的样本顺序
+		sampleNames = sampleOrder
+	} else {
+		// 收集所有样本名并按字母排序
+		for sampleName := range stats.SampleMutations {
+			sampleNames = append(sampleNames, sampleName)
+		}
+		sort.Strings(sampleNames)
+	}
+
+	for _, sampleName := range sampleNames {
+		mutCounts, exists := stats.SampleMutations[sampleName]
+		if !exists {
+			continue
+		}
+
 		filename := filepath.Join(outputDir, fmt.Sprintf("%s_mutation_stats.csv", sampleName))
 		file, err := os.Create(filename)
 		if err != nil {
@@ -176,23 +212,32 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	sort.Strings(mutationTypes)
 
 	// 写入表头
-	var header strings.Builder
-	header.WriteString("Sample,Total_Reads,Reads_With_Mutations,Total_Mutations")
+	header := "Sample,Total_Reads,Reads_With_Mutations,Total_Mutations"
 	for _, mut := range mutationTypes {
-		header.WriteString("," + mut)
+		header += "," + mut
 	}
-	writer.WriteString(header.String() + "\n")
+	writer.WriteString(header + "\n")
 
-	// 收集样本名并排序
+	// 确定样本顺序
 	var sampleNames []string
-	for sampleName := range stats.SampleMutations {
-		sampleNames = append(sampleNames, sampleName)
+	if excelFile != "" && len(sampleOrder) > 0 {
+		// 使用Excel中的样本顺序
+		sampleNames = sampleOrder
+	} else {
+		// 收集所有样本名并按字母排序
+		for sampleName := range stats.SampleMutations {
+			sampleNames = append(sampleNames, sampleName)
+		}
+		sort.Strings(sampleNames)
 	}
-	sort.Strings(sampleNames)
 
 	// 写入每行数据
 	for _, sampleName := range sampleNames {
-		sampleMuts := stats.SampleMutations[sampleName]
+		sampleMuts, exists := stats.SampleMutations[sampleName]
+		if !exists {
+			continue
+		}
+
 		totalReads := stats.SampleReadCounts[sampleName]
 		readsWithMuts := stats.SampleReadsWithMuts[sampleName]
 		totalMutations := 0
