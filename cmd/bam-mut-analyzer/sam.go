@@ -7,8 +7,8 @@ import (
 	"github.com/biogo/hts/sam"
 )
 
-// parseCigarXWithMD 使用MD标签获取参考碱基的X操作解析
-func parseCigarXWithMD(read *sam.Record) []Mutation {
+// parseMutationsWithMD 使用MD标签获取所有突变（包括CIGAR X和MD中的错配）
+func parseMutationsWithMD(read *sam.Record) []Mutation {
 	var mutations []Mutation
 
 	refStart := int(read.Pos) // 0-based起始位置
@@ -20,12 +20,11 @@ func parseCigarXWithMD(read *sam.Record) []Mutation {
 
 	// 获取MD标签
 	mdTag, hasMD := read.Tag([]byte{'M', 'D'})
-	if !hasMD {
-		return mutations
+	mdStr := ""
+	if hasMD {
+		mdStr = mdTag.String()
+		mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
 	}
-
-	mdStr := mdTag.String()
-	mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
 
 	// 解析MD字符串，建立位置到参考碱基的映射
 	mdMap := parseMDToMap(mdStr, refStart)
@@ -38,8 +37,10 @@ func parseCigarXWithMD(read *sam.Record) []Mutation {
 		op := cigarOp.Type()
 		length := cigarOp.Len()
 
-		if op == 8 { // X操作
-			for i := 0; i < length; i++ {
+		switch op {
+		case sam.CigarMismatch:
+			// X操作 - 直接作为替换
+			for i := range length {
 				position := refPos + i + 1 // 转换为1-based输出
 
 				// 从MD映射获取参考碱基
@@ -49,7 +50,7 @@ func parseCigarXWithMD(read *sam.Record) []Mutation {
 					refBase = inferRefBaseFromMD(mdStr, (refPos+i)-refStart)
 				}
 
-				// 获取read碱基
+				// 获取read碱基作为替代碱基
 				altBase := "N"
 				if readPos+i < len(seq) {
 					altBase = string(seq[readPos+i])
@@ -61,16 +62,40 @@ func parseCigarXWithMD(read *sam.Record) []Mutation {
 					Alt:      altBase,
 				})
 			}
+		// case sam.CigarMatch, sam.CigarEqual: // M或=操作 - 需要从MD中检查错配
+		case sam.CigarMatch: // M操作 - 需要从MD中检查错配
+			// 对于M操作，我们需要检查MD中是否有错配
+			for i := range length {
+				position := refPos + i + 1 // 转换为1-based输出
+
+				// 检查这个位置在MD中是否标记为错配
+				if refBase, ok := mdMap[refPos+i]; ok {
+					// MD中有这个位置，说明是错配
+					// 获取read碱基作为替代碱基
+					altBase := "N"
+					if readPos+i < len(seq) {
+						altBase = string(seq[readPos+i])
+					}
+
+					if refBase != altBase {
+						mutations = append(mutations, Mutation{
+							Position: position,
+							Ref:      refBase,
+							Alt:      altBase,
+						})
+					}
+				}
+			}
 		}
 
 		// 更新位置
 		switch op {
-		case 0, 7, 8: // M, =, X
+		case sam.CigarMatch, sam.CigarEqual, sam.CigarMismatch: // M, =, X
 			refPos += length
 			readPos += length
-		case 1, 4: // I, S
+		case sam.CigarInsertion, sam.CigarSoftClipped: // I, S
 			readPos += length
-		case 2, 3: // D, N
+		case sam.CigarDeletion, sam.CigarSkipped: // D, N
 			refPos += length
 		}
 	}
@@ -78,7 +103,7 @@ func parseCigarXWithMD(read *sam.Record) []Mutation {
 	return mutations
 }
 
-// parseMDToMap 解析MD字符串，返回位置(0-based)->参考碱基的映射
+// parseMDToMap 解析MD字符串，返回位置(0-based)->参考碱基的映射（只包含错配）
 func parseMDToMap(mdStr string, refStart int) map[int]string {
 	result := make(map[int]string)
 
@@ -107,17 +132,25 @@ func parseMDToMap(mdStr string, refStart int) map[int]string {
 			// 匹配区域，不记录到映射中
 			pos += num
 			i = j
-		} else if isBase(mdStr[i]) {
+		} else if isBase(mdStr[i]) && mdStr[i] != '^' {
 			// 错配（碱基）
-			result[pos] = string(mdStr[i])
-			pos++
-			i++
+			// 检查是否在删除标记后
+			if i > 0 && mdStr[i-1] == '^' {
+				// 在删除标记后，这是被删除的碱基，不是错配
+				pos++
+				i++
+			} else {
+				// 真正的错配
+				result[pos] = string(mdStr[i])
+				pos++
+				i++
+			}
 		} else if mdStr[i] == '^' {
 			// 删除
 			i++
+			// 跳过删除的碱基
 			for i < len(mdStr) && isBase(mdStr[i]) {
-				// 删除的碱基记录到映射中
-				result[pos] = string(mdStr[i])
+				// 删除的碱基不记录到错配映射中
 				pos++
 				i++
 			}
@@ -194,7 +227,7 @@ func countXOperations(read *sam.Record) int {
 	return count
 }
 
-// checkMismatchInMD 检查MD字符串中是否有错配和删除 - 简化版本
+// checkMismatchInMD 检查MD字符串中是否有错配和删除
 func checkMismatchInMD(mdStr string) (bool, bool) {
 	hasDelete := false
 	hasSubstitution := false
@@ -214,9 +247,11 @@ func checkMismatchInMD(mdStr string) (bool, bool) {
 			for i < len(mdStr) && !(mdStr[i] >= '0' && mdStr[i] <= '9') {
 				i++
 			}
-		} else {
+		} else if isBase(mdStr[i]) {
 			// 不是数字也不是'^'，就是错配碱基
 			hasSubstitution = true
+			i++
+		} else {
 			i++
 		}
 	}
@@ -224,33 +259,33 @@ func checkMismatchInMD(mdStr string) (bool, bool) {
 	return hasDelete, hasSubstitution
 }
 
-// analyzeReadType 分析read的类型 - 修正版本
+// analyzeReadType 分析read的类型 - 更新版本，考虑M操作中的错配
 func analyzeReadType(read *sam.Record) ReadType {
 	hasInsert := false
 	hasDelete := false
 	hasSubstitution := false
 
-	// 检查CIGAR操作
+	// 1. 检查CIGAR操作
 	for _, cigarOp := range read.Cigar {
 		op := cigarOp.Type()
 
 		switch op {
-		case 1: // I: 插入
+		case sam.CigarInsertion: // I: 插入
 			hasInsert = true
-		case 2, 3: // D, N: 缺失或跳过
+		case sam.CigarDeletion, sam.CigarSkipped: // D, N: 缺失或跳过
 			hasDelete = true
-		case 8: // X: 替换
+		case sam.CigarMismatch: // X: 替换
 			hasSubstitution = true
 		}
 	}
 
-	// 检查是否有MD标签
+	// 2. 检查MD标签中的错配（包括M操作中的错配）
 	mdTag, hasMD := read.Tag([]byte{'M', 'D'})
 	if hasMD {
 		mdStr := mdTag.String()
 		mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
 
-		// 从MD字符串检查删除和错配
+		// 解析MD字符串检查错配
 		mdHasDelete, mdHasSubstitution := checkMismatchInMD(mdStr)
 		if mdHasDelete {
 			hasDelete = true
@@ -260,7 +295,7 @@ func analyzeReadType(read *sam.Record) ReadType {
 		}
 	}
 
-	// 根据组合确定类型
+	// 3. 根据组合确定类型
 	if !hasInsert && !hasDelete && !hasSubstitution {
 		return ReadTypeMatch
 	} else if hasInsert && !hasDelete && !hasSubstitution {

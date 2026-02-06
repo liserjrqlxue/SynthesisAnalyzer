@@ -184,9 +184,9 @@ func writeTotalMutationStats(stats *MutationStats, outputDir string) error {
 	return nil
 }
 
-// writeSummaryReport 写入汇总报告
+// writeSummaryReport 写入汇总报告 - 更新版本
 func writeSummaryReport(stats *MutationStats, outputDir string) error {
-	// 1. 样本汇总
+	// 1. 样本汇总（突变类型统计）
 	filename := filepath.Join(outputDir, "summary_by_sample.csv")
 	file, err := os.Create(filename)
 	if err != nil {
@@ -196,7 +196,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 
 	writer := bufio.NewWriter(file)
 
-	// 收集所有突变类型
+	// 收集所有突变类型（包括通过MD发现的）
 	allMutations := make(map[string]bool)
 	for _, sampleMuts := range stats.SampleMutations {
 		for mut := range sampleMuts {
@@ -213,8 +213,8 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 
 	// 写入表头
 	header := "Sample,Total_Reads,Reads_With_Mutations,Total_Mutations"
-	for _, mut := range mutationTypes {
-		header += "," + mut
+	if len(mutationTypes) > 0 {
+		header += "," + strings.Join(mutationTypes, ",")
 	}
 	writer.WriteString(header + "\n")
 
@@ -257,7 +257,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	writer.Flush()
 	fmt.Printf("样本汇总已写入: %s\n", filename)
 
-	// 2. 突变频谱
+	// 2. 突变频谱（按频率排序）
 	filename = filepath.Join(outputDir, "mutation_spectrum.csv")
 	file, err = os.Create(filename)
 	if err != nil {
@@ -268,25 +268,85 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	writer = bufio.NewWriter(file)
 	writer.WriteString("Mutation,Count,Frequency\n")
 
-	var mutations []string
-	for mut := range stats.TotalMutations {
-		mutations = append(mutations, mut)
+	// 创建突变类型和计数的切片用于排序
+	type mutationCount struct {
+		mutation string
+		count    int
 	}
-	sort.Strings(mutations)
+
+	var mutationCounts []mutationCount
+	for mut, count := range stats.TotalMutations {
+		mutationCounts = append(mutationCounts, mutationCount{mut, count})
+	}
+
+	// 按计数降序排序
+	sort.Slice(mutationCounts, func(i, j int) bool {
+		return mutationCounts[i].count > mutationCounts[j].count
+	})
 
 	totalMutations := 0
 	for _, count := range stats.TotalMutations {
 		totalMutations += count
 	}
 
-	for _, mut := range mutations {
-		count := stats.TotalMutations[mut]
+	// 写入排序后的数据
+	for _, mc := range mutationCounts {
+		count := mc.count
 		frequency := float64(count) / float64(totalMutations)
-		fmt.Fprintf(writer, "%s,%d,%.6f\n", mut, count, frequency)
+		percentage := frequency * 100
+		fmt.Fprintf(writer, "%s,%d,%.6f,%.4f%%\n",
+			mc.mutation, count, frequency, percentage)
+	}
+
+	// 3. 突变类型分析（transition/transversion等）
+	filename = filepath.Join(outputDir, "mutation_analysis.csv")
+	file, err = os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("创建文件失败 %s: %v", filename, err)
+	}
+	defer file.Close()
+
+	writer = bufio.NewWriter(file)
+	writer.WriteString("MutationType,Count,Percentage\n")
+
+	// 分析突变类型
+	var transitions, transversions, other int
+	for mut, count := range stats.TotalMutations {
+		if len(mut) >= 3 && mut[1] == '>' {
+			ref := mut[0]
+			alt := mut[2]
+
+			// 转换（嘌呤<->嘌呤或嘧啶<->嘧啶）
+			if (ref == 'A' && alt == 'G') || (ref == 'G' && alt == 'A') ||
+				(ref == 'C' && alt == 'T') || (ref == 'T' && alt == 'C') {
+				transitions += count
+			} else if (ref == 'A' && alt == 'C') || (ref == 'A' && alt == 'T') ||
+				(ref == 'G' && alt == 'C') || (ref == 'G' && alt == 'T') ||
+				(ref == 'C' && alt == 'A') || (ref == 'C' && alt == 'G') ||
+				(ref == 'T' && alt == 'A') || (ref == 'T' && alt == 'G') {
+				transversions += count
+			} else {
+				other += count
+			}
+		} else {
+			other += count
+		}
+	}
+
+	total := transitions + transversions + other
+	if total > 0 {
+		fmt.Fprintf(writer, "Transitions,%d,%.4f%%\n",
+			transitions, float64(transitions)/float64(total)*100)
+		fmt.Fprintf(writer, "Transversions,%d,%.4f%%\n",
+			transversions, float64(transversions)/float64(total)*100)
+		fmt.Fprintf(writer, "Other,%d,%.4f%%\n",
+			other, float64(other)/float64(total)*100)
+		fmt.Fprintf(writer, "Ti/Tv Ratio,%.4f,\n",
+			float64(transitions)/float64(transversions))
 	}
 
 	writer.Flush()
-	fmt.Printf("突变频谱已写入: %s\n", filename)
+	fmt.Printf("突变分析已写入: %s\n", filename)
 
 	return nil
 }

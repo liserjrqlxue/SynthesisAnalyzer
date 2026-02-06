@@ -96,7 +96,7 @@ var (
 func init() {
 	// 定义命令行参数
 	flag.StringVar(&inputDir, "d", "", "输入目录，包含样本子目录")
-	flag.StringVar(&outputDir, "o", "", "输出目录")
+	flag.StringVar(&outputDir, "o", "", "输出目录, 默认输入目录/mutation_stats")
 	flag.StringVar(&excelFile, "i", "", "可选参数：输入Excel文件，包含样本顺序")
 }
 
@@ -166,7 +166,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 		stats.Unlock()
 
 		// 解析突变
-		mutations := parseCigarXWithMD(read)
+		mutations := parseMutationsWithMD(read)
 
 		// 调试：检查是否有X操作
 		hasX := debugCigar(read)
@@ -338,7 +338,7 @@ func main() {
 	flag.Parse()
 
 	// 验证必需参数
-	if inputDir == "" || outputDir == "" {
+	if inputDir == "" {
 		fmt.Println("错误: 必需参数缺失")
 		fmt.Println("使用方法:")
 		flag.PrintDefaults()
@@ -364,6 +364,9 @@ func main() {
 	}
 
 	// 创建输出目录
+	if outputDir == "" {
+		outputDir = filepath.Join(inputDir, "mutation_stats")
+	}
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		fmt.Printf("创建输出目录失败: %v\n", err)
 		os.Exit(1)
