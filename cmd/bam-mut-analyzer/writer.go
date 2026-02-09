@@ -297,6 +297,8 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 		fmt.Fprintf(writer, "%s,%d,%.6f,%.4f%%\n",
 			mc.mutation, count, frequency, percentage)
 	}
+	writer.Flush()
+	fmt.Printf("突变频谱已写入: %s\n", filename)
 
 	// 3. 突变类型分析（transition/transversion等）
 	filename = filepath.Join(outputDir, "mutation_analysis.csv")
@@ -364,12 +366,13 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	writer := bufio.NewWriter(file)
 
 	// 写入表头
-	header := "Sample,TotalReads"
+	var header strings.Builder
+	header.WriteString("Sample,TotalReads")
 	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
-		header += "," + ReadTypeNames[rt]
+		header.WriteString("," + ReadTypeNames[rt])
 	}
-	header += ",ReadsWithMutations"
-	writer.WriteString(header + "\n")
+	header.WriteString(",ReadsWithMutations")
+	writer.WriteString(header.String() + "\n")
 
 	// 确定样本顺序
 	var sampleNames []string
@@ -457,19 +460,20 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	// 写入表头
 	writer.WriteString("ReadType,Sample")
 	for _, sampleName := range sampleNames {
-		writer.WriteString(fmt.Sprintf(",%s_Count,%s_Percentage", sampleName, sampleName))
+		fmt.Fprintf(writer, ",%s_Count,%s_Percentage", sampleName, sampleName)
 	}
 	writer.WriteString(",Total_Count,Total_Percentage\n")
 
 	// 写入每种read类型的数据
 	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
-		row := fmt.Sprintf("%s,", ReadTypeNames[rt])
+		var row strings.Builder
+		fmt.Fprintf(&row, "%s,", ReadTypeNames[rt])
 
 		// 写入每个样本的计数和百分比
 		for _, sampleName := range sampleNames {
 			sampleReadTypeCounts, exists := stats.SampleReadTypeCounts[sampleName]
 			if !exists {
-				row += "0,0.00%,"
+				row.WriteString("0,0.00%,")
 				continue
 			}
 
@@ -480,19 +484,20 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 				percentage = float64(count) / float64(sampleTotalReads) * 100
 			}
 
-			row += fmt.Sprintf("%d,%.2f%%,", count, percentage)
+			fmt.Fprintf(&row, "%d,%.2f%%,", count, percentage)
 		}
 
 		// 写入总计
 		totalCount := stats.TotalReadTypeCounts[rt]
 		totalPercentage := float64(totalCount) / float64(totalReads) * 100
-		row += fmt.Sprintf("%d,%.2f%%", totalCount, totalPercentage)
+		fmt.Fprintf(&row, "%d,%.2f%%", totalCount, totalPercentage)
 
-		writer.WriteString(row + "\n")
+		writer.WriteString(row.String() + "\n")
 	}
 
 	// 添加包含突变的reads行
-	row := "包含突变的reads,"
+	var row strings.Builder
+	row.WriteString("包含突变的reads,")
 	for _, sampleName := range sampleNames {
 		readsWithMuts := stats.SampleReadsWithMuts[sampleName]
 		sampleTotalReads := stats.SampleReadCounts[sampleName]
@@ -501,16 +506,484 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 			percentage = float64(readsWithMuts) / float64(sampleTotalReads) * 100
 		}
 
-		row += fmt.Sprintf("%d,%.2f%%,", readsWithMuts, percentage)
+		fmt.Fprintf(&row, "%d,%.2f%%,", readsWithMuts, percentage)
 	}
 
-	row += fmt.Sprintf("%d,%.2f%%", stats.TotalReadsWithMuts,
+	fmt.Fprintf(&row, "%d,%.2f%%", stats.TotalReadsWithMuts,
 		float64(stats.TotalReadsWithMuts)/float64(totalReads)*100)
 
-	writer.WriteString(row + "\n")
+	writer.WriteString(row.String() + "\n")
 
 	writer.Flush()
 	fmt.Printf("详细read类型统计已写入: %s\n", filename)
+
+	return nil
+}
+
+// writeDetailedStats 写入详细统计信息
+func writeDetailedStats(stats *MutationStats, outputDir string) error {
+	// 1. 插入长度分布
+	filename := filepath.Join(outputDir, "insert_length_distribution.csv")
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("创建文件失败 %s: %v", filename, err)
+	}
+	defer file.Close()
+
+	writer := bufio.NewWriter(file)
+	writer.WriteString("InsertLength,SampleCount,TotalCount,SamplePercentage,TotalPercentage\n")
+
+	// 插入长度标签
+	lengthLabels := map[int]string{
+		1: "1",
+		2: "2",
+		3: "3",
+		4: ">3",
+	}
+
+	for _, length := range []int{1, 2, 3, 4} {
+		totalCount := stats.TotalInsertLengthDist[length]
+		totalPercentage := 0.0
+		if stats.TotalAlignedReads > 0 {
+			totalPercentage = float64(totalCount) / float64(stats.TotalAlignedReads) * 100
+		}
+
+		writer.WriteString(fmt.Sprintf("%s,", lengthLabels[length]))
+
+		// 各样本计数
+		sampleCounts := []string{}
+		for sampleName := range stats.SampleInsertLengthDist {
+			count := stats.SampleInsertLengthDist[sampleName][length]
+			sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
+		}
+		writer.WriteString(strings.Join(sampleCounts, ";") + ",")
+
+		writer.WriteString(fmt.Sprintf("%d,", totalCount))
+
+		// 各样本百分比（相对于比对reads）
+		samplePercents := []string{}
+		for sampleName := range stats.SampleInsertLengthDist {
+			count := stats.SampleInsertLengthDist[sampleName][length]
+			percent := 0.0
+			if stats.SampleAlignedReads[sampleName] > 0 {
+				percent = float64(count) / float64(stats.SampleAlignedReads[sampleName]) * 100
+			}
+			samplePercents = append(samplePercents, fmt.Sprintf("%s:%.2f%%", sampleName, percent))
+		}
+		writer.WriteString(strings.Join(samplePercents, ";") + ",")
+
+		writer.WriteString(fmt.Sprintf("%.4f%%\n", totalPercentage))
+	}
+
+	writer.Flush()
+	fmt.Printf("插入长度分布已写入: %s\n", filename)
+
+	// 2. 缺失长度分布
+	filename = filepath.Join(outputDir, "delete_length_distribution.csv")
+	file, err = os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("创建文件失败 %s: %v", filename, err)
+	}
+	defer file.Close()
+
+	writer = bufio.NewWriter(file)
+	writer.WriteString("DeleteLength,SampleCount,TotalCount,SamplePercentage,TotalPercentage\n")
+
+	for _, length := range []int{1, 2, 3, 4} {
+		totalCount := stats.TotalDeleteLengthDist[length]
+		totalPercentage := 0.0
+		if stats.TotalAlignedReads > 0 {
+			totalPercentage = float64(totalCount) / float64(stats.TotalAlignedReads) * 100
+		}
+
+		writer.WriteString(fmt.Sprintf("%s,", lengthLabels[length]))
+
+		// 各样本计数
+		sampleCounts := []string{}
+		for sampleName := range stats.SampleDeleteLengthDist {
+			count := stats.SampleDeleteLengthDist[sampleName][length]
+			sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
+		}
+		writer.WriteString(strings.Join(sampleCounts, ";") + ",")
+
+		writer.WriteString(fmt.Sprintf("%d,", totalCount))
+
+		// 各样本百分比
+		samplePercents := []string{}
+		for sampleName := range stats.SampleDeleteLengthDist {
+			count := stats.SampleDeleteLengthDist[sampleName][length]
+			percent := 0.0
+			if stats.SampleAlignedReads[sampleName] > 0 {
+				percent = float64(count) / float64(stats.SampleAlignedReads[sampleName]) * 100
+			}
+			samplePercents = append(samplePercents, fmt.Sprintf("%s:%.2f%%", sampleName, percent))
+		}
+		writer.WriteString(strings.Join(samplePercents, ";") + ",")
+
+		writer.WriteString(fmt.Sprintf("%.4f%%\n", totalPercentage))
+	}
+
+	writer.Flush()
+	fmt.Printf("缺失长度分布已写入: %s\n", filename)
+
+	// 3. 最长缺失长度分布
+	filename = filepath.Join(outputDir, "max_delete_length_distribution.csv")
+	file, err = os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("创建文件失败 %s: %v", filename, err)
+	}
+	defer file.Close()
+
+	writer = bufio.NewWriter(file)
+	writer.WriteString("MaxDeleteLength,SampleCount,TotalCount,SamplePercentage,TotalPercentage\n")
+
+	for _, length := range []int{1, 2, 3, 4} {
+		totalCount := stats.TotalMaxDeleteLengthDist[length]
+		totalPercentage := 0.0
+		if stats.TotalAlignedReads > 0 {
+			totalPercentage = float64(totalCount) / float64(stats.TotalAlignedReads) * 100
+		}
+		writer.WriteString(fmt.Sprintf("%s,", lengthLabels[length]))
+		writer.WriteString(fmt.Sprintf("%d,", totalCount))
+		writer.WriteString(fmt.Sprintf("%.4f%%\n", totalPercentage))
+	}
+
+	writer.Flush()
+	fmt.Printf("最长缺失长度分布已写入: %s\n", filename)
+
+	// 4. 详细类型组合统计
+	filename = filepath.Join(outputDir, "detailed_type_combinations.csv")
+	file, err = os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("创建文件失败 %s: %v", filename, err)
+	}
+	defer file.Close()
+
+	writer = bufio.NewWriter(file)
+	writer.WriteString("DetailedType,SampleCount,TotalCount,SamplePercentage,TotalPercentage\n")
+
+	// 收集所有详细类型
+	allDetailedTypes := make(map[string]bool)
+	for sampleName := range stats.SampleDetailedTypeCounts {
+		for typeKey := range stats.SampleDetailedTypeCounts[sampleName] {
+			allDetailedTypes[typeKey] = true
+		}
+	}
+
+	// 转换为排序的切片
+	var detailedTypes []string
+	for typeKey := range allDetailedTypes {
+		detailedTypes = append(detailedTypes, typeKey)
+	}
+	sort.Strings(detailedTypes)
+
+	for _, typeKey := range detailedTypes {
+		totalCount := stats.TotalDetailedTypeCounts[typeKey]
+		totalPercentage := 0.0
+		if stats.TotalAlignedReads > 0 {
+			totalPercentage = float64(totalCount) / float64(stats.TotalAlignedReads) * 100
+		}
+
+		writer.WriteString(fmt.Sprintf("%s,", typeKey))
+
+		// 各样本计数
+		sampleCounts := []string{}
+		for sampleName := range stats.SampleDetailedTypeCounts {
+			count := stats.SampleDetailedTypeCounts[sampleName][typeKey]
+			if count > 0 {
+				sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
+			}
+		}
+		writer.WriteString(strings.Join(sampleCounts, ";") + ",")
+
+		writer.WriteString(fmt.Sprintf("%d,", totalCount))
+
+		// 各样本百分比
+		samplePercents := []string{}
+		for sampleName := range stats.SampleDetailedTypeCounts {
+			count := stats.SampleDetailedTypeCounts[sampleName][typeKey]
+			if count > 0 {
+				percent := 0.0
+				if stats.SampleAlignedReads[sampleName] > 0 {
+					percent = float64(count) / float64(stats.SampleAlignedReads[sampleName]) * 100
+				}
+				samplePercents = append(samplePercents, fmt.Sprintf("%s:%.2f%%", sampleName, percent))
+			}
+		}
+		writer.WriteString(strings.Join(samplePercents, ";") + ",")
+
+		writer.WriteString(fmt.Sprintf("%.4f%%\n", totalPercentage))
+	}
+
+	writer.Flush()
+	fmt.Printf("详细类型组合统计已写入: %s\n", filename)
+
+	// 5. 比对率和变异比例（分母为比对reads）
+	filename = filepath.Join(outputDir, "alignment_and_mutation_rates.csv")
+	file, err = os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("创建文件失败 %s: %v", filename, err)
+	}
+	defer file.Close()
+
+	writer = bufio.NewWriter(file)
+	writer.WriteString("Sample,TotalReads,AlignedReads,AlignmentRate,ReadsWithMutations,MutationReadRate,TotalMutations,MutationRatePerRead\n")
+
+	// 确定样本顺序
+	var sampleNames []string
+	if excelFile != "" && len(sampleOrder) > 0 {
+		sampleNames = sampleOrder
+	} else {
+		for sampleName := range stats.SampleReadCounts {
+			sampleNames = append(sampleNames, sampleName)
+		}
+		sort.Strings(sampleNames)
+	}
+
+	for _, sampleName := range sampleNames {
+		totalReads := stats.SampleReadCounts[sampleName]
+		alignedReads := stats.SampleAlignedReads[sampleName]
+		readsWithMuts := stats.SampleReadsWithMuts[sampleName]
+
+		// 计算总突变数
+		totalMutations := 0
+		if sampleMuts, exists := stats.SampleMutations[sampleName]; exists {
+			for _, count := range sampleMuts {
+				totalMutations += count
+			}
+		}
+
+		alignmentRate := 0.0
+		mutationReadRate := 0.0
+		mutationRatePerRead := 0.0
+
+		if totalReads > 0 {
+			alignmentRate = float64(alignedReads) / float64(totalReads) * 100
+		}
+		if alignedReads > 0 {
+			mutationReadRate = float64(readsWithMuts) / float64(alignedReads) * 100
+			mutationRatePerRead = float64(totalMutations) / float64(alignedReads)
+		}
+
+		writer.WriteString(fmt.Sprintf("%s,%d,%d,%.4f%%,%d,%.4f%%,%d,%.4f\n",
+			sampleName, totalReads, alignedReads, alignmentRate,
+			readsWithMuts, mutationReadRate, totalMutations, mutationRatePerRead))
+	}
+
+	// 总计行
+	totalAlignmentRate := 0.0
+	totalMutationReadRate := 0.0
+	totalMutationRatePerRead := 0.0
+
+	if stats.TotalReadCount > 0 {
+		totalAlignmentRate = float64(stats.TotalAlignedReads) / float64(stats.TotalReadCount) * 100
+	}
+	totalMutations := 0
+	for _, count := range stats.TotalMutations {
+		totalMutations += count
+	}
+	if stats.TotalAlignedReads > 0 {
+		totalMutationReadRate = float64(stats.TotalReadsWithMuts) / float64(stats.TotalAlignedReads) * 100
+
+		totalMutationRatePerRead = float64(totalMutations) / float64(stats.TotalAlignedReads)
+	}
+
+	writer.WriteString(fmt.Sprintf("Total,%d,%d,%.4f%%,%d,%.4f%%,%d,%.4f\n",
+		stats.TotalReadCount, stats.TotalAlignedReads, totalAlignmentRate,
+		stats.TotalReadsWithMuts, totalMutationReadRate, totalMutations, totalMutationRatePerRead))
+
+	writer.Flush()
+	fmt.Printf("比对率和变异比例已写入: %s\n", filename)
+
+	return nil
+}
+
+// writeBaseMutationStats 写入碱基维度的变异统计
+func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
+	// 1. 碱基维度的变异类型统计
+	filename := filepath.Join(outputDir, "base_mutation_counts.csv")
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("创建文件失败 %s: %v", filename, err)
+	}
+	defer file.Close()
+
+	writer := bufio.NewWriter(file)
+	writer.WriteString("Sample,TotalReads,AlignedReads,SubstitutionBases,InsertionBases,DeletionBases,SubstitutionRate,InsertionRate,DeletionRate\n")
+
+	// 变异类型
+	// mutationTypes := []string{"substitution", "insertion", "deletion"}
+
+	// 确定样本顺序
+	var sampleNames []string
+	if excelFile != "" && len(sampleOrder) > 0 {
+		sampleNames = sampleOrder
+	} else {
+		for sampleName := range stats.SampleReadCounts {
+			sampleNames = append(sampleNames, sampleName)
+		}
+		sort.Strings(sampleNames)
+	}
+
+	for _, sampleName := range sampleNames {
+		totalReads := stats.SampleReadCounts[sampleName]
+		alignedReads := stats.SampleAlignedReads[sampleName]
+
+		// 获取碱基计数
+		substitutionBases := stats.MutationBaseCounts[sampleName]["substitution"]
+		insertionBases := stats.MutationBaseCounts[sampleName]["insertion"]
+		deletionBases := stats.MutationBaseCounts[sampleName]["deletion"]
+
+		// 计算比例（每千碱基）
+		substitutionRate := 0.0
+		insertionRate := 0.0
+		deletionRate := 0.0
+
+		if alignedReads > 0 {
+			// 假设平均read长度，这里简化处理
+			// 实际应该计算总比对碱基数
+			substitutionRate = float64(substitutionBases) / float64(alignedReads) * 1000
+			insertionRate = float64(insertionBases) / float64(alignedReads) * 1000
+			deletionRate = float64(deletionBases) / float64(alignedReads) * 1000
+		}
+
+		writer.WriteString(fmt.Sprintf("%s,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f\n",
+			sampleName, totalReads, alignedReads,
+			substitutionBases, insertionBases, deletionBases,
+			substitutionRate, insertionRate, deletionRate))
+	}
+
+	// 总计行
+	totalSubstitution := 0
+	totalInsertion := 0
+	totalDeletion := 0
+
+	for _, counts := range stats.MutationBaseCounts {
+		totalSubstitution += counts["substitution"]
+		totalInsertion += counts["insertion"]
+		totalDeletion += counts["deletion"]
+	}
+
+	totalSubstitutionRate := 0.0
+	totalInsertionRate := 0.0
+	totalDeletionRate := 0.0
+
+	if stats.TotalAlignedReads > 0 {
+		totalSubstitutionRate = float64(totalSubstitution) / float64(stats.TotalAlignedReads) * 1000
+		totalInsertionRate = float64(totalInsertion) / float64(stats.TotalAlignedReads) * 1000
+		totalDeletionRate = float64(totalDeletion) / float64(stats.TotalAlignedReads) * 1000
+	}
+
+	writer.WriteString(fmt.Sprintf("Total,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f\n",
+		stats.TotalReadCount, stats.TotalAlignedReads,
+		totalSubstitution, totalInsertion, totalDeletion,
+		totalSubstitutionRate, totalInsertionRate, totalDeletionRate))
+
+	writer.Flush()
+	fmt.Printf("碱基维度变异统计已写入: %s\n", filename)
+
+	// 2. 单碱基缺失统计
+	filename = filepath.Join(outputDir, "single_base_deletion_stats.csv")
+	file, err = os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("创建文件失败 %s: %v", filename, err)
+	}
+	defer file.Close()
+
+	writer = bufio.NewWriter(file)
+	writer.WriteString("Base,SampleCounts,TotalCount,SampleReads,TotalReads,SampleAlignedReads,TotalAlignedReads\n")
+
+	// 碱基顺序
+	bases := []byte{'A', 'C', 'G', 'T', 'N'}
+
+	for _, base := range bases {
+		totalCount := stats.TotalDeleteBaseCounts[base]
+
+		// 各样本计数
+		sampleCounts := []string{}
+		sampleReads := []string{}
+		sampleAlignedReads := []string{}
+
+		for _, sampleName := range sampleNames {
+			count := stats.SampleDeleteBaseCounts[sampleName][base]
+			if count > 0 {
+				sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
+				sampleReads = append(sampleReads, fmt.Sprintf("%s:%d", sampleName, stats.SampleReadCounts[sampleName]))
+				sampleAlignedReads = append(sampleAlignedReads, fmt.Sprintf("%s:%d", sampleName, stats.SampleAlignedReads[sampleName]))
+			}
+		}
+
+		writer.WriteString(fmt.Sprintf("%c,%s,%d,%s,%d,%s,%d\n",
+			base,
+			strings.Join(sampleCounts, ";"),
+			totalCount,
+			strings.Join(sampleReads, ";"),
+			stats.TotalReadCount,
+			strings.Join(sampleAlignedReads, ";"),
+			stats.TotalAlignedReads))
+	}
+
+	writer.Flush()
+	fmt.Printf("单碱基缺失统计已写入: %s\n", filename)
+
+	// 3. 插入序列统计
+	filename = filepath.Join(outputDir, "insertion_sequence_stats.csv")
+	file, err = os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("创建文件失败 %s: %v", filename, err)
+	}
+	defer file.Close()
+
+	writer = bufio.NewWriter(file)
+	writer.WriteString("InsertionSequence,SampleCounts,TotalCount\n")
+
+	// 收集所有插入序列
+	allInsertSeqs := make(map[string]bool)
+	for sampleName := range stats.SampleInsertBaseCounts {
+		for seq := range stats.SampleInsertBaseCounts[sampleName] {
+			allInsertSeqs[seq] = true
+		}
+	}
+
+	// 转换为切片并按长度和字母排序
+	var insertSeqs []string
+	for seq := range allInsertSeqs {
+		insertSeqs = append(insertSeqs, seq)
+	}
+	sort.Slice(insertSeqs, func(i, j int) bool {
+		if len(insertSeqs[i]) != len(insertSeqs[j]) {
+			return len(insertSeqs[i]) < len(insertSeqs[j])
+		}
+		return insertSeqs[i] < insertSeqs[j]
+	})
+
+	// 只输出前100个最常见的插入序列
+	outputLimit := 100
+	if len(insertSeqs) > outputLimit {
+		insertSeqs = insertSeqs[:outputLimit]
+	}
+
+	for _, seq := range insertSeqs {
+		totalCount := stats.TotalInsertBaseCounts[seq]
+
+		// 各样本计数
+		sampleCounts := []string{}
+		for _, sampleName := range sampleNames {
+			if counts, ok := stats.SampleInsertBaseCounts[sampleName]; ok {
+				if count, exists := counts[seq]; exists && count > 0 {
+					sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
+				}
+			}
+		}
+
+		writer.WriteString(fmt.Sprintf("%s,%s,%d\n",
+			seq,
+			strings.Join(sampleCounts, ";"),
+			totalCount))
+	}
+
+	writer.Flush()
+	fmt.Printf("插入序列统计已写入: %s\n", filename)
 
 	return nil
 }

@@ -66,7 +66,7 @@ func parseNumber(s string) int {
 	return num
 }
 
-// processBAMFile 处理单个BAM文件
+// processBAMFile 处理单个BAM文件 - 更新版本，调用updateBaseMutationCounts
 func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	// 打开BAM文件
 	f, err := os.Open(bamPath)
@@ -84,6 +84,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	fmt.Printf("处理样本: %s\n", sampleName)
 
 	var totalReads, readsWithMutations, totalMutations int
+	var alignedReads int
 
 	var totalXReads int
 	var debugCount int
@@ -93,6 +94,15 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	stats.Lock()
 	if _, ok := stats.SampleReadTypeCounts[sampleName]; !ok {
 		stats.SampleReadTypeCounts[sampleName] = make(map[ReadType]int)
+	}
+	if _, ok := stats.SampleDetailedTypeCounts[sampleName]; !ok {
+		stats.SampleDetailedTypeCounts[sampleName] = make(map[string]int)
+	}
+	if _, ok := stats.SampleInsertLengthDist[sampleName]; !ok {
+		stats.SampleInsertLengthDist[sampleName] = make(map[int]int)
+	}
+	if _, ok := stats.SampleDeleteLengthDist[sampleName]; !ok {
+		stats.SampleDeleteLengthDist[sampleName] = make(map[int]int)
 	}
 	stats.Unlock()
 
@@ -109,6 +119,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 		if read.Flags&sam.Unmapped != 0 {
 			continue
 		}
+		alignedReads++
 
 		// 分析read类型
 		readType := analyzeReadType(read)
@@ -119,8 +130,58 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 		stats.TotalReadTypeCounts[readType]++
 		stats.Unlock()
 
+		// 获取MD字符串
+		mdTag, hasMD := read.Tag([]byte{'M', 'D'})
+		mdStr := ""
+		if hasMD {
+			mdStr = mdTag.String()
+			mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
+		}
+
+		// 分析详细的read类型
+		detailedType := analyzeDetailedReadTypeWithMD(read, mdStr)
+
+		// 更新详细类型统计
+		typeKey := getDetailedTypeKey(detailedType)
+		stats.Lock()
+		stats.SampleDetailedTypeCounts[sampleName][typeKey]++
+		stats.TotalDetailedTypeCounts[typeKey]++
+		stats.Unlock()
+
+		// 更新主类型统计
+		stats.Lock()
+		stats.SampleReadTypeCounts[sampleName][detailedType.MainType]++
+		stats.TotalReadTypeCounts[detailedType.MainType]++
+		stats.Unlock()
+
+		// 统计插入长度分布
+		if detailedType.InsertSub != nil && len(detailedType.InsertSub.Insertions) > 0 {
+			for _, insertion := range detailedType.InsertSub.Insertions {
+				length := insertion.Length
+				stats.Lock()
+				stats.SampleInsertLengthDist[sampleName][length]++
+				stats.TotalInsertLengthDist[length]++
+				stats.Unlock()
+			}
+		}
+
+		// 统计缺失长度分布
+		if detailedType.DeleteSub != nil && len(detailedType.DeleteSub.Deletions) > 0 {
+			// 缺失长度分布
+			for _, deletion := range detailedType.DeleteSub.Deletions {
+				length := deletion.Length
+				stats.Lock()
+				stats.SampleDeleteLengthDist[sampleName][length]++
+				stats.TotalDeleteLengthDist[length]++
+				stats.Unlock()
+			}
+		}
+
 		// 解析突变
 		mutations := parseMutationsWithMD(read)
+
+		// 更新碱基维度的变异计数
+		updateBaseMutationCounts(read, mutations, detailedType.InsertSub, detailedType.DeleteSub, stats, sampleName)
 
 		// 调试：检查是否有X操作
 		hasX := debugCigar(read)
@@ -150,7 +211,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 			readsWithMutations++
 			totalMutations += len(mutations)
 
-			// 更新统计
+			// 更新突变统计
 			stats.Lock()
 
 			// 初始化样本的数据结构
@@ -193,8 +254,10 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	// 更新reads计数
 	stats.Lock()
 	stats.SampleReadCounts[sampleName] = totalReads
+	stats.SampleAlignedReads[sampleName] = alignedReads
 	stats.SampleReadsWithMuts[sampleName] = readsWithMutations
 	stats.TotalReadCount += totalReads
+	stats.TotalAlignedReads += alignedReads
 	stats.TotalReadsWithMuts += readsWithMutations
 	stats.Unlock()
 
@@ -203,7 +266,14 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	readTypeCounts := stats.SampleReadTypeCounts[sampleName]
 	stats.RUnlock()
 
+	// 输出比对率
+	alignmentRate := 0.0
+	if totalReads > 0 {
+		alignmentRate = float64(alignedReads) / float64(totalReads) * 100
+	}
+
 	fmt.Printf("  总reads数: %d\n", totalReads)
+	fmt.Printf("  比对reads数: %d (%.2f%%)\n", alignedReads, alignmentRate)
 	fmt.Printf("  [DEBUG]有CIGAR X操作的reads数: %d\n", totalXReads)
 	fmt.Printf("  包含突变的reads数: %d\n", readsWithMutations)
 	fmt.Printf("  总X操作数: %d\n", totalXOps)
@@ -386,6 +456,16 @@ func main() {
 	// 写入汇总报告
 	if err := writeSummaryReport(stats, outputDir); err != nil {
 		fmt.Printf("写入汇总报告失败: %v\n", err)
+	}
+
+	// 新增：写入详细统计
+	if err := writeDetailedStats(stats, outputDir); err != nil {
+		fmt.Printf("写入详细统计失败: %v\n", err)
+	}
+
+	// 新增：写入碱基维度统计
+	if err := writeBaseMutationStats(stats, outputDir); err != nil {
+		fmt.Printf("写入碱基维度统计失败: %v\n", err)
 	}
 
 	// 打印总体统计

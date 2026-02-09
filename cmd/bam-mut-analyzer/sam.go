@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -315,4 +316,332 @@ func analyzeReadType(read *sam.Record) ReadType {
 	}
 
 	return ReadTypeMatch
+}
+
+// analyzeDetailedReadTypeWithMD 分析详细的read类型（带MD字符串）
+func analyzeDetailedReadTypeWithMD(read *sam.Record, mdStr string) ReadDetailedType {
+	var result ReadDetailedType
+
+	// 基本类型分析
+	result.MainType = analyzeReadType(read)
+
+	// 检查是否有突变
+	result.HasMutation = (result.MainType != ReadTypeMatch)
+
+	// 分析插入子类型
+	if hasInsertInCigar(read) {
+		result.InsertSub = analyzeInsertSubtype(read)
+	}
+
+	// 分析缺失子类型
+	if hasDeleteInCigar(read) {
+		result.DeleteSub = analyzeDeleteSubtype(read, mdStr)
+	}
+
+	return result
+}
+
+// hasInsertInCigar 检查CIGAR中是否有插入
+func hasInsertInCigar(read *sam.Record) bool {
+	for _, cigarOp := range read.Cigar {
+		if cigarOp.Type() == 1 { // I: 插入
+			return true
+		}
+	}
+	return false
+}
+
+// hasDeleteInCigar 检查CIGAR中是否有缺失
+func hasDeleteInCigar(read *sam.Record) bool {
+	for _, cigarOp := range read.Cigar {
+		if cigarOp.Type() == 2 || cigarOp.Type() == 3 { // D, N: 缺失
+			return true
+		}
+	}
+	return false
+}
+
+// analyzeInsertSubtype 分析插入子类型
+func analyzeInsertSubtype(read *sam.Record) *InsertSubtype {
+	subtype := &InsertSubtype{}
+
+	seq := read.Seq.Expand()
+	refStart := int(read.Pos) // 0-basedd
+
+	// 分析CIGAR操作
+	refPos := refStart
+	readPos := 0
+
+	for _, cigarOp := range read.Cigar {
+		op := cigarOp.Type()
+		length := cigarOp.Len()
+
+		if op == sam.CigarInsertion { // I: 插入
+			// 记录插入长度
+			insertion := InsertionInfo{
+				Length: length,
+			}
+			// 获取插入序列
+			if readPos+length <= len(seq) {
+				insertion.Bases = string(seq[readPos : readPos+length])
+			}
+
+			// 检查插入是否与两边碱基相同
+			if readPos > 0 && readPos+length < len(seq) && len(insertion.Bases) > 0 {
+				leftBase := seq[readPos-1]
+				rightBase := seq[readPos+length]
+
+				// 检查插入序列是否都与左边或右边碱基相同
+				allSameAsLeft := true
+				allSameAsRight := true
+				for i := 0; i < len(insertion.Bases); i++ {
+					if insertion.Bases[i] != leftBase {
+						allSameAsLeft = false
+					}
+					if insertion.Bases[i] != rightBase {
+						allSameAsRight = false
+					}
+				}
+
+				insertion.IsSameAsFlanking = allSameAsLeft || allSameAsRight
+			}
+			subtype.Insertions = append(subtype.Insertions, insertion)
+		}
+
+		// 更新位置
+		switch op {
+		case sam.CigarMatch, sam.CigarEqual, sam.CigarMismatch: // M, =, X
+			refPos += length
+			readPos += length
+		case sam.CigarInsertion, sam.CigarSoftClipped: // I, S
+			readPos += length
+		case sam.CigarDeletion, sam.CigarSkipped: // D, N
+			refPos += length
+		}
+	}
+
+	return subtype
+}
+
+// analyzeDeleteSubtype 分析缺失子类型 - 支持多条缺失
+func analyzeDeleteSubtype(read *sam.Record, mdStr string) *DeleteSubtype {
+	subtype := &DeleteSubtype{}
+	// 从MD字符串解析缺失的碱基
+	if mdStr != "" {
+		// 解析MD字符串获取缺失的碱基
+		deletedBases := parseDeletionBasesFromMD(mdStr)
+		subtype.Deletions = deletedBases
+		return subtype
+	}
+
+	// 如果没有MD标签，只从CIGAR获取长度
+	for _, cigarOp := range read.Cigar {
+		op := cigarOp.Type()
+		length := cigarOp.Len()
+
+		if op == sam.CigarDeletion || op == sam.CigarSkipped { // D, N: 缺失
+			// 记录缺失长度
+			deletion := DeletionInfo{
+				Length: length,
+			}
+			subtype.Deletions = append(subtype.Deletions, deletion)
+		}
+	}
+	return subtype
+}
+
+// parseDeletionBasesFromMD 从MD字符串解析缺失的碱基
+func parseDeletionBasesFromMD(mdStr string) []DeletionInfo {
+	var deletions []DeletionInfo
+
+	i := 0
+	for i < len(mdStr) {
+		if mdStr[i] >= '0' && mdStr[i] <= '9' {
+			// 跳过数字
+			i++
+			for i < len(mdStr) && mdStr[i] >= '0' && mdStr[i] <= '9' {
+				i++
+			}
+		} else if mdStr[i] == '^' {
+			// 删除标记开始
+			i++
+			start := i
+			// 收集删除的碱基
+			for i < len(mdStr) && !(mdStr[i] >= '0' && mdStr[i] <= '9') {
+				i++
+			}
+
+			if start < i {
+				bases := mdStr[start:i]
+				deletion := DeletionInfo{
+					Length: len(bases),
+					Bases:  bases,
+				}
+				deletions = append(deletions, deletion)
+			}
+		} else if isBase(mdStr[i]) {
+			// 错配碱基，跳过
+			i++
+		} else {
+			i++
+		}
+	}
+
+	return deletions
+}
+
+// getDetailedTypeKey 获取详细类型的字符串键
+func getDetailedTypeKey(detailedType ReadDetailedType) string {
+	key := ReadTypeNames[detailedType.MainType]
+
+	// 添加插入子类型信息
+	if detailedType.InsertSub != nil && len(detailedType.InsertSub.Insertions) > 0 {
+		// 统计各长度插入的个数
+		len1, len2, len3, lenMore := 0, 0, 0, 0
+		sameCount, diffCount := 0, 0
+
+		for _, insertion := range detailedType.InsertSub.Insertions {
+			switch {
+			case insertion.Length == 1:
+				len1++
+			case insertion.Length == 2:
+				len2++
+			case insertion.Length == 3:
+				len3++
+			default:
+				lenMore++
+			}
+
+			if insertion.IsSameAsFlanking {
+				sameCount++
+			} else {
+				diffCount++
+			}
+		}
+
+		// 添加插入长度分布
+		if len1 > 0 {
+			key += fmt.Sprintf("_I1x%d", len1)
+		}
+		if len2 > 0 {
+			key += fmt.Sprintf("_I2x%d", len2)
+		}
+		if len3 > 0 {
+			key += fmt.Sprintf("_I3x%d", len3)
+		}
+		if lenMore > 0 {
+			key += fmt.Sprintf("_I>3x%d", lenMore)
+		}
+
+		// 添加是否与两边相同
+		if sameCount > 0 {
+			key += fmt.Sprintf("_same%d", sameCount)
+		}
+		if diffCount > 0 {
+			key += fmt.Sprintf("_diff%d", diffCount)
+		}
+	}
+
+	// 添加缺失子类型信息
+	if detailedType.DeleteSub != nil && len(detailedType.DeleteSub.Deletions) > 0 {
+		// 统计各长度缺失的个数
+		len1, len2, len3, lenMore := 0, 0, 0, 0
+		maxLen := 0
+
+		for _, deletion := range detailedType.DeleteSub.Deletions {
+			switch {
+			case deletion.Length == 1:
+				len1++
+			case deletion.Length == 2:
+				len2++
+			case deletion.Length == 3:
+				len3++
+			default:
+				lenMore++
+			}
+
+			if deletion.Length > maxLen {
+				maxLen = deletion.Length
+			}
+		}
+
+		// 添加缺失长度分布
+		if len1 > 0 {
+			key += fmt.Sprintf("_D1x%d", len1)
+		}
+		if len2 > 0 {
+			key += fmt.Sprintf("_D2x%d", len2)
+		}
+		if len3 > 0 {
+			key += fmt.Sprintf("_D3x%d", len3)
+		}
+		if lenMore > 0 {
+			key += fmt.Sprintf("_D>3x%d", lenMore)
+		}
+
+		// 添加最长缺失长度
+		maxLenLabel := ""
+		switch {
+		case maxLen == 1:
+			maxLenLabel = "_maxD1"
+		case maxLen == 2:
+			maxLenLabel = "_maxD2"
+		case maxLen == 3:
+			maxLenLabel = "_maxD3"
+		case maxLen > 3:
+			maxLenLabel = "_maxD>3"
+		}
+		key += maxLenLabel
+	}
+
+	return key
+}
+
+// updateBaseMutationCounts 更新碱基维度的变异计数 - 完整实现
+func updateBaseMutationCounts(read *sam.Record, mutations []Mutation, insertSub *InsertSubtype, deleteSub *DeleteSubtype, stats *MutationStats, sampleName string) {
+	stats.Lock()
+	defer stats.Unlock()
+
+	// 初始化样本的计数
+	if _, ok := stats.MutationBaseCounts[sampleName]; !ok {
+		stats.MutationBaseCounts[sampleName] = make(map[string]int)
+	}
+	if _, ok := stats.SampleDeleteBaseCounts[sampleName]; !ok {
+		stats.SampleDeleteBaseCounts[sampleName] = make(map[byte]int)
+	}
+	if _, ok := stats.SampleInsertBaseCounts[sampleName]; !ok {
+		stats.SampleInsertBaseCounts[sampleName] = make(map[string]int)
+	}
+
+	// 1. 统计替换（碱基维度）
+	stats.MutationBaseCounts[sampleName]["substitution"] += len(mutations)
+
+	// 2. 统计插入（碱基维度）
+	if insertSub != nil {
+		for _, insertion := range insertSub.Insertions {
+			// 插入碱基数
+			stats.MutationBaseCounts[sampleName]["insertion"] += insertion.Length
+
+			// 统计插入序列
+			if insertion.Bases != "" {
+				stats.SampleInsertBaseCounts[sampleName][insertion.Bases]++
+				stats.TotalInsertBaseCounts[insertion.Bases]++
+			}
+		}
+	}
+
+	// 3. 统计缺失（碱基维度）
+	if deleteSub != nil {
+		for _, deletion := range deleteSub.Deletions {
+			// 缺失碱基数
+			stats.MutationBaseCounts[sampleName]["deletion"] += deletion.Length
+
+			// 统计单碱基缺失的碱基类型
+			if deletion.Length == 1 && len(deletion.Bases) == 1 {
+				base := deletion.Bases[0]
+				stats.SampleDeleteBaseCounts[sampleName][base]++
+				stats.TotalDeleteBaseCounts[base]++
+			}
+		}
+	}
 }
