@@ -5,37 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 
 	"github.com/biogo/hts/sam"
 )
-
-// ReadType 表示read的类型
-type ReadType int
-
-const (
-	ReadTypeMatch              ReadType = iota // 匹配
-	ReadTypeInsert                             // 插入
-	ReadTypeDelete                             // 缺失
-	ReadTypeSubstitution                       // 替换
-	ReadTypeInsertDelete                       // 插入+缺失
-	ReadTypeInsertSubstitution                 // 插入+替换
-	ReadTypeDeleteSubstitution                 // 缺失+替换
-	ReadTypeAll                                // 插入+缺失+替换
-)
-
-// ReadTypeNames ReadType对应的名称
-var ReadTypeNames = map[ReadType]string{
-	ReadTypeMatch:              "匹配",
-	ReadTypeInsert:             "插入",
-	ReadTypeDelete:             "缺失",
-	ReadTypeSubstitution:       "替换",
-	ReadTypeInsertDelete:       "插入+缺失",
-	ReadTypeInsertSubstitution: "插入+替换",
-	ReadTypeDeleteSubstitution: "缺失+替换",
-	ReadTypeAll:                "插入+缺失+替换",
-}
 
 // 全局变量，用于存储命令行参数
 var (
@@ -82,53 +54,6 @@ func debugCigar(read *sam.Record) bool {
 		}
 	}
 	return hasX
-}
-
-// findBAMFiles 查找所有BAM文件
-func findBAMFiles() ([]string, error) {
-	var bamFiles []string
-
-	if excelFile != "" && len(sampleOrder) > 0 {
-		// 使用Excel中的样本顺序
-		for _, sampleName := range sampleOrder {
-			sortBam := filepath.Join(inputDir, "samples", sampleName, sampleName+".sorted.bam")
-			filterBam := filepath.Join(inputDir, sampleName, sampleName+".filter.bam")
-			if _, err := os.Stat(sortBam); err == nil {
-				bamFiles = append(bamFiles, sortBam)
-			} else if _, err := os.Stat(filterBam); err == nil {
-				bamFiles = append(bamFiles, filterBam)
-
-			} else {
-				fmt.Printf("警告: 找不到样本 %s 的BAM文件: %s or %s\n", sampleName, sortBam, filterBam)
-			}
-		}
-	} else {
-		// 原来的方法：递归查找所有BAM文件
-		err := filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			if !info.IsDir() {
-				if strings.HasSuffix(path, ".sorted.bam") {
-					bamFiles = append(bamFiles, path)
-				} else if strings.HasSuffix(path, ".filter.bam") {
-					bamFiles = append(bamFiles, path)
-				}
-			}
-
-			return nil
-		})
-
-		if err != nil {
-			return nil, err
-		}
-
-		// 按路径排序
-		sort.Strings(bamFiles)
-	}
-
-	return bamFiles, nil
 }
 
 func main() {
