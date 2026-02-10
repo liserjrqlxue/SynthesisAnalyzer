@@ -1215,3 +1215,60 @@ func extractPosition(posKey string) int {
 	}
 	return 0
 }
+
+func mainWrite(stats *MutationStats) {
+	// 写入各bam各位置各碱基变化组合的个数分布统计
+	if err := writePositionStats(stats, outputDir); err != nil {
+		fmt.Printf("写入位置统计失败: %v\n", err)
+	}
+
+	// 写入各bam各碱基变化组合的分布
+	if err := writeSampleMutationStats(stats, outputDir); err != nil {
+		fmt.Printf("写入样本突变统计失败: %v\n", err)
+	}
+
+	// 写入总碱基变化组合的分布
+	if err := writeTotalMutationStats(stats, outputDir); err != nil {
+		fmt.Printf("写入总突变统计失败: %v\n", err)
+	}
+
+	// 写入read类型统计
+	if err := writeReadTypeStats(stats, outputDir); err != nil {
+		fmt.Printf("写入read类型统计失败: %v\n", err)
+	}
+	// 写入汇总报告
+	if err := writeSummaryReport(stats, outputDir); err != nil {
+		fmt.Printf("写入汇总报告失败: %v\n", err)
+	}
+
+	// 新增：写入详细统计
+	if err := writeDetailedStats(stats, outputDir); err != nil {
+		fmt.Printf("写入详细统计失败: %v\n", err)
+	}
+
+	// 新增：写入碱基维度统计
+	if err := writeBaseMutationStats(stats, outputDir); err != nil {
+		fmt.Printf("写入碱基维度统计失败: %v\n", err)
+	}
+
+	// 新增：写入缺失位置统计
+	if err := writeDeletionPositionStats(stats, outputDir); err != nil {
+		fmt.Printf("写入缺失位置统计失败: %v\n", err)
+	}
+}
+
+func mainPrint(stats *MutationStats) {
+	// 打印总体统计
+	fmt.Printf("\n处理完成!\n")
+	fmt.Printf("总体统计:\n")
+	fmt.Printf("  总reads数: %d\n", stats.TotalReadCount)
+	fmt.Printf("  总包含突变reads数: %d\n", stats.TotalReadsWithMuts)
+	fmt.Printf("  Read类型分布:\n")
+	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
+		count := stats.TotalReadTypeCounts[rt]
+		if count > 0 {
+			percentage := float64(count) / float64(stats.TotalReadCount) * 100
+			fmt.Printf("    %s: %d (%.2f%%)\n", ReadTypeNames[rt], count, percentage)
+		}
+	}
+}
