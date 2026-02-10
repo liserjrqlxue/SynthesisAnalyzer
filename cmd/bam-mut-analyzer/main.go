@@ -468,6 +468,11 @@ func main() {
 		fmt.Printf("写入碱基维度统计失败: %v\n", err)
 	}
 
+	// 新增：写入缺失位置统计
+	if err := writeDeletionPositionStats(stats, outputDir); err != nil {
+		fmt.Printf("写入缺失位置统计失败: %v\n", err)
+	}
+
 	// 打印总体统计
 	fmt.Printf("\n处理完成!\n")
 	fmt.Printf("总体统计:\n")

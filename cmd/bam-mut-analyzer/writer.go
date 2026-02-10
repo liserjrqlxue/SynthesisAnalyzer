@@ -987,3 +987,231 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 
 	return nil
 }
+
+// writeDeletionPositionStats 写入缺失位置统计
+func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
+	// 1. 各样本的单碱基缺失位置统计
+	for sampleName := range stats.SampleDeletePositionCounts {
+		filename := filepath.Join(outputDir, fmt.Sprintf("%s_single_base_deletion_positions.csv", sampleName))
+		file, err := os.Create(filename)
+		if err != nil {
+			return fmt.Errorf("创建文件失败 %s: %v", filename, err)
+		}
+
+		writer := bufio.NewWriter(file)
+		writer.WriteString("Position,Base,Count,TotalReads,AlignedReads\n")
+
+		// 收集位置信息并按位置排序
+		type positionInfo struct {
+			posKey string
+			count  int
+		}
+
+		var positions []positionInfo
+		for posKey, count := range stats.SampleDeletePositionCounts[sampleName] {
+			positions = append(positions, positionInfo{posKey, count})
+		}
+
+		// 按位置排序
+		sort.Slice(positions, func(i, j int) bool {
+			// 解析位置
+			posI := extractPosition(positions[i].posKey)
+			posJ := extractPosition(positions[j].posKey)
+			return posI < posJ
+		})
+
+		totalReads := stats.SampleReadCounts[sampleName]
+		alignedReads := stats.SampleAlignedReads[sampleName]
+
+		for _, info := range positions {
+			// 解析位置和碱基
+			parts := strings.Split(info.posKey, ":")
+			if len(parts) == 2 {
+				position := parts[0]
+				base := parts[1]
+				writer.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d\n",
+					position, base, info.count, totalReads, alignedReads))
+			}
+		}
+
+		writer.Flush()
+		file.Close()
+		fmt.Printf("  样本 %s 的缺失位置统计已写入: %s\n", sampleName, filename)
+	}
+
+	// 2. 汇总的单碱基缺失位置统计
+	filename := filepath.Join(outputDir, "total_single_base_deletion_positions.csv")
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("创建文件失败 %s: %v", filename, err)
+	}
+	defer file.Close()
+
+	writer := bufio.NewWriter(file)
+	writer.WriteString("Position,Base,TotalCount,SampleCounts,SampleReads,SampleAlignedReads\n")
+
+	// 收集所有位置信息
+	type totalPositionInfo struct {
+		posKey       string
+		totalCount   int
+		sampleCounts []string
+	}
+
+	var totalPositions []totalPositionInfo
+	for posKey, totalCount := range stats.TotalDeletePositionCounts {
+		if totalCount > 0 {
+			// 收集各样本的计数
+			var sampleCounts []string
+			for sampleName := range stats.SampleDeletePositionCounts {
+				if count, exists := stats.SampleDeletePositionCounts[sampleName][posKey]; exists && count > 0 {
+					sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
+				}
+			}
+
+			totalPositions = append(totalPositions, totalPositionInfo{
+				posKey:       posKey,
+				totalCount:   totalCount,
+				sampleCounts: sampleCounts,
+			})
+		}
+	}
+
+	// 按总计数降序排序
+	sort.Slice(totalPositions, func(i, j int) bool {
+		if totalPositions[i].totalCount != totalPositions[j].totalCount {
+			return totalPositions[i].totalCount > totalPositions[j].totalCount
+		}
+		return totalPositions[i].posKey < totalPositions[j].posKey
+	})
+
+	// 只输出前1000个最常见的位置
+	outputLimit := 1000
+	if len(totalPositions) > outputLimit {
+		totalPositions = totalPositions[:outputLimit]
+	}
+
+	for _, info := range totalPositions {
+		// 解析位置和碱基
+		parts := strings.Split(info.posKey, ":")
+		if len(parts) == 2 {
+			position := parts[0]
+			base := parts[1]
+
+			// 收集样本reads信息
+			var sampleReadsInfo []string
+			var sampleAlignedReadsInfo []string
+
+			for sampleName := range stats.SampleDeletePositionCounts {
+				if _, exists := stats.SampleDeletePositionCounts[sampleName][info.posKey]; exists {
+					sampleReadsInfo = append(sampleReadsInfo,
+						fmt.Sprintf("%s:%d", sampleName, stats.SampleReadCounts[sampleName]))
+					sampleAlignedReadsInfo = append(sampleAlignedReadsInfo,
+						fmt.Sprintf("%s:%d", sampleName, stats.SampleAlignedReads[sampleName]))
+				}
+			}
+
+			writer.WriteString(fmt.Sprintf("%s,%s,%d,%s,%s,%s\n",
+				position, base, info.totalCount,
+				strings.Join(info.sampleCounts, ";"),
+				strings.Join(sampleReadsInfo, ";"),
+				strings.Join(sampleAlignedReadsInfo, ";")))
+		}
+	}
+
+	writer.Flush()
+	fmt.Printf("汇总缺失位置统计已写入: %s\n", filename)
+
+	// 3. 缺失位置热力图数据
+	filename = filepath.Join(outputDir, "deletion_position_heatmap.csv")
+	file, err = os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("创建文件失败 %s: %v", filename, err)
+	}
+	defer file.Close()
+
+	writer = bufio.NewWriter(file)
+
+	// 收集所有位置
+	allPositions := make(map[int]bool)
+	for posKey := range stats.TotalDeletePositionCounts {
+		if pos := extractPosition(posKey); pos > 0 {
+			allPositions[pos] = true
+		}
+	}
+
+	// 转换为排序的切片
+	var positionsList []int
+	for pos := range allPositions {
+		positionsList = append(positionsList, pos)
+	}
+	sort.Ints(positionsList)
+
+	// 写入表头
+	header := "Position"
+	bases := []string{"A", "C", "G", "T", "N"}
+	for _, base := range bases {
+		header += fmt.Sprintf(",Total_%s", base)
+	}
+
+	// 添加样本列
+	var sampleNames []string
+	if excelFile != "" && len(sampleOrder) > 0 {
+		sampleNames = sampleOrder
+	} else {
+		for sampleName := range stats.SampleDeletePositionCounts {
+			sampleNames = append(sampleNames, sampleName)
+		}
+		sort.Strings(sampleNames)
+	}
+
+	for _, sampleName := range sampleNames {
+		for _, base := range bases {
+			header += fmt.Sprintf(",%s_%s", sampleName, base)
+		}
+	}
+
+	writer.WriteString(header + "\n")
+
+	// 写入每行数据
+	for _, position := range positionsList {
+		row := fmt.Sprintf("%d", position)
+
+		// 总计数据
+		for _, base := range bases {
+			posKey := fmt.Sprintf("%d:%s", position, base)
+			count := stats.TotalDeletePositionCounts[posKey]
+			row += fmt.Sprintf(",%d", count)
+		}
+
+		// 各样本数据
+		for _, sampleName := range sampleNames {
+			for _, base := range bases {
+				posKey := fmt.Sprintf("%d:%s", position, base)
+				count := 0
+				if sampleCounts, ok := stats.SampleDeletePositionCounts[sampleName]; ok {
+					count = sampleCounts[posKey]
+				}
+				row += fmt.Sprintf(",%d", count)
+			}
+		}
+
+		writer.WriteString(row + "\n")
+	}
+
+	writer.Flush()
+	fmt.Printf("缺失位置热力图数据已写入: %s\n", filename)
+
+	return nil
+}
+
+// extractPosition 从位置键中提取位置数字
+func extractPosition(posKey string) int {
+	parts := strings.Split(posKey, ":")
+	if len(parts) >= 1 {
+		pos, err := strconv.Atoi(parts[0])
+		if err == nil {
+			return pos
+		}
+	}
+	return 0
+}

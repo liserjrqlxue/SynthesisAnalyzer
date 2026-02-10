@@ -21,8 +21,9 @@ type DeleteSubtype struct {
 
 // DeletionInfo 单条缺失信息
 type DeletionInfo struct {
-	Length int    // 缺失长度
-	Bases  string // 缺失的碱基序列（如果长度为1）
+	Length   int    // 缺失长度
+	Bases    string // 缺失的碱基序列（如果长度为1）
+	Position int    // 缺失位置（1-based）
 }
 
 // ReadDetailedType 详细的read类型信息
@@ -61,6 +62,9 @@ type MutationStats struct {
 	TotalDeleteBaseCounts  map[byte]int              // 所有样本的缺失碱基统计
 	SampleInsertBaseCounts map[string]map[string]int // sample -> 插入序列 -> count
 	TotalInsertBaseCounts  map[string]int            // 所有样本的插入序列统计
+
+	SampleDeletePositionCounts map[string]map[string]int // sample -> "位置:碱基" -> count
+	TotalDeletePositionCounts  map[string]int            // 所有样本的缺失位置统计
 }
 
 // NewMutationStats 创建新的统计对象
@@ -91,6 +95,9 @@ func NewMutationStats() *MutationStats {
 		TotalDeleteBaseCounts:  make(map[byte]int),
 		SampleInsertBaseCounts: make(map[string]map[string]int),
 		TotalInsertBaseCounts:  make(map[string]int),
+
+		SampleDeletePositionCounts: make(map[string]map[string]int),
+		TotalDeletePositionCounts:  make(map[string]int),
 	}
 	return stats
 }

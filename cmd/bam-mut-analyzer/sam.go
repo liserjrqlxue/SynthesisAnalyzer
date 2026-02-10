@@ -328,6 +328,9 @@ func analyzeDetailedReadTypeWithMD(read *sam.Record, mdStr string) ReadDetailedT
 	// 检查是否有突变
 	result.HasMutation = (result.MainType != ReadTypeMatch)
 
+	// 获取参考起始位置
+	refStart := int(read.Pos) // 0-based
+
 	// 分析插入子类型
 	if hasInsertInCigar(read) {
 		result.InsertSub = analyzeInsertSubtype(read)
@@ -335,7 +338,7 @@ func analyzeDetailedReadTypeWithMD(read *sam.Record, mdStr string) ReadDetailedT
 
 	// 分析缺失子类型
 	if hasDeleteInCigar(read) {
-		result.DeleteSub = analyzeDeleteSubtype(read, mdStr)
+		result.DeleteSub = analyzeDeleteSubtype(read, mdStr, refStart)
 	}
 
 	return result
@@ -423,18 +426,20 @@ func analyzeInsertSubtype(read *sam.Record) *InsertSubtype {
 	return subtype
 }
 
-// analyzeDeleteSubtype 分析缺失子类型 - 支持多条缺失
-func analyzeDeleteSubtype(read *sam.Record, mdStr string) *DeleteSubtype {
+// analyzeDeleteSubtype 分析缺失子类型 - 增加位置信息
+func analyzeDeleteSubtype(read *sam.Record, mdStr string, refStart int) *DeleteSubtype {
 	subtype := &DeleteSubtype{}
-	// 从MD字符串解析缺失的碱基
+
+	// 从MD字符串解析缺失的碱基和位置
 	if mdStr != "" {
-		// 解析MD字符串获取缺失的碱基
-		deletedBases := parseDeletionBasesFromMD(mdStr)
-		subtype.Deletions = deletedBases
+		// 解析MD字符串获取缺失的碱基和位置
+		deletedInfos := parseDeletionInfoFromMD(mdStr, refStart)
+		subtype.Deletions = deletedInfos
 		return subtype
 	}
 
-	// 如果没有MD标签，只从CIGAR获取长度
+	// 如果没有MD标签，只从CIGAR获取长度和估算位置
+	refPos := refStart
 	for _, cigarOp := range read.Cigar {
 		op := cigarOp.Type()
 		length := cigarOp.Len()
@@ -442,26 +447,49 @@ func analyzeDeleteSubtype(read *sam.Record, mdStr string) *DeleteSubtype {
 		if op == sam.CigarDeletion || op == sam.CigarSkipped { // D, N: 缺失
 			// 记录缺失长度
 			deletion := DeletionInfo{
-				Length: length,
+				Length:   length,
+				Position: refPos + 1, // 转换为1-based
 			}
 			subtype.Deletions = append(subtype.Deletions, deletion)
+		}
+
+		// 更新位置
+		switch op {
+		case sam.CigarMatch, sam.CigarEqual, sam.CigarMismatch: // M, =, X
+			refPos += length
+		case sam.CigarInsertion, sam.CigarSoftClipped: // I, S
+			// 插入，不增加参考位置
+		case sam.CigarDeletion, sam.CigarSkipped: // D, N
+			refPos += length
 		}
 	}
 	return subtype
 }
 
-// parseDeletionBasesFromMD 从MD字符串解析缺失的碱基
-func parseDeletionBasesFromMD(mdStr string) []DeletionInfo {
+// parseDeletionInfoFromMD 从MD字符串解析缺失信息（包括位置）
+func parseDeletionInfoFromMD(mdStr string, refStart int) []DeletionInfo {
 	var deletions []DeletionInfo
 
 	i := 0
+	refPos := refStart // 0-based位置
+
 	for i < len(mdStr) {
 		if mdStr[i] >= '0' && mdStr[i] <= '9' {
-			// 跳过数字
-			i++
-			for i < len(mdStr) && mdStr[i] >= '0' && mdStr[i] <= '9' {
-				i++
+			// 读取数字（匹配长度）
+			j := i
+			for j < len(mdStr) && mdStr[j] >= '0' && mdStr[j] <= '9' {
+				j++
 			}
+			numStr := mdStr[i:j]
+			num, err := strconv.Atoi(numStr)
+			if err != nil {
+				i = j
+				continue
+			}
+
+			// 匹配区域，增加参考位置
+			refPos += num
+			i = j
 		} else if mdStr[i] == '^' {
 			// 删除标记开始
 			i++
@@ -474,12 +502,18 @@ func parseDeletionBasesFromMD(mdStr string) []DeletionInfo {
 			if start < i {
 				bases := mdStr[start:i]
 				deletion := DeletionInfo{
-					Length: len(bases),
-					Bases:  bases,
+					Length:   len(bases),
+					Bases:    bases,
+					Position: refPos + 1, // 转换为1-based
 				}
 				deletions = append(deletions, deletion)
+
+				// 删除区域也增加参考位置
+				refPos += len(bases)
 			}
 		} else if isBase(mdStr[i]) {
+			// 错配碱基，增加参考位置
+			refPos++
 			// 错配碱基，跳过
 			i++
 		} else {
@@ -597,7 +631,7 @@ func getDetailedTypeKey(detailedType ReadDetailedType) string {
 	return key
 }
 
-// updateBaseMutationCounts 更新碱基维度的变异计数 - 完整实现
+// updateBaseMutationCounts 更新碱基维度的变异计数 - 增加位置统计
 func updateBaseMutationCounts(read *sam.Record, mutations []Mutation, insertSub *InsertSubtype, deleteSub *DeleteSubtype, stats *MutationStats, sampleName string) {
 	stats.Lock()
 	defer stats.Unlock()
@@ -611,6 +645,9 @@ func updateBaseMutationCounts(read *sam.Record, mutations []Mutation, insertSub 
 	}
 	if _, ok := stats.SampleInsertBaseCounts[sampleName]; !ok {
 		stats.SampleInsertBaseCounts[sampleName] = make(map[string]int)
+	}
+	if _, ok := stats.SampleDeletePositionCounts[sampleName]; !ok {
+		stats.SampleDeletePositionCounts[sampleName] = make(map[string]int)
 	}
 
 	// 1. 统计替换（碱基维度）
@@ -641,6 +678,11 @@ func updateBaseMutationCounts(read *sam.Record, mutations []Mutation, insertSub 
 				base := deletion.Bases[0]
 				stats.SampleDeleteBaseCounts[sampleName][base]++
 				stats.TotalDeleteBaseCounts[base]++
+
+				// 记录位置信息
+				posKey := fmt.Sprintf("%d:%c", deletion.Position, base)
+				stats.SampleDeletePositionCounts[sampleName][posKey]++
+				stats.TotalDeletePositionCounts[posKey]++
 			}
 		}
 	}
