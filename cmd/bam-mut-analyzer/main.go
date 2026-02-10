@@ -22,10 +22,6 @@ func init() {
 	flag.StringVar(&excelFile, "i", "", "可选参数：输入Excel文件，包含样本顺序")
 }
 
-func isDigit(c byte) bool {
-	return c >= '0' && c <= '9'
-}
-
 func main() {
 	// 解析命令行参数
 	flag.Parse()
