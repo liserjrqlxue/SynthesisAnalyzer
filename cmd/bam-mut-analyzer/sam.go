@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
@@ -118,15 +119,16 @@ func parseMDToMap(mdStr string, refStart int) map[int]string {
 
 	for i < len(mdStr) {
 		// 读取数字（匹配长度）
-		if mdStr[i] >= '0' && mdStr[i] <= '9' {
+		if isDigit(mdStr[i]) {
 			j := i
-			for j < len(mdStr) && mdStr[j] >= '0' && mdStr[j] <= '9' {
+			for j < len(mdStr) && isDigit(mdStr[j]) {
 				j++
 			}
 			numStr := mdStr[i:j]
 			num, err := strconv.Atoi(numStr)
 			if err != nil {
 				i = j
+				log.Fatalf("num Error[%s]:[%s]", numStr, mdStr)
 				continue
 			}
 
@@ -170,9 +172,9 @@ func inferRefBaseFromMD(mdStr string, relPos int) string {
 	i := 0
 
 	for i < len(mdStr) {
-		if mdStr[i] >= '0' && mdStr[i] <= '9' {
+		if isDigit(mdStr[i]) {
 			j := i
-			for j < len(mdStr) && mdStr[j] >= '0' && mdStr[j] <= '9' {
+			for j < len(mdStr) && isDigit(mdStr[j]) {
 				j++
 			}
 			numStr := mdStr[i:j]
@@ -224,17 +226,17 @@ func checkMismatchInMD(mdStr string) (bool, bool) {
 
 	i := 0
 	for i < len(mdStr) {
-		if mdStr[i] >= '0' && mdStr[i] <= '9' {
+		if isDigit(mdStr[i]) {
 			// 跳过数字
 			i++
-			for i < len(mdStr) && mdStr[i] >= '0' && mdStr[i] <= '9' {
+			for i < len(mdStr) && isDigit(mdStr[i]) {
 				i++
 			}
 		} else if mdStr[i] == '^' {
 			hasDelete = true
 			i++
 			// 跳过所有非数字字符（删除的碱基）
-			for i < len(mdStr) && !(mdStr[i] >= '0' && mdStr[i] <= '9') {
+			for i < len(mdStr) && !isDigit(mdStr[i]) {
 				i++
 			}
 		} else if isBase(mdStr[i]) {
@@ -463,10 +465,10 @@ func parseDeletionInfoFromMD(mdStr string, refStart int) []DeletionInfo {
 	refPos := refStart // 0-based位置
 
 	for i < len(mdStr) {
-		if mdStr[i] >= '0' && mdStr[i] <= '9' {
+		if isDigit(mdStr[i]) {
 			// 读取数字（匹配长度）
 			j := i
-			for j < len(mdStr) && mdStr[j] >= '0' && mdStr[j] <= '9' {
+			for j < len(mdStr) && isDigit(mdStr[j]) {
 				j++
 			}
 			numStr := mdStr[i:j]
@@ -484,7 +486,7 @@ func parseDeletionInfoFromMD(mdStr string, refStart int) []DeletionInfo {
 			i++
 			start := i
 			// 收集删除的碱基
-			for i < len(mdStr) && !(mdStr[i] >= '0' && mdStr[i] <= '9') {
+			for i < len(mdStr) && !isDigit(mdStr[i]) {
 				i++
 			}
 

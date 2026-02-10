@@ -26,14 +26,6 @@ func isDigit(c byte) bool {
 	return c >= '0' && c <= '9'
 }
 
-func parseNumber(s string) int {
-	num := 0
-	for i := 0; i < len(s); i++ {
-		num = num*10 + int(s[i]-'0')
-	}
-	return num
-}
-
 func main() {
 	// 解析命令行参数
 	flag.Parse()
