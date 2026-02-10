@@ -33,7 +33,6 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	var alignedReads int
 
 	var totalXReads int
-	var debugCount int
 	var totalXOps int
 
 	// 初始化样本的read type统计
@@ -128,30 +127,6 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 
 		// 更新碱基维度的变异计数
 		updateBaseMutationCounts(read, mutations, detailedType.InsertSub, detailedType.DeleteSub, stats, sampleName)
-
-		// 调试：检查是否有X操作
-		hasX := debugCigar(read)
-		if hasX {
-			totalXReads++
-		}
-
-		// 统计X操作
-		xCount := countXOperations(read)
-		if xCount > 0 {
-			totalXOps += xCount
-			// 如果突变数不等于X操作数，记录差异
-			if len(mutations) != xCount {
-				// 如果有差异，记录详细信息（仅前几个）
-				if debugCount < 3 {
-					fmt.Printf("  差异: X操作数=%d, 解析到的突变数=%d\n", xCount, len(mutations))
-					fmt.Printf("  CIGAR: %v, POS: %d\n", read.Cigar, read.Pos)
-					if mdTag, found := read.Tag([]byte{'M', 'D'}); found {
-						fmt.Printf("  MD标签: %s\n", mdTag.String())
-					}
-					debugCount++
-				}
-			}
-		}
 
 		if len(mutations) > 0 {
 			readsWithMutations++

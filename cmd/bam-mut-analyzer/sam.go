@@ -217,17 +217,6 @@ func isBase(c byte) bool {
 	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
 }
 
-// countXOperations 统计CIGAR中的X操作数
-func countXOperations(read *sam.Record) int {
-	count := 0
-	for _, cigarOp := range read.Cigar {
-		if cigarOp.Type() == 8 { // X操作
-			count += cigarOp.Len()
-		}
-	}
-	return count
-}
-
 // checkMismatchInMD 检查MD字符串中是否有错配和删除
 func checkMismatchInMD(mdStr string) (bool, bool) {
 	hasDelete := false

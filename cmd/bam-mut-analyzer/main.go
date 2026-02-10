@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/biogo/hts/sam"
 )
 
 // 全局变量，用于存储命令行参数
@@ -34,26 +32,6 @@ func parseNumber(s string) int {
 		num = num*10 + int(s[i]-'0')
 	}
 	return num
-}
-
-// debugCigar 调试函数，检查CIGAR中是否有X操作
-func debugCigar(read *sam.Record) bool {
-	hasX := false
-	for _, cigarOp := range read.Cigar {
-		/* 	if cigarOp.Type().String() == "X" {
-			return true
-		} */
-		op := cigarOp.Type()
-		// 在sam包中，CIGAR操作类型是整数，不是字符
-		// 0=M, 1=I, 2=D, 3=N, 4=S, 5=H, 6=P, 7==, 8=X
-		if op == 8 { // 8代表X操作
-			hasX = true
-			// 打印详细信息以便调试
-			// fmt.Printf("  发现X操作: CIGAR=%v, 位置=%d, 操作类型=%d\n",
-			// read.Cigar, read.Pos, op)
-		}
-	}
-	return hasX
 }
 
 func main() {
