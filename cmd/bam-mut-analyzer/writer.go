@@ -355,7 +355,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	return nil
 }
 
-// writeReadTypeStats 写入read类型统计
+// writeReadTypeStats 写入read类型统计 - 更新输出
 func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	// 1. 各样本的read类型统计
 	filename := filepath.Join(outputDir, "read_type_by_sample.csv")
@@ -367,14 +367,25 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 
 	writer := bufio.NewWriter(file)
 
-	// 写入表头
-	var header strings.Builder
-	header.WriteString("Sample,TotalReads")
+	// 写入表头 - 扩展新字段
+	// 写入表头 - 扩展新字段
+	header := "Sample,TotalReads,AlignedReads,ReadsWithMutations"
+
+	// 原有read类型列
 	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
-		header.WriteString("," + ReadTypeNames[rt])
+		header += "," + ReadTypeNames[rt]
 	}
-	header.WriteString(",ReadsWithMutations")
-	writer.WriteString(header.String() + "\n")
+
+	// 新增：reads维度变异统计
+	header += ",InsertReads,DeleteReads,SubstitutionReads"
+
+	// 新增：变异事件个数维度
+	header += ",InsertEventCount,DeleteEventCount,SubstitutionEventCount"
+
+	// 新增：碱基个数维度
+	header += ",InsertBaseTotal,DeleteBaseTotal,SubstitutionBaseTotal"
+
+	writer.WriteString(header + "\n")
 
 	// 确定样本顺序
 	var sampleNames []string
@@ -397,7 +408,11 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 		}
 		sampleStats.RLock()
 
-		row := fmt.Sprintf("%s,%d", sampleName, sampleStats.ReadCounts)
+		totalReads := sampleStats.ReadCounts
+		alignedReads := sampleStats.AlignedReads
+		readsWithMuts := sampleStats.ReadsWithMutations
+
+		row := fmt.Sprintf("%s,%d,%d,%d", sampleName, totalReads, alignedReads, readsWithMuts)
 
 		// 写入每种read类型的计数
 		for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
@@ -405,10 +420,27 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 			row += fmt.Sprintf(",%d", count)
 		}
 
-		row += fmt.Sprintf(",%d", sampleStats.ReadsWithMutations)
-		writer.WriteString(row + "\n")
+		// 新增：写入reads维度变异统计
+		row += fmt.Sprintf(",%d,%d,%d",
+			sampleStats.InsertReads,
+			sampleStats.DeleteReads,
+			sampleStats.SubstitutionReads)
+
+		// 新增：写入变异事件个数维度
+		row += fmt.Sprintf(",%d,%d,%d",
+			sampleStats.InsertEventCount,
+			sampleStats.DeleteEventCount,
+			sampleStats.SubstitutionEventCount)
+
+		// 新增：写入碱基个数维度
+		row += fmt.Sprintf(",%d,%d,%d",
+			sampleStats.InsertBaseTotal,
+			sampleStats.DeleteBaseTotal,
+			sampleStats.SubstitutionBaseTotal)
 
 		sampleStats.RUnlock()
+
+		writer.WriteString(row + "\n")
 	}
 
 	writer.Flush()
@@ -424,27 +456,135 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 
 	writer = bufio.NewWriter(file)
 
-	// 写入表头
-	writer.WriteString("ReadType,Count,Percentage,PercentageInTotalReads\n")
+	// 写入表头 - 添加新统计
+	writer.WriteString("Statistic,Count,PercentageOfAlignedReads,PercentageOfTotalReads\n")
 
 	totalReads := stats.TotalReadCount
+	alignedReads := stats.TotalAlignedReads
 
+	// a. 原有read类型统计
 	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
 		count := stats.TotalReadTypeCounts[rt]
-		percentage := float64(count) / float64(totalReads) * 100
+		percentageAligned := 0.0
+		percentageTotal := 0.0
 
-		// 计算在总reads中的百分比
-		percentageInTotal := percentage
+		if alignedReads > 0 {
+			percentageAligned = float64(count) / float64(alignedReads) * 100
+		}
+		if totalReads > 0 {
+			percentageTotal = float64(count) / float64(totalReads) * 100
+		}
 
 		writer.WriteString(fmt.Sprintf("%s,%d,%.4f%%,%.4f%%\n",
-			ReadTypeNames[rt], count, percentage, percentageInTotal))
+			ReadTypeNames[rt], count, percentageAligned, percentageTotal))
 	}
 
-	// 添加包含突变的reads统计
-	readsWithMuts := stats.TotalReadsWithMuts
-	percentageWithMuts := float64(readsWithMuts) / float64(totalReads) * 100
-	writer.WriteString(fmt.Sprintf("包含突变的reads,%d,%.4f%%,%.4f%%\n",
-		readsWithMuts, percentageWithMuts, percentageWithMuts))
+	// b. 新增：reads维度变异统计（非互斥）
+	writer.WriteString("\nReads维度变异统计（非互斥）:\n")
+
+	// 包含插入的reads
+	percentageAligned := 0.0
+	percentageTotal := 0.0
+	if alignedReads > 0 {
+		percentageAligned = float64(stats.TotalInsertReads) / float64(alignedReads) * 100
+	}
+	if totalReads > 0 {
+		percentageTotal = float64(stats.TotalInsertReads) / float64(totalReads) * 100
+	}
+	writer.WriteString(fmt.Sprintf("InsertReads,%d,%.4f%%,%.4f%%\n",
+		stats.TotalInsertReads, percentageAligned, percentageTotal))
+
+	// 包含缺失的reads
+	percentageAligned = 0.0
+	percentageTotal = 0.0
+	if alignedReads > 0 {
+		percentageAligned = float64(stats.TotalDeleteReads) / float64(alignedReads) * 100
+	}
+	if totalReads > 0 {
+		percentageTotal = float64(stats.TotalDeleteReads) / float64(totalReads) * 100
+	}
+	writer.WriteString(fmt.Sprintf("DeleteReads,%d,%.4f%%,%.4f%%\n",
+		stats.TotalDeleteReads, percentageAligned, percentageTotal))
+
+	// 包含替换的reads
+	percentageAligned = 0.0
+	percentageTotal = 0.0
+	if alignedReads > 0 {
+		percentageAligned = float64(stats.TotalSubstitutionReads) / float64(alignedReads) * 100
+	}
+	if totalReads > 0 {
+		percentageTotal = float64(stats.TotalSubstitutionReads) / float64(totalReads) * 100
+	}
+	writer.WriteString(fmt.Sprintf("SubstitutionReads,%d,%.4f%%,%.4f%%\n",
+		stats.TotalSubstitutionReads, percentageAligned, percentageTotal))
+
+	// c. 新增：变异事件个数维度
+	writer.WriteString("\n变异事件个数维度:\n")
+
+	totalEvents := stats.TotalInsertEventCount + stats.TotalDeleteEventCount + stats.TotalSubstitutionEventCount
+
+	// 插入事件个数
+	eventPercentage := 0.0
+	if totalEvents > 0 {
+		eventPercentage = float64(stats.TotalInsertEventCount) / float64(totalEvents) * 100
+	}
+	writer.WriteString(fmt.Sprintf("InsertEvents,%d,%.4f%%,-\n",
+		stats.TotalInsertEventCount, eventPercentage))
+
+	// 缺失事件个数
+	eventPercentage = 0.0
+	if totalEvents > 0 {
+		eventPercentage = float64(stats.TotalDeleteEventCount) / float64(totalEvents) * 100
+	}
+	writer.WriteString(fmt.Sprintf("DeleteEvents,%d,%.4f%%,-\n",
+		stats.TotalDeleteEventCount, eventPercentage))
+
+	// 替换事件个数
+	eventPercentage = 0.0
+	if totalEvents > 0 {
+		eventPercentage = float64(stats.TotalSubstitutionEventCount) / float64(totalEvents) * 100
+	}
+	writer.WriteString(fmt.Sprintf("SubstitutionEvents,%d,%.4f%%,-\n",
+		stats.TotalSubstitutionEventCount, eventPercentage))
+
+	// d. 新增：碱基个数维度
+	writer.WriteString("\n碱基个数维度（变异长度累加）:\n")
+
+	totalBases := stats.TotalInsertBaseTotal + stats.TotalDeleteBaseTotal + stats.TotalSubstitutionBaseTotal
+
+	// 插入碱基总数
+	basePercentage := 0.0
+	if totalBases > 0 {
+		basePercentage = float64(stats.TotalInsertBaseTotal) / float64(totalBases) * 100
+	}
+	writer.WriteString(fmt.Sprintf("InsertBases,%d,%.4f%%,-\n",
+		stats.TotalInsertBaseTotal, basePercentage))
+
+	// 缺失碱基总数
+	basePercentage = 0.0
+	if totalBases > 0 {
+		basePercentage = float64(stats.TotalDeleteBaseTotal) / float64(totalBases) * 100
+	}
+	writer.WriteString(fmt.Sprintf("DeleteBases,%d,%.4f%%,-\n",
+		stats.TotalDeleteBaseTotal, basePercentage))
+
+	// 替换碱基总数
+	basePercentage = 0.0
+	if totalBases > 0 {
+		basePercentage = float64(stats.TotalSubstitutionBaseTotal) / float64(totalBases) * 100
+	}
+	writer.WriteString(fmt.Sprintf("SubstitutionBases,%d,%.4f%%,-\n",
+		stats.TotalSubstitutionBaseTotal, basePercentage))
+
+	// e. 汇总信息
+	writer.WriteString("\n汇总信息:\n")
+	writer.WriteString(fmt.Sprintf("TotalReads,%d,100.0000%%,100.0000%%\n", totalReads))
+	writer.WriteString(fmt.Sprintf("AlignedReads,%d,100.0000%%,%.4f%%\n",
+		alignedReads, float64(alignedReads)/float64(totalReads)*100))
+	writer.WriteString(fmt.Sprintf("ReadsWithMutations,%d,%.4f%%,%.4f%%\n",
+		stats.TotalReadsWithMuts,
+		float64(stats.TotalReadsWithMuts)/float64(alignedReads)*100,
+		float64(stats.TotalReadsWithMuts)/float64(totalReads)*100))
 
 	writer.Flush()
 	fmt.Printf("汇总read类型统计已写入: %s\n", filename)
@@ -507,7 +647,7 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 			percentage = float64(sampleStats.ReadsWithMutations) / float64(sampleStats.ReadCounts) * 100
 		}
 
-		fmt.Fprintf(&row, "%d,%.2f%%,", readsWithMuts, percentage)
+		fmt.Fprintf(&row, "%d,%.2f%%,", sampleStats.ReadsWithMutations, percentage)
 		sampleStats.RUnlock()
 	}
 

@@ -32,7 +32,8 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	// 获取或创建样本统计
 	sampleStats := stats.getOrCreateSampleStats(sampleName)
 
-	var totalReads, alignedReads, readsWithMutations, totalMutations int
+	var totalReads, alignedReads int
+	var readsWithMutations, totalMutations int
 
 	// 遍历所有记录
 	for {
@@ -71,10 +72,24 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 		sampleStats.DetailedTypeCounts[typeKey]++
 
 		// 统计插入信息
-		if readInfo.InsertSub != nil {
+		if readInfo.InsertSub != nil && len(readInfo.InsertSub.Insertions) > 0 {
+			// reads维度：包含插入的reads数
+			sampleStats.InsertReads++
+
 			for _, insertion := range readInfo.InsertSub.Insertions {
+				// 插入事件个数维度：每个插入事件计数
+				sampleStats.InsertEventCount++
+
+				// 插入碱基个数维度：累加插入碱基数
+				sampleStats.InsertBaseTotal += insertion.Length
+				// 碱基维度：插入碱基数
+				sampleStats.MutationBaseCounts["insertion"] += insertion.Length
+
 				// 插入长度分布
 				length := insertion.Length
+				if length > 3 {
+					length = 4 // >3
+				}
 				sampleStats.InsertLengthDist[length]++
 
 				// 插入序列统计
@@ -82,20 +97,29 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 					sampleStats.InsertBaseCounts[insertion.Bases]++
 				}
 
-				// 碱基维度：插入碱基数
-				sampleStats.MutationBaseCounts["insertion"] += insertion.Length
 			}
 		}
 
 		// 统计缺失信息
-		if readInfo.DeleteSub != nil {
-			// 缺失长度分布
-			for _, deletion := range readInfo.DeleteSub.Deletions {
-				length := deletion.Length
-				sampleStats.DeleteLengthDist[length]++
+		if readInfo.DeleteSub != nil && len(readInfo.DeleteSub.Deletions) > 0 {
+			// reads维度：包含缺失的reads数
+			sampleStats.DeleteReads++
 
+			for _, deletion := range readInfo.DeleteSub.Deletions {
+				// 缺失事件个数维度：每个缺失事件计数
+				sampleStats.DeleteEventCount++
+
+				// 缺失碱基个数维度：累加缺失碱基数
+				sampleStats.DeleteBaseTotal += deletion.Length
 				// 碱基维度：缺失碱基数
 				sampleStats.MutationBaseCounts["deletion"] += deletion.Length
+
+				// 缺失长度分布
+				length := deletion.Length
+				if length > 3 {
+					length = 4 // >3
+				}
+				sampleStats.DeleteLengthDist[length]++
 
 				// 单碱基缺失统计
 				if deletion.Length == 1 && len(deletion.Bases) == 1 {
@@ -109,34 +133,44 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 			}
 		}
 
+		// 统计突变信息
 		mutationCount := len(readInfo.Mutations)
 		if mutationCount > 0 {
 			readsWithMutations++
-		}
+			totalMutations += mutationCount
 
-		// 碱基维度：替换计数
-		totalMutations += mutationCount
-		sampleStats.MutationBaseCounts["substitution"] += mutationCount
+			// reads维度：包含替换的reads数
+			sampleStats.SubstitutionReads++
 
-		for _, mut := range readInfo.Mutations {
-			// 创建键
-			posKey := fmt.Sprintf("%d", mut.Position)
-			mutKey := fmt.Sprintf("%s>%s", mut.Ref, mut.Alt)
-			posMutKey := fmt.Sprintf("%s_%s", posKey, mutKey)
+			// 替换事件个数维度：累加替换事件数
+			sampleStats.SubstitutionEventCount += len(readInfo.Mutations)
 
-			// 更新位置细节
-			if _, ok := sampleStats.PositionDetails[posKey]; !ok {
-				sampleStats.PositionDetails[posKey] = make(map[string]int)
+			// 替换碱基个数维度：累加替换碱基数（每个替换事件是一个碱基替换）
+			sampleStats.SubstitutionBaseTotal += len(readInfo.Mutations)
+			// 碱基维度：替换计数
+			sampleStats.MutationBaseCounts["substitution"] += mutationCount
+
+			for _, mut := range readInfo.Mutations {
+				// 创建键
+				posKey := fmt.Sprintf("%d", mut.Position)
+				mutKey := fmt.Sprintf("%s>%s", mut.Ref, mut.Alt)
+				posMutKey := fmt.Sprintf("%s_%s", posKey, mutKey)
+
+				// 更新位置细节
+				if _, ok := sampleStats.PositionDetails[posKey]; !ok {
+					sampleStats.PositionDetails[posKey] = make(map[string]int)
+				}
+				sampleStats.PositionDetails[posKey][mutKey]++
+
+				// 更新样本突变统计
+				sampleStats.Mutations[mutKey]++
+
+				// 更新位置突变统计
+				sampleStats.PositionMutations[posMutKey]++
+
 			}
-			sampleStats.PositionDetails[posKey][mutKey]++
-
-			// 更新样本突变统计
-			sampleStats.Mutations[mutKey]++
-
-			// 更新位置突变统计
-			sampleStats.PositionMutations[posMutKey]++
-
 		}
+
 		// 保存突变到列表（可选）
 		sampleStats.MutationList = append(sampleStats.MutationList, readInfo.Mutations...)
 
@@ -154,7 +188,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	}
 	sampleStats.Unlock()
 
-	// 更新reads计数
+	// 更新总统计
 	stats.Lock()
 	stats.TotalReadCount += totalReads
 	stats.TotalAlignedReads += alignedReads
@@ -162,6 +196,21 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 
 	// 合并样本统计到总统计
 	sampleStats.RLock()
+
+	// 新增：合并reads维度变异统计
+	stats.TotalInsertReads += sampleStats.InsertReads
+	stats.TotalDeleteReads += sampleStats.DeleteReads
+	stats.TotalSubstitutionReads += sampleStats.SubstitutionReads
+
+	// 新增：合并变异事件个数维度
+	stats.TotalInsertEventCount += sampleStats.InsertEventCount
+	stats.TotalDeleteEventCount += sampleStats.DeleteEventCount
+	stats.TotalSubstitutionEventCount += sampleStats.SubstitutionEventCount
+
+	// 新增：合并碱基个数维度
+	stats.TotalInsertBaseTotal += sampleStats.InsertBaseTotal
+	stats.TotalDeleteBaseTotal += sampleStats.DeleteBaseTotal
+	stats.TotalSubstitutionBaseTotal += sampleStats.SubstitutionBaseTotal
 
 	// 合并read类型统计
 	for rt, count := range sampleStats.ReadTypeCounts {

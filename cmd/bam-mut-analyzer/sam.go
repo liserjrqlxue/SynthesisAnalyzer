@@ -309,7 +309,7 @@ func analyzeReadType(read *sam.Record) ReadType {
 	return ReadTypeMatch
 }
 
-// analyzeReadDetailedInfo 分析详细的read信息
+// analyzeReadDetailedInfo 分析详细的read信息 - 更新统计逻辑
 func analyzeReadDetailedInfo(read *sam.Record, mdStr string) ReadDetailedInfo {
 	var (
 		info ReadDetailedInfo
