@@ -243,7 +243,7 @@ func processBAMFiles(bamFiles []string) (stats *MutationStats) {
 }
 
 // findBAMFiles 查找所有BAM文件
-func findBAMFiles() ([]string, error) {
+func findBAMFiles(inputDir string) ([]string, error) {
 	var bamFiles []string
 
 	if excelFile != "" && len(sampleOrder) > 0 {

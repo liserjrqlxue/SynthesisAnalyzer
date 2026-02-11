@@ -1216,7 +1216,7 @@ func extractPosition(posKey string) int {
 	return 0
 }
 
-func mainWrite(stats *MutationStats) {
+func mainWrite(outputDir string, stats *MutationStats) {
 	// 写入各bam各位置各碱基变化组合的个数分布统计
 	if err := writePositionStats(stats, outputDir); err != nil {
 		fmt.Printf("写入位置统计失败: %v\n", err)

@@ -62,19 +62,19 @@ func main() {
 	}
 
 	// 查找所有BAM文件
-	bamFiles, err := findBAMFiles()
+	bamFiles, err := findBAMFiles(inputDir)
 	if err != nil {
 		fmt.Printf("查找BAM文件失败: %v\n", err)
 		os.Exit(1)
 	}
-
 	fmt.Printf("找到 %d 个BAM文件\n", len(bamFiles))
 
-	stats := processBAMFiles(bamFiles)
+	// 统计处理
+	var stats = processBAMFiles(bamFiles)
 
 	fmt.Println("\n开始生成统计文件...")
 
-	mainWrite(stats)
+	mainWrite(outputDir, stats)
 
 	mainPrint(stats)
 }
