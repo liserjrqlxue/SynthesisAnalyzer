@@ -26,80 +26,107 @@ type DeletionInfo struct {
 	Position int    // 缺失位置（1-based）
 }
 
-// ReadDetailedType 详细的read类型信息
-type ReadDetailedType struct {
-	MainType    ReadType
-	InsertSub   *InsertSubtype
-	DeleteSub   *DeleteSubtype
-	HasMutation bool
+// ReadDetailedInfo 详细的read信息
+type ReadDetailedInfo struct {
+	MainType  ReadType
+	InsertSub *InsertSubtype
+	DeleteSub *DeleteSubtype
+	Mutations []Mutation // 该read中的所有突变
 }
 
-// MutationStats 存储突变统计 - 增加缺失碱基统计
+// SampleStats 单个样本的统计信息
+type SampleStats struct {
+	sync.RWMutex
+	PositionMutations map[string]int            // position:mutation -> count
+	Mutations         map[string]int            // mutation -> count
+	PositionDetails   map[string]map[string]int // position -> mutation -> count
+	TotalMutations    int                       //总突变数
+
+	ReadCounts           int              // 总reads数
+	AlignedReads         int              // 比对上的reads数
+	ReadsWithMutations   int              // 包含突变的reads数
+	ReadTypeCounts       map[ReadType]int // read type -> count
+	DetailedTypeCounts   map[string]int   // 详细类型 -> count
+	InsertLengthDist     map[int]int      // 插入长度 -> count
+	DeleteLengthDist     map[int]int      // 缺失长度 -> count
+	MaxDeleteLengthDist  map[int]int      // 最长缺失长度 -> count
+	DeleteBaseCounts     map[byte]int     // 缺失碱基 -> count（长度为1的缺失）
+	InsertBaseCounts     map[string]int   // 插入序列 -> count
+	DeletePositionCounts map[string]int   // "位置:碱基" -> count
+	MutationBaseCounts   map[string]int   // 碱基维度变异统计
+	MutationList         []Mutation       // 所有突变列表（可选，用于调试）
+}
+
+// NewSampleStats 创建新的样本统计对象
+func NewSampleStats() *SampleStats {
+	return &SampleStats{
+		PositionMutations:    make(map[string]int),
+		Mutations:            make(map[string]int),
+		PositionDetails:      make(map[string]map[string]int),
+		ReadTypeCounts:       make(map[ReadType]int),
+		DetailedTypeCounts:   make(map[string]int),
+		InsertLengthDist:     make(map[int]int),
+		DeleteLengthDist:     make(map[int]int),
+		MaxDeleteLengthDist:  make(map[int]int),
+		DeleteBaseCounts:     make(map[byte]int),
+		InsertBaseCounts:     make(map[string]int),
+		DeletePositionCounts: make(map[string]int),
+		MutationBaseCounts:   make(map[string]int),
+	}
+}
+
+// MutationStats 存储突变统计 - 简化版，使用SampleStats
 type MutationStats struct {
 	sync.RWMutex
-	PositionMutations        map[string]map[string]int            // sample -> position:mutation -> count
-	SampleMutations          map[string]map[string]int            // sample -> mutation -> count
-	TotalMutations           map[string]int                       // mutation -> total count
-	PositionDetails          map[string]map[string]map[string]int // sample -> position -> mutation -> count
-	SampleReadCounts         map[string]int                       // sample -> total reads count
-	SampleAlignedReads       map[string]int                       // sample -> 比对上的reads数
-	SampleReadsWithMuts      map[string]int                       // sample -> 包含突变的reads数
-	SampleReadTypeCounts     map[string]map[ReadType]int          // sample -> read type -> count
-	SampleDetailedTypeCounts map[string]map[string]int            // sample -> 详细类型 -> count
-	SampleInsertLengthDist   map[string]map[int]int               // sample -> 插入长度 -> count
-	SampleDeleteLengthDist   map[string]map[int]int               // sample -> 缺失长度 -> count
-	TotalReadCount           int                                  // 所有样本的总reads数
-	TotalAlignedReads        int                                  // 所有样本的比对reads数
-	TotalReadsWithMuts       int                                  // 所有样本的包含突变reads数的和
-	TotalReadTypeCounts      map[ReadType]int                     // 所有样本的read type统计
-	TotalDetailedTypeCounts  map[string]int                       // 所有样本的详细类型统计
-	TotalInsertLengthDist    map[int]int                          // 所有样本的插入长度分布
-	TotalDeleteLengthDist    map[int]int                          // 所有样本的缺失长度分布
-	TotalMaxDeleteLengthDist map[int]int                          // 所有样本的最长缺失长度分布
-	MutationBaseCounts       map[string]map[string]int            // 碱基维度统计: mutation_type -> count
+	Samples                 map[string]*SampleStats // sample -> 样本统计
+	TotalMutations          map[string]int          // mutation -> total count
+	TotalReadCount          int                     // 所有样本的总reads数
+	TotalAlignedReads       int                     // 所有样本的比对reads数
+	TotalReadsWithMuts      int                     // 所有样本的包含突变reads数的和
+	TotalReadTypeCounts     map[ReadType]int        // 所有样本的read type统计
+	TotalDetailedTypeCounts map[string]int          // 所有样本的详细类型统计
 
-	SampleDeleteBaseCounts map[string]map[byte]int   // sample -> 缺失碱基 -> count（长度为1的缺失）
-	TotalDeleteBaseCounts  map[byte]int              // 所有样本的缺失碱基统计
-	SampleInsertBaseCounts map[string]map[string]int // sample -> 插入序列 -> count
-	TotalInsertBaseCounts  map[string]int            // 所有样本的插入序列统计
+	TotalDeleteLengthDist     map[int]int    // 所有样本的缺失长度分布
+	TotalMaxDeleteLengthDist  map[int]int    // 所有样本的最长缺失长度分布
+	TotalDeleteBaseCounts     map[byte]int   // 所有样本的缺失碱基统计
+	TotalDeletePositionCounts map[string]int // 所有样本的缺失位置统计
 
-	SampleDeletePositionCounts map[string]map[string]int // sample -> "位置:碱基" -> count
-	TotalDeletePositionCounts  map[string]int            // 所有样本的缺失位置统计
+	TotalInsertLengthDist map[int]int    // 所有样本的插入长度分布
+	TotalInsertBaseCounts map[string]int // 所有样本的插入序列统计
+
 }
 
 // NewMutationStats 创建新的统计对象
 func NewMutationStats() *MutationStats {
 	stats := &MutationStats{
-		PositionMutations:        make(map[string]map[string]int),
-		SampleMutations:          make(map[string]map[string]int),
+		Samples:                  make(map[string]*SampleStats),
 		TotalMutations:           make(map[string]int),
-		PositionDetails:          make(map[string]map[string]map[string]int),
-		SampleReadCounts:         make(map[string]int),
-		SampleAlignedReads:       make(map[string]int),
-		SampleReadsWithMuts:      make(map[string]int),
-		SampleReadTypeCounts:     make(map[string]map[ReadType]int),
-		SampleDetailedTypeCounts: make(map[string]map[string]int),
-		SampleInsertLengthDist:   make(map[string]map[int]int),
-		SampleDeleteLengthDist:   make(map[string]map[int]int),
-		TotalReadCount:           0,
-		TotalAlignedReads:        0,
-		TotalReadsWithMuts:       0,
 		TotalReadTypeCounts:      make(map[ReadType]int),
 		TotalDetailedTypeCounts:  make(map[string]int),
 		TotalInsertLengthDist:    make(map[int]int),
 		TotalDeleteLengthDist:    make(map[int]int),
 		TotalMaxDeleteLengthDist: make(map[int]int),
-		MutationBaseCounts:       make(map[string]map[string]int),
 
-		SampleDeleteBaseCounts: make(map[string]map[byte]int),
-		TotalDeleteBaseCounts:  make(map[byte]int),
-		SampleInsertBaseCounts: make(map[string]map[string]int),
-		TotalInsertBaseCounts:  make(map[string]int),
+		TotalDeleteBaseCounts: make(map[byte]int),
+		TotalInsertBaseCounts: make(map[string]int),
 
-		SampleDeletePositionCounts: make(map[string]map[string]int),
-		TotalDeletePositionCounts:  make(map[string]int),
+		TotalDeletePositionCounts: make(map[string]int),
 	}
 	return stats
+}
+
+// getOrCreateSampleStats 获取或创建样本统计对象
+func (stats *MutationStats) getOrCreateSampleStats(sampleName string) *SampleStats {
+	stats.Lock()
+	defer stats.Unlock()
+
+	if sampleStats, ok := stats.Samples[sampleName]; ok {
+		return sampleStats
+	}
+
+	sampleStats := NewSampleStats()
+	stats.Samples[sampleName] = sampleStats
+	return sampleStats
 }
 
 // Mutation 表示一个碱基突变

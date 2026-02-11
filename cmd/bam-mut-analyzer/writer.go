@@ -10,6 +10,8 @@ import (
 	"strings"
 )
 
+// 更新输出函数以使用新的数据结构
+
 // writePositionStats 写入各bam各位置各碱基变化组合的个数分布统计
 func writePositionStats(stats *MutationStats, outputDir string) error {
 	// 确定样本顺序
@@ -19,17 +21,18 @@ func writePositionStats(stats *MutationStats, outputDir string) error {
 		sampleNames = sampleOrder
 	} else {
 		// 收集所有样本名并按字母排序
-		for sampleName := range stats.PositionDetails {
+		for sampleName := range stats.Samples {
 			sampleNames = append(sampleNames, sampleName)
 		}
 		sort.Strings(sampleNames)
 	}
 
 	for _, sampleName := range sampleNames {
-		posDetails, exists := stats.PositionDetails[sampleName]
+		sampleStats, exists := stats.Samples[sampleName]
 		if !exists {
 			continue
 		}
+		sampleStats.RLock()
 
 		filename := filepath.Join(outputDir, fmt.Sprintf("%s_position_stats.csv", sampleName))
 		filename2 := filepath.Join(outputDir, fmt.Sprintf("%s_position_stats2.csv", sampleName))
@@ -45,17 +48,13 @@ func writePositionStats(stats *MutationStats, outputDir string) error {
 		defer file2.Close()
 
 		writer := bufio.NewWriter(file)
-		writer.WriteString("Sample,Position,Ref>Alt,Count,TotalReads,ReadsWithMutations\n")
+		writer.WriteString("Sample,Position,Ref>Alt,Count,TotalReads,AlignedReads,ReadsWithMutations\n")
 		writer2 := bufio.NewWriter(file2)
-		writer2.WriteString("Sample,Position,Count,TotalReads,ReadsWithMutations\n")
-
-		// 获取样本的总reads数和包含突变的reads数
-		totalReads := stats.SampleReadCounts[sampleName]
-		readsWithMuts := stats.SampleReadsWithMuts[sampleName]
+		writer2.WriteString("Sample,Position,Count,TotalReads,AlignedReads,ReadsWithMutations\n")
 
 		// 收集所有位置
 		var positions []string
-		for pos := range posDetails {
+		for pos := range sampleStats.PositionDetails {
 			positions = append(positions, pos)
 		}
 
@@ -69,26 +68,32 @@ func writePositionStats(stats *MutationStats, outputDir string) error {
 		for _, pos := range positions {
 			// 收集该位置的所有突变
 			var mutations []string
-			for mut := range posDetails[pos] {
+			for mut := range sampleStats.PositionDetails[pos] {
 				mutations = append(mutations, mut)
 			}
 			sort.Strings(mutations)
 
 			count2 := 0
 			for _, mut := range mutations {
-				count := posDetails[pos][mut]
-				fmt.Fprintf(writer, "%s,%s,%s,%d,%d,%d\n",
-					sampleName, pos, mut, count, totalReads, readsWithMuts)
+				count := sampleStats.PositionDetails[pos][mut]
+				fmt.Fprintf(writer, "%s,%s,%s,%d,%d,%d,%d\n",
+					sampleName, pos, mut, count,
+					sampleStats.ReadCounts, sampleStats.AlignedReads, sampleStats.ReadsWithMutations,
+				)
 				count2 += count
 			}
-			fmt.Fprintf(writer2, "%s,%s,%d,%d,%d\n",
-				sampleName, pos, count2, totalReads, readsWithMuts)
+			fmt.Fprintf(writer2, "%s,%s,%d,%d,%d,%d\n",
+				sampleName, pos, count2,
+				sampleStats.ReadCounts, sampleStats.AlignedReads, sampleStats.ReadsWithMutations,
+			)
 		}
 
 		writer.Flush()
-		fmt.Printf("  已写入: %s\n", filename)
 		writer2.Flush()
+		sampleStats.RUnlock()
+		fmt.Printf("  已写入: %s\n", filename)
 		fmt.Printf("  已写入: %s\n", filename2)
+
 	}
 
 	return nil
@@ -103,17 +108,18 @@ func writeSampleMutationStats(stats *MutationStats, outputDir string) error {
 		sampleNames = sampleOrder
 	} else {
 		// 收集所有样本名并按字母排序
-		for sampleName := range stats.SampleMutations {
+		for sampleName := range stats.Samples {
 			sampleNames = append(sampleNames, sampleName)
 		}
 		sort.Strings(sampleNames)
 	}
 
 	for _, sampleName := range sampleNames {
-		mutCounts, exists := stats.SampleMutations[sampleName]
+		sampleStats, exists := stats.Samples[sampleName]
 		if !exists {
 			continue
 		}
+		sampleStats.RLock()
 
 		filename := filepath.Join(outputDir, fmt.Sprintf("%s_mutation_stats.csv", sampleName))
 		file, err := os.Create(filename)
@@ -123,26 +129,25 @@ func writeSampleMutationStats(stats *MutationStats, outputDir string) error {
 		defer file.Close()
 
 		writer := bufio.NewWriter(file)
-		writer.WriteString("Sample,Ref>Alt,Count,TotalReads,ReadsWithMutations\n")
-
-		// 获取样本的总reads数和包含突变的reads数
-		totalReads := stats.SampleReadCounts[sampleName]
-		readsWithMuts := stats.SampleReadsWithMuts[sampleName]
+		writer.WriteString("Sample,Ref>Alt,Count,TotalReads,,AlignedReads,ReadsWithMutations\n")
 
 		// 收集所有突变
 		var mutations []string
-		for mut := range mutCounts {
+		for mut := range sampleStats.Mutations {
 			mutations = append(mutations, mut)
 		}
 		sort.Strings(mutations)
 
 		for _, mut := range mutations {
-			count := mutCounts[mut]
-			fmt.Fprintf(writer, "%s,%s,%d,%d,%d\n",
-				sampleName, mut, count, totalReads, readsWithMuts)
+			count := sampleStats.Mutations[mut]
+			fmt.Fprintf(writer, "%s,%s,%d,%d,%d,%d\n",
+				sampleName, mut, count,
+				sampleStats.ReadCounts, sampleStats.AlignedReads, sampleStats.ReadsWithMutations,
+			)
 		}
 
 		writer.Flush()
+		sampleStats.RUnlock()
 		fmt.Printf("  已写入: %s\n", filename)
 	}
 
@@ -198,10 +203,12 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 
 	// 收集所有突变类型（包括通过MD发现的）
 	allMutations := make(map[string]bool)
-	for _, sampleMuts := range stats.SampleMutations {
-		for mut := range sampleMuts {
+	for _, sampleStats := range stats.Samples {
+		sampleStats.RLock()
+		for mut := range sampleStats.Mutations {
 			allMutations[mut] = true
 		}
+		sampleStats.RUnlock()
 	}
 
 	// 转换为排序的切片
@@ -212,7 +219,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	sort.Strings(mutationTypes)
 
 	// 写入表头
-	header := "Sample,Total_Reads,Reads_With_Mutations,Total_Mutations"
+	header := "Sample,Total_Reads,Aligned_Reads,Reads_With_Mutations,Total_Mutations"
 	if len(mutationTypes) > 0 {
 		header += "," + strings.Join(mutationTypes, ",")
 	}
@@ -225,7 +232,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 		sampleNames = sampleOrder
 	} else {
 		// 收集所有样本名并按字母排序
-		for sampleName := range stats.SampleMutations {
+		for sampleName := range stats.Samples {
 			sampleNames = append(sampleNames, sampleName)
 		}
 		sort.Strings(sampleNames)
@@ -233,25 +240,20 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 
 	// 写入每行数据
 	for _, sampleName := range sampleNames {
-		sampleMuts, exists := stats.SampleMutations[sampleName]
+		sampleStats, exists := stats.Samples[sampleName]
 		if !exists {
 			continue
 		}
-
-		totalReads := stats.SampleReadCounts[sampleName]
-		readsWithMuts := stats.SampleReadsWithMuts[sampleName]
-		totalMutations := 0
-		for _, count := range sampleMuts {
-			totalMutations += count
-		}
+		sampleStats.RLock()
 
 		var row strings.Builder
-		fmt.Fprintf(&row, "%s,%d,%d,%d", sampleName, totalReads, readsWithMuts, totalMutations)
+		fmt.Fprintf(&row, "%s,%d,%d,%d,%d", sampleName, sampleStats.ReadCounts, sampleStats.AlignedReads, sampleStats.ReadsWithMutations, sampleStats.TotalMutations)
 		for _, mut := range mutationTypes {
-			count := sampleMuts[mut]
+			count := sampleStats.Mutations[mut]
 			fmt.Fprintf(&row, ",%d", count)
 		}
 		writer.WriteString(row.String() + "\n")
+		sampleStats.RUnlock()
 	}
 
 	writer.Flush()
@@ -381,7 +383,7 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 		sampleNames = sampleOrder
 	} else {
 		// 收集所有样本名并按字母排序
-		for sampleName := range stats.SampleReadTypeCounts {
+		for sampleName := range stats.Samples {
 			sampleNames = append(sampleNames, sampleName)
 		}
 		sort.Strings(sampleNames)
@@ -389,24 +391,24 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 
 	// 写入每行数据
 	for _, sampleName := range sampleNames {
-		readTypeCounts, exists := stats.SampleReadTypeCounts[sampleName]
+		sampleStats, exists := stats.Samples[sampleName]
 		if !exists {
 			continue
 		}
+		sampleStats.RLock()
 
-		totalReads := stats.SampleReadCounts[sampleName]
-		readsWithMuts := stats.SampleReadsWithMuts[sampleName]
-
-		row := fmt.Sprintf("%s,%d", sampleName, totalReads)
+		row := fmt.Sprintf("%s,%d", sampleName, sampleStats.ReadCounts)
 
 		// 写入每种read类型的计数
 		for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
-			count := readTypeCounts[rt]
+			count := sampleStats.ReadTypeCounts[rt]
 			row += fmt.Sprintf(",%d", count)
 		}
 
-		row += fmt.Sprintf(",%d", readsWithMuts)
+		row += fmt.Sprintf(",%d", sampleStats.ReadsWithMutations)
 		writer.WriteString(row + "\n")
+
+		sampleStats.RUnlock()
 	}
 
 	writer.Flush()
@@ -470,21 +472,21 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 		fmt.Fprintf(&row, "%s,", ReadTypeNames[rt])
 
 		// 写入每个样本的计数和百分比
-		for _, sampleName := range sampleNames {
-			sampleReadTypeCounts, exists := stats.SampleReadTypeCounts[sampleName]
-			if !exists {
-				row.WriteString("0,0.00%,")
-				continue
-			}
-
-			count := sampleReadTypeCounts[rt]
-			sampleTotalReads := stats.SampleReadCounts[sampleName]
+		for _, sampleStats := range stats.Samples {
+			sampleStats.RLock()
+			/* 			if !exists {
+			   				row.WriteString("0,0.00%,")
+			   				continue
+			   			}
+			*/
+			count := sampleStats.ReadTypeCounts[rt]
 			percentage := 0.0
-			if sampleTotalReads > 0 {
-				percentage = float64(count) / float64(sampleTotalReads) * 100
+			if sampleStats.ReadCounts > 0 {
+				percentage = float64(count) / float64(sampleStats.ReadCounts) * 100
 			}
 
 			fmt.Fprintf(&row, "%d,%.2f%%,", count, percentage)
+			sampleStats.RUnlock()
 		}
 
 		// 写入总计
@@ -498,15 +500,15 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	// 添加包含突变的reads行
 	var row strings.Builder
 	row.WriteString("包含突变的reads,")
-	for _, sampleName := range sampleNames {
-		readsWithMuts := stats.SampleReadsWithMuts[sampleName]
-		sampleTotalReads := stats.SampleReadCounts[sampleName]
+	for _, sampleStats := range stats.Samples {
+		sampleStats.RLock()
 		percentage := 0.0
-		if sampleTotalReads > 0 {
-			percentage = float64(readsWithMuts) / float64(sampleTotalReads) * 100
+		if sampleStats.ReadCounts > 0 {
+			percentage = float64(sampleStats.ReadsWithMutations) / float64(sampleStats.ReadCounts) * 100
 		}
 
 		fmt.Fprintf(&row, "%d,%.2f%%,", readsWithMuts, percentage)
+		sampleStats.RUnlock()
 	}
 
 	fmt.Fprintf(&row, "%d,%.2f%%", stats.TotalReadsWithMuts,
@@ -552,26 +554,26 @@ func writeDetailedStats(stats *MutationStats, outputDir string) error {
 
 		// 各样本计数
 		sampleCounts := []string{}
-		for sampleName := range stats.SampleInsertLengthDist {
-			count := stats.SampleInsertLengthDist[sampleName][length]
-			sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
-		}
-		writer.WriteString(strings.Join(sampleCounts, ";") + ",")
-
-		writer.WriteString(fmt.Sprintf("%d,", totalCount))
-
 		// 各样本百分比（相对于比对reads）
 		samplePercents := []string{}
-		for sampleName := range stats.SampleInsertLengthDist {
-			count := stats.SampleInsertLengthDist[sampleName][length]
+		for sampleName, sampleStats := range stats.Samples {
+			sampleStats.RLock()
+			count := sampleStats.InsertLengthDist[length]
+			sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
+
 			percent := 0.0
-			if stats.SampleAlignedReads[sampleName] > 0 {
-				percent = float64(count) / float64(stats.SampleAlignedReads[sampleName]) * 100
+			if sampleStats.AlignedReads > 0 {
+				percent = float64(count) / float64(sampleStats.AlignedReads) * 100
 			}
 			samplePercents = append(samplePercents, fmt.Sprintf("%s:%.2f%%", sampleName, percent))
-		}
-		writer.WriteString(strings.Join(samplePercents, ";") + ",")
 
+			sampleStats.RUnlock()
+		}
+
+		writer.WriteString(strings.Join(sampleCounts, ";") + ",")
+		writer.WriteString(fmt.Sprintf("%d,", totalCount))
+
+		writer.WriteString(strings.Join(samplePercents, ";") + ",")
 		writer.WriteString(fmt.Sprintf("%.4f%%\n", totalPercentage))
 	}
 
@@ -600,56 +602,30 @@ func writeDetailedStats(stats *MutationStats, outputDir string) error {
 
 		// 各样本计数
 		sampleCounts := []string{}
-		for sampleName := range stats.SampleDeleteLengthDist {
-			count := stats.SampleDeleteLengthDist[sampleName][length]
-			sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
-		}
-		writer.WriteString(strings.Join(sampleCounts, ";") + ",")
-
-		writer.WriteString(fmt.Sprintf("%d,", totalCount))
-
-		// 各样本百分比
+		// 各样本百分比（相对于比对reads）
 		samplePercents := []string{}
-		for sampleName := range stats.SampleDeleteLengthDist {
-			count := stats.SampleDeleteLengthDist[sampleName][length]
+		for sampleName, sampleStats := range stats.Samples {
+			sampleStats.RLock()
+			count := sampleStats.DeleteLengthDist[length]
+			sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
+
 			percent := 0.0
-			if stats.SampleAlignedReads[sampleName] > 0 {
-				percent = float64(count) / float64(stats.SampleAlignedReads[sampleName]) * 100
+			if sampleStats.AlignedReads > 0 {
+				percent = float64(count) / float64(sampleStats.AlignedReads) * 100
 			}
 			samplePercents = append(samplePercents, fmt.Sprintf("%s:%.2f%%", sampleName, percent))
-		}
-		writer.WriteString(strings.Join(samplePercents, ";") + ",")
 
+			sampleStats.RUnlock()
+		}
+
+		writer.WriteString(strings.Join(sampleCounts, ";") + ",")
+		writer.WriteString(fmt.Sprintf("%d,", totalCount))
+		writer.WriteString(strings.Join(samplePercents, ";") + ",")
 		writer.WriteString(fmt.Sprintf("%.4f%%\n", totalPercentage))
 	}
 
 	writer.Flush()
 	fmt.Printf("缺失长度分布已写入: %s\n", filename)
-
-	// 3. 最长缺失长度分布
-	filename = filepath.Join(outputDir, "max_delete_length_distribution.csv")
-	file, err = os.Create(filename)
-	if err != nil {
-		return fmt.Errorf("创建文件失败 %s: %v", filename, err)
-	}
-	defer file.Close()
-
-	writer = bufio.NewWriter(file)
-	writer.WriteString("MaxDeleteLength,SampleCount,TotalCount,SamplePercentage,TotalPercentage\n")
-
-	for _, length := range []int{1, 2, 3, 4} {
-		totalCount := stats.TotalMaxDeleteLengthDist[length]
-		totalPercentage := 0.0
-		if stats.TotalAlignedReads > 0 {
-			totalPercentage = float64(totalCount) / float64(stats.TotalAlignedReads) * 100
-		}
-		writer.WriteString(fmt.Sprintf("%s,", lengthLabels[length]))
-		writer.WriteString(fmt.Sprintf("%d,", totalCount))
-		writer.WriteString(fmt.Sprintf("%.4f%%\n", totalPercentage))
-	}
-
-	writer.Flush()
-	fmt.Printf("最长缺失长度分布已写入: %s\n", filename)
 
 	// 4. 详细类型组合统计
 	filename = filepath.Join(outputDir, "detailed_type_combinations.csv")
@@ -664,10 +640,14 @@ func writeDetailedStats(stats *MutationStats, outputDir string) error {
 
 	// 收集所有详细类型
 	allDetailedTypes := make(map[string]bool)
-	for sampleName := range stats.SampleDetailedTypeCounts {
-		for typeKey := range stats.SampleDetailedTypeCounts[sampleName] {
+	for _, sampleStats := range stats.Samples {
+		sampleStats.RLock()
+
+		for typeKey := range sampleStats.DetailedTypeCounts {
 			allDetailedTypes[typeKey] = true
 		}
+
+		sampleStats.RUnlock()
 	}
 
 	// 转换为排序的切片
@@ -688,30 +668,28 @@ func writeDetailedStats(stats *MutationStats, outputDir string) error {
 
 		// 各样本计数
 		sampleCounts := []string{}
-		for sampleName := range stats.SampleDetailedTypeCounts {
-			count := stats.SampleDetailedTypeCounts[sampleName][typeKey]
-			if count > 0 {
-				sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
-			}
-		}
-		writer.WriteString(strings.Join(sampleCounts, ";") + ",")
-
-		writer.WriteString(fmt.Sprintf("%d,", totalCount))
-
 		// 各样本百分比
 		samplePercents := []string{}
-		for sampleName := range stats.SampleDetailedTypeCounts {
-			count := stats.SampleDetailedTypeCounts[sampleName][typeKey]
+		for sampleName, sampleStats := range stats.Samples {
+			sampleStats.RLock()
+
+			count := sampleStats.DetailedTypeCounts[typeKey]
 			if count > 0 {
+				sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
 				percent := 0.0
-				if stats.SampleAlignedReads[sampleName] > 0 {
-					percent = float64(count) / float64(stats.SampleAlignedReads[sampleName]) * 100
+				if sampleStats.AlignedReads > 0 {
+					percent = float64(count) / float64(sampleStats.AlignedReads) * 100
 				}
 				samplePercents = append(samplePercents, fmt.Sprintf("%s:%.2f%%", sampleName, percent))
 			}
-		}
-		writer.WriteString(strings.Join(samplePercents, ";") + ",")
 
+			sampleStats.RUnlock()
+		}
+
+		writer.WriteString(strings.Join(sampleCounts, ";") + ",")
+		writer.WriteString(fmt.Sprintf("%d,", totalCount))
+
+		writer.WriteString(strings.Join(samplePercents, ";") + ",")
 		writer.WriteString(fmt.Sprintf("%.4f%%\n", totalPercentage))
 	}
 
@@ -734,24 +712,24 @@ func writeDetailedStats(stats *MutationStats, outputDir string) error {
 	if excelFile != "" && len(sampleOrder) > 0 {
 		sampleNames = sampleOrder
 	} else {
-		for sampleName := range stats.SampleReadCounts {
+		for sampleName := range stats.Samples {
 			sampleNames = append(sampleNames, sampleName)
 		}
 		sort.Strings(sampleNames)
 	}
 
 	for _, sampleName := range sampleNames {
-		totalReads := stats.SampleReadCounts[sampleName]
-		alignedReads := stats.SampleAlignedReads[sampleName]
-		readsWithMuts := stats.SampleReadsWithMuts[sampleName]
-
-		// 计算总突变数
-		totalMutations := 0
-		if sampleMuts, exists := stats.SampleMutations[sampleName]; exists {
-			for _, count := range sampleMuts {
-				totalMutations += count
-			}
+		sampleStats, exists := stats.Samples[sampleName]
+		if !exists {
+			continue
 		}
+		sampleStats.RLock()
+
+		totalReads := sampleStats.ReadCounts
+		alignedReads := sampleStats.AlignedReads
+		readsWithMuts := sampleStats.ReadsWithMutations
+		// 计算总突变数
+		totalMutations := sampleStats.TotalMutations
 
 		alignmentRate := 0.0
 		mutationReadRate := 0.0
@@ -768,6 +746,8 @@ func writeDetailedStats(stats *MutationStats, outputDir string) error {
 		writer.WriteString(fmt.Sprintf("%s,%d,%d,%.4f%%,%d,%.4f%%,%d,%.4f\n",
 			sampleName, totalReads, alignedReads, alignmentRate,
 			readsWithMuts, mutationReadRate, totalMutations, mutationRatePerRead))
+
+		sampleStats.RUnlock()
 	}
 
 	// 总计行
@@ -819,20 +799,35 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 	if excelFile != "" && len(sampleOrder) > 0 {
 		sampleNames = sampleOrder
 	} else {
-		for sampleName := range stats.SampleReadCounts {
+		for sampleName := range stats.Samples {
 			sampleNames = append(sampleNames, sampleName)
 		}
 		sort.Strings(sampleNames)
 	}
 
+	// 总计行
+	totalSubstitution := 0
+	totalInsertion := 0
+	totalDeletion := 0
+
 	for _, sampleName := range sampleNames {
-		totalReads := stats.SampleReadCounts[sampleName]
-		alignedReads := stats.SampleAlignedReads[sampleName]
+		sampleStats, exists := stats.Samples[sampleName]
+		if !exists {
+			continue
+		}
+		sampleStats.RLock()
+
+		totalReads := sampleStats.ReadCounts
+		alignedReads := sampleStats.AlignedReads
 
 		// 获取碱基计数
-		substitutionBases := stats.MutationBaseCounts[sampleName]["substitution"]
-		insertionBases := stats.MutationBaseCounts[sampleName]["insertion"]
-		deletionBases := stats.MutationBaseCounts[sampleName]["deletion"]
+		substitutionBases := sampleStats.MutationBaseCounts["substitution"]
+		insertionBases := sampleStats.MutationBaseCounts["insertion"]
+		deletionBases := sampleStats.MutationBaseCounts["deletion"]
+
+		totalSubstitution += substitutionBases
+		totalInsertion += insertionBases
+		totalDeletion += deletionBases
 
 		// 计算比例（每千碱基）
 		substitutionRate := 0.0
@@ -851,17 +846,8 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 			sampleName, totalReads, alignedReads,
 			substitutionBases, insertionBases, deletionBases,
 			substitutionRate, insertionRate, deletionRate))
-	}
 
-	// 总计行
-	totalSubstitution := 0
-	totalInsertion := 0
-	totalDeletion := 0
-
-	for _, counts := range stats.MutationBaseCounts {
-		totalSubstitution += counts["substitution"]
-		totalInsertion += counts["insertion"]
-		totalDeletion += counts["deletion"]
+		sampleStats.RUnlock()
 	}
 
 	totalSubstitutionRate := 0.0
@@ -905,12 +891,20 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 		sampleAlignedReads := []string{}
 
 		for _, sampleName := range sampleNames {
-			count := stats.SampleDeleteBaseCounts[sampleName][base]
+			sampleStats, exists := stats.Samples[sampleName]
+			if !exists {
+				continue
+			}
+			sampleStats.RLock()
+
+			count := sampleStats.DeleteBaseCounts[base]
 			if count > 0 {
 				sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
-				sampleReads = append(sampleReads, fmt.Sprintf("%s:%d", sampleName, stats.SampleReadCounts[sampleName]))
-				sampleAlignedReads = append(sampleAlignedReads, fmt.Sprintf("%s:%d", sampleName, stats.SampleAlignedReads[sampleName]))
+				sampleReads = append(sampleReads, fmt.Sprintf("%s:%d", sampleName, sampleStats.ReadCounts))
+				sampleAlignedReads = append(sampleAlignedReads, fmt.Sprintf("%s:%d", sampleName, sampleStats.AlignedReads))
 			}
+
+			sampleStats.RUnlock()
 		}
 
 		writer.WriteString(fmt.Sprintf("%c,%s,%d,%s,%d,%s,%d\n",
@@ -939,10 +933,8 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 
 	// 收集所有插入序列
 	allInsertSeqs := make(map[string]bool)
-	for sampleName := range stats.SampleInsertBaseCounts {
-		for seq := range stats.SampleInsertBaseCounts[sampleName] {
-			allInsertSeqs[seq] = true
-		}
+	for seq := range stats.TotalInsertBaseCounts {
+		allInsertSeqs[seq] = true
 	}
 
 	// 转换为切片并按长度和字母排序
@@ -969,11 +961,17 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 		// 各样本计数
 		sampleCounts := []string{}
 		for _, sampleName := range sampleNames {
-			if counts, ok := stats.SampleInsertBaseCounts[sampleName]; ok {
-				if count, exists := counts[seq]; exists && count > 0 {
-					sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
-				}
+			sampleStats, exists := stats.Samples[sampleName]
+			if !exists {
+				continue
 			}
+			sampleStats.RLock()
+
+			counts := sampleStats.InsertBaseCounts
+			if count, exists := counts[seq]; exists && count > 0 {
+				sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
+			}
+			sampleStats.RUnlock()
 		}
 
 		writer.WriteString(fmt.Sprintf("%s,%s,%d\n",
@@ -991,7 +989,9 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 // writeDeletionPositionStats 写入缺失位置统计
 func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 	// 1. 各样本的单碱基缺失位置统计
-	for sampleName := range stats.SampleDeletePositionCounts {
+	for sampleName, sampleStats := range stats.Samples {
+		sampleStats.RLock()
+
 		filename := filepath.Join(outputDir, fmt.Sprintf("%s_single_base_deletion_positions.csv", sampleName))
 		file, err := os.Create(filename)
 		if err != nil {
@@ -1008,7 +1008,7 @@ func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 		}
 
 		var positions []positionInfo
-		for posKey, count := range stats.SampleDeletePositionCounts[sampleName] {
+		for posKey, count := range sampleStats.DeletePositionCounts {
 			positions = append(positions, positionInfo{posKey, count})
 		}
 
@@ -1020,8 +1020,8 @@ func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 			return posI < posJ
 		})
 
-		totalReads := stats.SampleReadCounts[sampleName]
-		alignedReads := stats.SampleAlignedReads[sampleName]
+		totalReads := sampleStats.ReadCounts
+		alignedReads := sampleStats.AlignedReads
 
 		for _, info := range positions {
 			// 解析位置和碱基
@@ -1036,6 +1036,7 @@ func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 
 		writer.Flush()
 		file.Close()
+		sampleStats.RUnlock()
 		fmt.Printf("  样本 %s 的缺失位置统计已写入: %s\n", sampleName, filename)
 	}
 
@@ -1062,10 +1063,14 @@ func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 		if totalCount > 0 {
 			// 收集各样本的计数
 			var sampleCounts []string
-			for sampleName := range stats.SampleDeletePositionCounts {
-				if count, exists := stats.SampleDeletePositionCounts[sampleName][posKey]; exists && count > 0 {
+			for sampleName, sampleStats := range stats.Samples {
+				sampleStats.RLock()
+
+				if count, exists := sampleStats.DeletePositionCounts[posKey]; exists && count > 0 {
 					sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
 				}
+
+				sampleStats.RUnlock()
 			}
 
 			totalPositions = append(totalPositions, totalPositionInfo{
@@ -1101,13 +1106,17 @@ func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 			var sampleReadsInfo []string
 			var sampleAlignedReadsInfo []string
 
-			for sampleName := range stats.SampleDeletePositionCounts {
-				if _, exists := stats.SampleDeletePositionCounts[sampleName][info.posKey]; exists {
+			for sampleName, sampleStats := range stats.Samples {
+				sampleStats.RLock()
+
+				if _, exists := sampleStats.DeletePositionCounts[info.posKey]; exists {
 					sampleReadsInfo = append(sampleReadsInfo,
-						fmt.Sprintf("%s:%d", sampleName, stats.SampleReadCounts[sampleName]))
+						fmt.Sprintf("%s:%d", sampleName, sampleStats.ReadCounts))
 					sampleAlignedReadsInfo = append(sampleAlignedReadsInfo,
-						fmt.Sprintf("%s:%d", sampleName, stats.SampleAlignedReads[sampleName]))
+						fmt.Sprintf("%s:%d", sampleName, sampleStats.AlignedReads))
 				}
+
+				sampleStats.RUnlock()
 			}
 
 			writer.WriteString(fmt.Sprintf("%s,%s,%d,%s,%s,%s\n",
@@ -1158,7 +1167,7 @@ func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 	if excelFile != "" && len(sampleOrder) > 0 {
 		sampleNames = sampleOrder
 	} else {
-		for sampleName := range stats.SampleDeletePositionCounts {
+		for sampleName := range stats.Samples {
 			sampleNames = append(sampleNames, sampleName)
 		}
 		sort.Strings(sampleNames)
@@ -1185,13 +1194,22 @@ func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 
 		// 各样本数据
 		for _, sampleName := range sampleNames {
+			sampleStats, exists := stats.Samples[sampleName]
+			if exists {
+				sampleStats.RLock()
+			}
+
 			for _, base := range bases {
 				posKey := fmt.Sprintf("%d:%s", position, base)
 				count := 0
-				if sampleCounts, ok := stats.SampleDeletePositionCounts[sampleName]; ok {
-					count = sampleCounts[posKey]
+				if exists {
+					count = sampleStats.DeletePositionCounts[posKey]
 				}
 				row += fmt.Sprintf(",%d", count)
+			}
+
+			if exists {
+				sampleStats.RUnlock()
 			}
 		}
 

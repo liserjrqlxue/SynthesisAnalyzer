@@ -12,7 +12,7 @@ import (
 	"github.com/biogo/hts/sam"
 )
 
-// processBAMFile 处理单个BAM文件 - 更新版本，调用updateBaseMutationCounts
+// processBAMFile 处理单个BAM文件 - 使用新的数据结构
 func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	// 打开BAM文件
 	f, err := os.Open(bamPath)
@@ -29,27 +29,10 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 
 	fmt.Printf("处理样本: %s\n", sampleName)
 
-	var totalReads, readsWithMutations, totalMutations int
-	var alignedReads int
+	// 获取或创建样本统计
+	sampleStats := stats.getOrCreateSampleStats(sampleName)
 
-	var totalXReads int
-	var totalXOps int
-
-	// 初始化样本的read type统计
-	stats.Lock()
-	if _, ok := stats.SampleReadTypeCounts[sampleName]; !ok {
-		stats.SampleReadTypeCounts[sampleName] = make(map[ReadType]int)
-	}
-	if _, ok := stats.SampleDetailedTypeCounts[sampleName]; !ok {
-		stats.SampleDetailedTypeCounts[sampleName] = make(map[string]int)
-	}
-	if _, ok := stats.SampleInsertLengthDist[sampleName]; !ok {
-		stats.SampleInsertLengthDist[sampleName] = make(map[int]int)
-	}
-	if _, ok := stats.SampleDeleteLengthDist[sampleName]; !ok {
-		stats.SampleDeleteLengthDist[sampleName] = make(map[int]int)
-	}
-	stats.Unlock()
+	var totalReads, alignedReads, readsWithMutations, totalMutations int
 
 	// 遍历所有记录
 	for {
@@ -66,15 +49,6 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 		}
 		alignedReads++
 
-		// 分析read类型
-		readType := analyzeReadType(read)
-
-		// 更新read type统计
-		stats.Lock()
-		stats.SampleReadTypeCounts[sampleName][readType]++
-		stats.TotalReadTypeCounts[readType]++
-		stats.Unlock()
-
 		// 获取MD字符串
 		mdTag, hasMD := read.Tag([]byte{'M', 'D'})
 		mdStr := ""
@@ -84,110 +58,155 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 		}
 
 		// 分析详细的read类型
-		detailedType := analyzeDetailedReadTypeWithMD(read, mdStr)
+		readInfo := analyzeReadDetailedInfo(read, mdStr)
+
+		// 更新样本统计
+		sampleStats.Lock()
+
+		// 更新read类型统计
+		sampleStats.ReadTypeCounts[readInfo.MainType]++
 
 		// 更新详细类型统计
-		typeKey := getDetailedTypeKey(detailedType)
-		stats.Lock()
-		stats.SampleDetailedTypeCounts[sampleName][typeKey]++
-		stats.TotalDetailedTypeCounts[typeKey]++
-		stats.Unlock()
+		typeKey := getDetailedTypeKeyFromInfo(readInfo)
+		sampleStats.DetailedTypeCounts[typeKey]++
 
-		// 更新主类型统计
-		stats.Lock()
-		stats.SampleReadTypeCounts[sampleName][detailedType.MainType]++
-		stats.TotalReadTypeCounts[detailedType.MainType]++
-		stats.Unlock()
-
-		// 统计插入长度分布
-		if detailedType.InsertSub != nil && len(detailedType.InsertSub.Insertions) > 0 {
-			for _, insertion := range detailedType.InsertSub.Insertions {
+		// 统计插入信息
+		if readInfo.InsertSub != nil {
+			for _, insertion := range readInfo.InsertSub.Insertions {
+				// 插入长度分布
 				length := insertion.Length
-				stats.Lock()
-				stats.SampleInsertLengthDist[sampleName][length]++
-				stats.TotalInsertLengthDist[length]++
-				stats.Unlock()
-			}
-		}
+				sampleStats.InsertLengthDist[length]++
 
-		// 统计缺失长度分布
-		if detailedType.DeleteSub != nil && len(detailedType.DeleteSub.Deletions) > 0 {
-			// 缺失长度分布
-			for _, deletion := range detailedType.DeleteSub.Deletions {
-				length := deletion.Length
-				stats.Lock()
-				stats.SampleDeleteLengthDist[sampleName][length]++
-				stats.TotalDeleteLengthDist[length]++
-				stats.Unlock()
-			}
-		}
-
-		// 解析突变
-		mutations := parseMutationsWithMD(read)
-
-		// 更新碱基维度的变异计数
-		updateBaseMutationCounts(read, mutations, detailedType.InsertSub, detailedType.DeleteSub, stats, sampleName)
-
-		if len(mutations) > 0 {
-			readsWithMutations++
-			totalMutations += len(mutations)
-
-			// 更新突变统计
-			stats.Lock()
-
-			// 初始化样本的数据结构
-			if _, ok := stats.PositionDetails[sampleName]; !ok {
-				stats.PositionDetails[sampleName] = make(map[string]map[string]int)
-			}
-			if _, ok := stats.SampleMutations[sampleName]; !ok {
-				stats.SampleMutations[sampleName] = make(map[string]int)
-			}
-			if _, ok := stats.PositionMutations[sampleName]; !ok {
-				stats.PositionMutations[sampleName] = make(map[string]int)
-			}
-
-			for _, mut := range mutations {
-				// 创建键
-				posKey := fmt.Sprintf("%d", mut.Position)
-				mutKey := fmt.Sprintf("%s>%s", mut.Ref, mut.Alt)
-				posMutKey := fmt.Sprintf("%s_%s", posKey, mutKey)
-
-				// 更新位置细节
-				if _, ok := stats.PositionDetails[sampleName][posKey]; !ok {
-					stats.PositionDetails[sampleName][posKey] = make(map[string]int)
+				// 插入序列统计
+				if insertion.Bases != "" {
+					sampleStats.InsertBaseCounts[insertion.Bases]++
 				}
-				stats.PositionDetails[sampleName][posKey][mutKey]++
 
-				// 更新样本统计
-				stats.SampleMutations[sampleName][mutKey]++
-
-				// 更新位置突变统计
-				stats.PositionMutations[sampleName][posMutKey]++
-
-				// 更新总统计
-				stats.TotalMutations[mutKey]++
+				// 碱基维度：插入碱基数
+				sampleStats.MutationBaseCounts["insertion"] += insertion.Length
 			}
-
-			stats.Unlock()
 		}
+
+		// 统计缺失信息
+		if readInfo.DeleteSub != nil {
+			// 缺失长度分布
+			for _, deletion := range readInfo.DeleteSub.Deletions {
+				length := deletion.Length
+				sampleStats.DeleteLengthDist[length]++
+
+				// 碱基维度：缺失碱基数
+				sampleStats.MutationBaseCounts["deletion"] += deletion.Length
+
+				// 单碱基缺失统计
+				if deletion.Length == 1 && len(deletion.Bases) == 1 {
+					base := deletion.Bases[0]
+					sampleStats.DeleteBaseCounts[base]++
+
+					// 缺失位置统计
+					posKey := fmt.Sprintf("%d:%c", deletion.Position, base)
+					sampleStats.DeletePositionCounts[posKey]++
+				}
+			}
+		}
+
+		mutationCount := len(readInfo.Mutations)
+		if mutationCount > 0 {
+			readsWithMutations++
+		}
+
+		// 碱基维度：替换计数
+		totalMutations += mutationCount
+		sampleStats.MutationBaseCounts["substitution"] += mutationCount
+
+		for _, mut := range readInfo.Mutations {
+			// 创建键
+			posKey := fmt.Sprintf("%d", mut.Position)
+			mutKey := fmt.Sprintf("%s>%s", mut.Ref, mut.Alt)
+			posMutKey := fmt.Sprintf("%s_%s", posKey, mutKey)
+
+			// 更新位置细节
+			if _, ok := sampleStats.PositionDetails[posKey]; !ok {
+				sampleStats.PositionDetails[posKey] = make(map[string]int)
+			}
+			sampleStats.PositionDetails[posKey][mutKey]++
+
+			// 更新样本突变统计
+			sampleStats.Mutations[mutKey]++
+
+			// 更新位置突变统计
+			sampleStats.PositionMutations[posMutKey]++
+
+		}
+		// 保存突变到列表（可选）
+		sampleStats.MutationList = append(sampleStats.MutationList, readInfo.Mutations...)
+
+		sampleStats.Unlock()
 	}
+
+	// 更新样本统计
+	sampleStats.Lock()
+	sampleStats.ReadCounts = totalReads
+	sampleStats.AlignedReads = alignedReads
+	sampleStats.ReadsWithMutations = readsWithMutations
+	// 合并突变统计
+	for _, count := range sampleStats.Mutations {
+		sampleStats.TotalMutations += count
+	}
+	sampleStats.Unlock()
 
 	// 更新reads计数
 	stats.Lock()
-	stats.SampleReadCounts[sampleName] = totalReads
-	stats.SampleAlignedReads[sampleName] = alignedReads
-	stats.SampleReadsWithMuts[sampleName] = readsWithMutations
 	stats.TotalReadCount += totalReads
 	stats.TotalAlignedReads += alignedReads
 	stats.TotalReadsWithMuts += readsWithMutations
+
+	// 合并样本统计到总统计
+	sampleStats.RLock()
+
+	// 合并read类型统计
+	for rt, count := range sampleStats.ReadTypeCounts {
+		stats.TotalReadTypeCounts[rt] += count
+	}
+
+	// 合并详细类型统计
+	for typeKey, count := range sampleStats.DetailedTypeCounts {
+		stats.TotalDetailedTypeCounts[typeKey] += count
+	}
+
+	// 合并插入长度分布
+	for length, count := range sampleStats.InsertLengthDist {
+		stats.TotalInsertLengthDist[length] += count
+	}
+
+	// 合并缺失长度分布
+	for length, count := range sampleStats.DeleteLengthDist {
+		stats.TotalDeleteLengthDist[length] += count
+	}
+
+	// 合并缺失碱基统计
+	for base, count := range sampleStats.DeleteBaseCounts {
+		stats.TotalDeleteBaseCounts[base] += count
+	}
+
+	// 合并插入序列统计
+	for seq, count := range sampleStats.InsertBaseCounts {
+		stats.TotalInsertBaseCounts[seq] += count
+	}
+
+	// 合并缺失位置统计
+	for posKey, count := range sampleStats.DeletePositionCounts {
+		stats.TotalDeletePositionCounts[posKey] += count
+	}
+
+	// 合并突变统计
+	for mutKey, count := range sampleStats.Mutations {
+		stats.TotalMutations[mutKey] += count
+	}
+
+	sampleStats.RUnlock()
 	stats.Unlock()
 
-	// 打印read type统计
-	stats.RLock()
-	readTypeCounts := stats.SampleReadTypeCounts[sampleName]
-	stats.RUnlock()
-
-	// 输出比对率
+	// 计算比对率
 	alignmentRate := 0.0
 	if totalReads > 0 {
 		alignmentRate = float64(alignedReads) / float64(totalReads) * 100
@@ -195,13 +214,11 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 
 	fmt.Printf("  总reads数: %d\n", totalReads)
 	fmt.Printf("  比对reads数: %d (%.2f%%)\n", alignedReads, alignmentRate)
-	fmt.Printf("  [DEBUG]有CIGAR X操作的reads数: %d\n", totalXReads)
 	fmt.Printf("  包含突变的reads数: %d\n", readsWithMutations)
-	fmt.Printf("  总X操作数: %d\n", totalXOps)
 	fmt.Printf("  总突变数: %d\n", totalMutations)
 	fmt.Printf("  Read类型统计:\n")
 	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
-		count := readTypeCounts[rt]
+		count := sampleStats.ReadTypeCounts[rt]
 		if count > 0 {
 			percentage := float64(count) / float64(totalReads) * 100
 			fmt.Printf("    %s: %d (%.2f%%)\n", ReadTypeNames[rt], count, percentage)

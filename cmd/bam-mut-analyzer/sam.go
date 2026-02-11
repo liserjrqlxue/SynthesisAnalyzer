@@ -309,30 +309,31 @@ func analyzeReadType(read *sam.Record) ReadType {
 	return ReadTypeMatch
 }
 
-// analyzeDetailedReadTypeWithMD 分析详细的read类型（带MD字符串）
-func analyzeDetailedReadTypeWithMD(read *sam.Record, mdStr string) ReadDetailedType {
-	var result ReadDetailedType
+// analyzeReadDetailedInfo 分析详细的read信息
+func analyzeReadDetailedInfo(read *sam.Record, mdStr string) ReadDetailedInfo {
+	var (
+		info ReadDetailedInfo
+		// 获取参考起始位置
+		refStart = int(read.Pos) // 0-based
+	)
 
 	// 基本类型分析
-	result.MainType = analyzeReadType(read)
-
-	// 检查是否有突变
-	result.HasMutation = (result.MainType != ReadTypeMatch)
-
-	// 获取参考起始位置
-	refStart := int(read.Pos) // 0-based
+	info.MainType = analyzeReadType(read)
 
 	// 分析插入子类型
 	if hasInsertInCigar(read) {
-		result.InsertSub = analyzeInsertSubtype(read)
+		info.InsertSub = analyzeInsertSubtype(read)
 	}
 
 	// 分析缺失子类型
 	if hasDeleteInCigar(read) {
-		result.DeleteSub = analyzeDeleteSubtype(read, mdStr, refStart)
+		info.DeleteSub = analyzeDeleteSubtype(read, mdStr, refStart)
 	}
 
-	return result
+	// 解析突变
+	info.Mutations = parseMutationsWithMD(read)
+
+	return info
 }
 
 // hasInsertInCigar 检查CIGAR中是否有插入
@@ -515,17 +516,17 @@ func parseDeletionInfoFromMD(mdStr string, refStart int) []DeletionInfo {
 	return deletions
 }
 
-// getDetailedTypeKey 获取详细类型的字符串键
-func getDetailedTypeKey(detailedType ReadDetailedType) string {
-	key := ReadTypeNames[detailedType.MainType]
+// getDetailedTypeKeyFromInfo 从ReadDetailedInfo获取详细类型的字符串键
+func getDetailedTypeKeyFromInfo(info ReadDetailedInfo) string {
+	key := ReadTypeNames[info.MainType]
 
 	// 添加插入子类型信息
-	if detailedType.InsertSub != nil && len(detailedType.InsertSub.Insertions) > 0 {
+	if info.InsertSub != nil && len(info.InsertSub.Insertions) > 0 {
 		// 统计各长度插入的个数
 		len1, len2, len3, lenMore := 0, 0, 0, 0
 		sameCount, diffCount := 0, 0
 
-		for _, insertion := range detailedType.InsertSub.Insertions {
+		for _, insertion := range info.InsertSub.Insertions {
 			switch {
 			case insertion.Length == 1:
 				len1++
@@ -568,12 +569,11 @@ func getDetailedTypeKey(detailedType ReadDetailedType) string {
 	}
 
 	// 添加缺失子类型信息
-	if detailedType.DeleteSub != nil && len(detailedType.DeleteSub.Deletions) > 0 {
+	if info.DeleteSub != nil && len(info.DeleteSub.Deletions) > 0 {
 		// 统计各长度缺失的个数
 		len1, len2, len3, lenMore := 0, 0, 0, 0
-		maxLen := 0
 
-		for _, deletion := range detailedType.DeleteSub.Deletions {
+		for _, deletion := range info.DeleteSub.Deletions {
 			switch {
 			case deletion.Length == 1:
 				len1++
@@ -583,10 +583,6 @@ func getDetailedTypeKey(detailedType ReadDetailedType) string {
 				len3++
 			default:
 				lenMore++
-			}
-
-			if deletion.Length > maxLen {
-				maxLen = deletion.Length
 			}
 		}
 
@@ -603,80 +599,9 @@ func getDetailedTypeKey(detailedType ReadDetailedType) string {
 		if lenMore > 0 {
 			key += fmt.Sprintf("_D>3x%d", lenMore)
 		}
-
-		// 添加最长缺失长度
-		maxLenLabel := ""
-		switch {
-		case maxLen == 1:
-			maxLenLabel = "_maxD1"
-		case maxLen == 2:
-			maxLenLabel = "_maxD2"
-		case maxLen == 3:
-			maxLenLabel = "_maxD3"
-		case maxLen > 3:
-			maxLenLabel = "_maxD>3"
-		}
-		key += maxLenLabel
 	}
 
 	return key
-}
-
-// updateBaseMutationCounts 更新碱基维度的变异计数 - 增加位置统计
-func updateBaseMutationCounts(read *sam.Record, mutations []Mutation, insertSub *InsertSubtype, deleteSub *DeleteSubtype, stats *MutationStats, sampleName string) {
-	stats.Lock()
-	defer stats.Unlock()
-
-	// 初始化样本的计数
-	if _, ok := stats.MutationBaseCounts[sampleName]; !ok {
-		stats.MutationBaseCounts[sampleName] = make(map[string]int)
-	}
-	if _, ok := stats.SampleDeleteBaseCounts[sampleName]; !ok {
-		stats.SampleDeleteBaseCounts[sampleName] = make(map[byte]int)
-	}
-	if _, ok := stats.SampleInsertBaseCounts[sampleName]; !ok {
-		stats.SampleInsertBaseCounts[sampleName] = make(map[string]int)
-	}
-	if _, ok := stats.SampleDeletePositionCounts[sampleName]; !ok {
-		stats.SampleDeletePositionCounts[sampleName] = make(map[string]int)
-	}
-
-	// 1. 统计替换（碱基维度）
-	stats.MutationBaseCounts[sampleName]["substitution"] += len(mutations)
-
-	// 2. 统计插入（碱基维度）
-	if insertSub != nil {
-		for _, insertion := range insertSub.Insertions {
-			// 插入碱基数
-			stats.MutationBaseCounts[sampleName]["insertion"] += insertion.Length
-
-			// 统计插入序列
-			if insertion.Bases != "" {
-				stats.SampleInsertBaseCounts[sampleName][insertion.Bases]++
-				stats.TotalInsertBaseCounts[insertion.Bases]++
-			}
-		}
-	}
-
-	// 3. 统计缺失（碱基维度）
-	if deleteSub != nil {
-		for _, deletion := range deleteSub.Deletions {
-			// 缺失碱基数
-			stats.MutationBaseCounts[sampleName]["deletion"] += deletion.Length
-
-			// 统计单碱基缺失的碱基类型
-			if deletion.Length == 1 && len(deletion.Bases) == 1 {
-				base := deletion.Bases[0]
-				stats.SampleDeleteBaseCounts[sampleName][base]++
-				stats.TotalDeleteBaseCounts[base]++
-
-				// 记录位置信息
-				posKey := fmt.Sprintf("%d:%c", deletion.Position, base)
-				stats.SampleDeletePositionCounts[sampleName][posKey]++
-				stats.TotalDeletePositionCounts[posKey]++
-			}
-		}
-	}
 }
 
 func isDigit(c byte) bool {
