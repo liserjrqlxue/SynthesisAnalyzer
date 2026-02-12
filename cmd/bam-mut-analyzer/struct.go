@@ -9,9 +9,10 @@ type InsertSubtype struct {
 
 // InsertionInfo 单条插入信息
 type InsertionInfo struct {
-	Length           int    // 插入长度
-	IsSameAsFlanking bool   // 插入字符是否与插入位置两边碱基相同
-	Bases            string // 插入的碱基序列
+	Length           int              // 插入长度
+	IsSameAsFlanking bool             // 插入字符是否与插入位置两边碱基相同
+	Bases            string           // 插入的碱基序列
+	Subtype          InsertionSubtype // 细分类
 }
 
 // DeleteSubtype 缺失子类型
@@ -21,17 +22,21 @@ type DeleteSubtype struct {
 
 // DeletionInfo 单条缺失信息
 type DeletionInfo struct {
-	Length   int    // 缺失长度
-	Bases    string // 缺失的碱基序列（如果长度为1）
-	Position int    // 缺失位置（1-based）
+	Length   int             // 缺失长度
+	Bases    string          // 缺失的碱基序列（如果长度为1）
+	Position int             // 缺失位置（1-based）
+	Subtype  DeletionSubtype // 细分类
 }
 
 // ReadDetailedInfo 详细的read信息
 type ReadDetailedInfo struct {
-	MainType  ReadType
-	InsertSub *InsertSubtype
-	DeleteSub *DeleteSubtype
-	Mutations []Mutation // 该read中的所有突变
+	MainType       ReadType
+	InsertSub      *InsertSubtype
+	DeleteSub      *DeleteSubtype
+	Mutations      []Mutation         // 该read中的所有突变
+	Substitutions  []SubstitutionInfo // 替换细分类列表
+	SubtypeTags    []string           // 该read的所有细分类标签（去重后排序用）
+	CombinationKey string             // 细分类组合唯一键（排序后拼接）
 }
 
 // SampleStats 单个样本的统计信息 - 添加新字段
@@ -71,6 +76,24 @@ type SampleStats struct {
 	InsertBaseTotal       int // 插入碱基总数（所有插入长度的累加）
 	DeleteBaseTotal       int // 缺失碱基总数（所有缺失长度的累加）
 	SubstitutionBaseTotal int // 替换碱基总数（替换个数）
+
+	// 新增：缺失细分类统计（三个维度）
+	DeleteSubtypeReads  map[DeletionSubtype]int // 包含该细分类缺失的reads数
+	DeleteSubtypeEvents map[DeletionSubtype]int // 该细分类缺失事件总数
+	DeleteSubtypeBases  map[DeletionSubtype]int // 该细分类缺失碱基总数
+
+	// 新增：插入细分类统计
+	InsertSubtypeReads  map[InsertionSubtype]int
+	InsertSubtypeEvents map[InsertionSubtype]int
+	InsertSubtypeBases  map[InsertionSubtype]int
+
+	// 新增：替换细分类统计
+	SubstitutionSubtypeReads  map[SubstitutionSubtype]int
+	SubstitutionSubtypeEvents map[SubstitutionSubtype]int
+	SubstitutionSubtypeBases  map[SubstitutionSubtype]int // 替换碱基数，总是1
+
+	// 新增：细分类组合统计（reads维度）
+	SubtypeCombinationCounts map[string]int // 组合键 -> reads数
 }
 
 // NewSampleStats 创建新的样本统计对象
@@ -88,6 +111,17 @@ func NewSampleStats() *SampleStats {
 		InsertBaseCounts:     make(map[string]int),
 		DeletePositionCounts: make(map[string]int),
 		MutationBaseCounts:   make(map[string]int),
+
+		DeleteSubtypeReads:        make(map[DeletionSubtype]int),
+		DeleteSubtypeEvents:       make(map[DeletionSubtype]int),
+		DeleteSubtypeBases:        make(map[DeletionSubtype]int),
+		InsertSubtypeReads:        make(map[InsertionSubtype]int),
+		InsertSubtypeEvents:       make(map[InsertionSubtype]int),
+		InsertSubtypeBases:        make(map[InsertionSubtype]int),
+		SubstitutionSubtypeReads:  make(map[SubstitutionSubtype]int),
+		SubstitutionSubtypeEvents: make(map[SubstitutionSubtype]int),
+		SubstitutionSubtypeBases:  make(map[SubstitutionSubtype]int),
+		SubtypeCombinationCounts:  make(map[string]int),
 	}
 }
 
@@ -125,6 +159,18 @@ type MutationStats struct {
 	TotalInsertBaseTotal       int
 	TotalDeleteBaseTotal       int
 	TotalSubstitutionBaseTotal int
+
+	// 新增：总细分类统计
+	TotalDeleteSubtypeReads        map[DeletionSubtype]int
+	TotalDeleteSubtypeEvents       map[DeletionSubtype]int
+	TotalDeleteSubtypeBases        map[DeletionSubtype]int
+	TotalInsertSubtypeReads        map[InsertionSubtype]int
+	TotalInsertSubtypeEvents       map[InsertionSubtype]int
+	TotalInsertSubtypeBases        map[InsertionSubtype]int
+	TotalSubstitutionSubtypeReads  map[SubstitutionSubtype]int
+	TotalSubstitutionSubtypeEvents map[SubstitutionSubtype]int
+	TotalSubstitutionSubtypeBases  map[SubstitutionSubtype]int
+	TotalSubtypeCombinationCounts  map[string]int // 总体组合统计
 }
 
 // NewMutationStats 创建新的统计对象
@@ -142,6 +188,17 @@ func NewMutationStats() *MutationStats {
 		TotalInsertBaseCounts: make(map[string]int),
 
 		TotalDeletePositionCounts: make(map[string]int),
+
+		TotalDeleteSubtypeReads:        make(map[DeletionSubtype]int),
+		TotalDeleteSubtypeEvents:       make(map[DeletionSubtype]int),
+		TotalDeleteSubtypeBases:        make(map[DeletionSubtype]int),
+		TotalInsertSubtypeReads:        make(map[InsertionSubtype]int),
+		TotalInsertSubtypeEvents:       make(map[InsertionSubtype]int),
+		TotalInsertSubtypeBases:        make(map[InsertionSubtype]int),
+		TotalSubstitutionSubtypeReads:  make(map[SubstitutionSubtype]int),
+		TotalSubstitutionSubtypeEvents: make(map[SubstitutionSubtype]int),
+		TotalSubstitutionSubtypeBases:  make(map[SubstitutionSubtype]int),
+		TotalSubtypeCombinationCounts:  make(map[string]int),
 	}
 	return stats
 }
@@ -165,6 +222,14 @@ type Mutation struct {
 	Position int
 	Ref      string
 	Alt      string
+}
+
+// 新增：替换信息结构（用于记录替换细分类）
+type SubstitutionInfo struct {
+	Position int
+	Ref      string
+	Alt      string
+	Subtype  SubstitutionSubtype
 }
 
 // MDOp 表示MD标签的操作

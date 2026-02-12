@@ -586,78 +586,56 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 		float64(stats.TotalReadsWithMuts)/float64(alignedReads)*100,
 		float64(stats.TotalReadsWithMuts)/float64(totalReads)*100))
 
+	// 以追加方式或重新生成整个文件
+	// 为了简洁，我们在原有writeReadTypeStats末尾添加新section
+	// 假设我们已经写完了原有内容，现在追加
+	writer.WriteString("\n细分类统计（事件数）:\n")
+	// 缺失
+	for st, cnt := range stats.TotalDeleteSubtypeEvents {
+		name := "Del1"
+		if st == Del2 {
+			name = "Del2"
+		}
+		writer.WriteString(fmt.Sprintf("%s,%d,%.4f%%\n", name, cnt,
+			float64(cnt)/float64(stats.TotalDeleteEventCount)*100))
+	}
+	// 插入
+	for st, cnt := range stats.TotalInsertSubtypeEvents {
+		name := ""
+		switch st {
+		case Dup1:
+			name = "Dup1"
+		case Dup2:
+			name = "Dup2"
+		case DupDup:
+			name = "DupDup"
+		case Ins1:
+			name = "Ins1"
+		case Ins2:
+			name = "Ins2"
+		case Ins3:
+			name = "Ins3"
+		}
+		writer.WriteString(fmt.Sprintf("%s,%d,%.4f%%\n", name, cnt,
+			float64(cnt)/float64(stats.TotalInsertEventCount)*100))
+	}
+	// 替换
+	for st, cnt := range stats.TotalSubstitutionSubtypeEvents {
+		name := ""
+		switch st {
+		case DupDel:
+			name = "DupDel"
+		case DelDup:
+			name = "DelDup"
+		case Mismatch:
+			name = "Mismatch"
+		}
+		writer.WriteString(fmt.Sprintf("%s,%d,%.4f%%\n", name, cnt,
+			float64(cnt)/float64(stats.TotalSubstitutionEventCount)*100))
+	}
+
 	writer.Flush()
 	fmt.Printf("汇总read类型统计已写入: %s\n", filename)
-
-	// 3. 详细的read类型统计（包含频率和百分比）
-	filename = filepath.Join(outputDir, "read_type_detailed.csv")
-	file, err = os.Create(filename)
-	if err != nil {
-		return fmt.Errorf("创建文件失败 %s: %v", filename, err)
-	}
-	defer file.Close()
-
-	writer = bufio.NewWriter(file)
-
-	// 写入表头
-	writer.WriteString("ReadType,Sample")
-	for _, sampleName := range sampleNames {
-		fmt.Fprintf(writer, ",%s_Count,%s_Percentage", sampleName, sampleName)
-	}
-	writer.WriteString(",Total_Count,Total_Percentage\n")
-
-	// 写入每种read类型的数据
-	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
-		var row strings.Builder
-		fmt.Fprintf(&row, "%s,", ReadTypeNames[rt])
-
-		// 写入每个样本的计数和百分比
-		for _, sampleStats := range stats.Samples {
-			sampleStats.RLock()
-			/* 			if !exists {
-			   				row.WriteString("0,0.00%,")
-			   				continue
-			   			}
-			*/
-			count := sampleStats.ReadTypeCounts[rt]
-			percentage := 0.0
-			if sampleStats.ReadCounts > 0 {
-				percentage = float64(count) / float64(sampleStats.ReadCounts) * 100
-			}
-
-			fmt.Fprintf(&row, "%d,%.2f%%,", count, percentage)
-			sampleStats.RUnlock()
-		}
-
-		// 写入总计
-		totalCount := stats.TotalReadTypeCounts[rt]
-		totalPercentage := float64(totalCount) / float64(totalReads) * 100
-		fmt.Fprintf(&row, "%d,%.2f%%", totalCount, totalPercentage)
-
-		writer.WriteString(row.String() + "\n")
-	}
-
-	// 添加包含突变的reads行
-	var row strings.Builder
-	row.WriteString("包含突变的reads,")
-	for _, sampleStats := range stats.Samples {
-		sampleStats.RLock()
-		percentage := 0.0
-		if sampleStats.ReadCounts > 0 {
-			percentage = float64(sampleStats.ReadsWithMutations) / float64(sampleStats.ReadCounts) * 100
-		}
-
-		fmt.Fprintf(&row, "%d,%.2f%%,", sampleStats.ReadsWithMutations, percentage)
-		sampleStats.RUnlock()
-	}
-
-	fmt.Fprintf(&row, "%d,%.2f%%", stats.TotalReadsWithMuts,
-		float64(stats.TotalReadsWithMuts)/float64(totalReads)*100)
-
-	writer.WriteString(row.String() + "\n")
-
-	writer.Flush()
-	fmt.Printf("详细read类型统计已写入: %s\n", filename)
 
 	return nil
 }
@@ -1413,6 +1391,11 @@ func mainWrite(outputDir string, stats *MutationStats) {
 	if err := writeDeletionPositionStats(stats, outputDir); err != nil {
 		fmt.Printf("写入缺失位置统计失败: %v\n", err)
 	}
+
+	// 新增：细分类统计输出
+	if err := writeReadSubtypeStats(stats, outputDir); err != nil {
+		fmt.Printf("写入细分类统计失败: %v\n", err)
+	}
 }
 
 func mainPrint(stats *MutationStats) {
@@ -1429,4 +1412,182 @@ func mainPrint(stats *MutationStats) {
 			fmt.Printf("    %s: %d (%.2f%%)\n", ReadTypeNames[rt], count, percentage)
 		}
 	}
+}
+
+// 新增：输出细分类统计
+func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
+	// 1. 样本维度细分类统计（每个样本一行，每种细分类一列？为了可读性，转置输出：每行是一个样本+细分类）
+	filename := filepath.Join(outputDir, "read_subtype_stats.csv")
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer := bufio.NewWriter(file)
+	writer.WriteString("Sample,Category,Subtype,Reads,Events,Bases,AlignedReads,TotalReads\n")
+
+	// 定义细分类名称映射（在函数内部定义，修复未定义错误）
+	insertNames := map[InsertionSubtype]string{
+		Dup1:   "Dup1",
+		Dup2:   "Dup2",
+		DupDup: "DupDup",
+		Ins1:   "Ins1",
+		Ins2:   "Ins2",
+		Ins3:   "Ins3",
+	}
+	substNames := map[SubstitutionSubtype]string{
+		DupDel:   "DupDel",
+		DelDup:   "DelDup",
+		Mismatch: "Mismatch",
+	}
+
+	// 获取排序后的样本名列表
+	sampleNames := getSortedSampleNames(stats)
+
+	for _, sampleName := range sampleNames {
+		sampleStats := stats.Samples[sampleName]
+		sampleStats.RLock()
+
+		aligned := sampleStats.AlignedReads
+		total := sampleStats.ReadCounts
+
+		// 缺失细分类
+		for st, cnt := range sampleStats.DeleteSubtypeReads {
+			subtypeName := "Del1"
+			if st == Del2 {
+				subtypeName = "Del2"
+			}
+			writer.WriteString(fmt.Sprintf("%s,Deletion,%s,%d,%d,%d,%d,%d\n",
+				sampleName, subtypeName, cnt,
+				sampleStats.DeleteSubtypeEvents[st],
+				sampleStats.DeleteSubtypeBases[st],
+				aligned, total))
+		}
+		// 插入细分类
+		insertNames := map[InsertionSubtype]string{
+			Dup1: "Dup1", Dup2: "Dup2", DupDup: "DupDup",
+			Ins1: "Ins1", Ins2: "Ins2", Ins3: "Ins3",
+		}
+		for st, cnt := range sampleStats.InsertSubtypeReads {
+			writer.WriteString(fmt.Sprintf("%s,Insertion,%s,%d,%d,%d,%d,%d\n",
+				sampleName, insertNames[st], cnt,
+				sampleStats.InsertSubtypeEvents[st],
+				sampleStats.InsertSubtypeBases[st],
+				aligned, total))
+		}
+		// 替换细分类
+		substNames := map[SubstitutionSubtype]string{
+			DupDel: "DupDel", DelDup: "DelDup", Mismatch: "Mismatch",
+		}
+		for st, cnt := range sampleStats.SubstitutionSubtypeReads {
+			writer.WriteString(fmt.Sprintf("%s,Substitution,%s,%d,%d,%d,%d,%d\n",
+				sampleName, substNames[st], cnt,
+				sampleStats.SubstitutionSubtypeEvents[st],
+				sampleStats.SubstitutionSubtypeBases[st],
+				aligned, total))
+		}
+		sampleStats.RUnlock()
+	}
+
+	// 汇总行
+	writer.WriteString("Total,,,,,\n")
+	// 缺失汇总
+	for st, cnt := range stats.TotalDeleteSubtypeReads {
+		subtypeName := "Del1"
+		if st == Del2 {
+			subtypeName = "Del2"
+		}
+		writer.WriteString(fmt.Sprintf("Total,Deletion,%s,%d,%d,%d,%d,%d\n",
+			subtypeName, cnt,
+			stats.TotalDeleteSubtypeEvents[st],
+			stats.TotalDeleteSubtypeBases[st],
+			stats.TotalAlignedReads, stats.TotalReadCount))
+	}
+	// 插入汇总
+	for st, cnt := range stats.TotalInsertSubtypeReads {
+		writer.WriteString(fmt.Sprintf("Total,Insertion,%s,%d,%d,%d,%d,%d\n",
+			insertNames[st], cnt,
+			stats.TotalInsertSubtypeEvents[st],
+			stats.TotalInsertSubtypeBases[st],
+			stats.TotalAlignedReads, stats.TotalReadCount))
+	}
+	// 替换汇总
+	for st, cnt := range stats.TotalSubstitutionSubtypeReads {
+		writer.WriteString(fmt.Sprintf("Total,Substitution,%s,%d,%d,%d,%d,%d\n",
+			substNames[st], cnt,
+			stats.TotalSubstitutionSubtypeEvents[st],
+			stats.TotalSubstitutionSubtypeBases[st],
+			stats.TotalAlignedReads, stats.TotalReadCount))
+	}
+
+	writer.Flush()
+	fmt.Printf("细分类统计已写入: %s\n", filename)
+
+	// 2. 细分类组合统计
+	filename = filepath.Join(outputDir, "read_subtype_combinations.csv")
+	file, err = os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer = bufio.NewWriter(file)
+	writer.WriteString("Combination,Sample,Count,AlignedReads,TotalReads\n")
+
+	for _, sampleName := range sampleNames {
+		sampleStats := stats.Samples[sampleName]
+		sampleStats.RLock()
+		aligned := sampleStats.AlignedReads
+		total := sampleStats.ReadCounts
+		for comb, cnt := range sampleStats.SubtypeCombinationCounts {
+			writer.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d\n",
+				comb, sampleName, cnt, aligned, total))
+		}
+		sampleStats.RUnlock()
+	}
+
+	// 汇总组合统计
+	for comb, cnt := range stats.TotalSubtypeCombinationCounts {
+		writer.WriteString(fmt.Sprintf("%s,Total,%d,%d,%d\n",
+			comb, cnt, stats.TotalAlignedReads, stats.TotalReadCount))
+	}
+
+	writer.Flush()
+	fmt.Printf("细分类组合统计已写入: %s\n", filename)
+
+	return nil
+}
+
+// 辅助函数：获取排序后的样本名列表
+func getSortedSampleNames(stats *MutationStats) []string {
+	var names []string
+	for name := range stats.Samples {
+		names = append(names, name)
+	}
+	if excelFile != "" && len(sampleOrder) > 0 {
+		// 按 Excel 顺序排序
+		orderMap := make(map[string]int)
+		for i, n := range sampleOrder {
+			orderMap[n] = i
+		}
+		sort.Slice(names, func(i, j int) bool {
+			// 如果两个都在 sampleOrder 中，按顺序比较；否则按字母序
+			oi, ei := orderMap[names[i]]
+			oj, ej := orderMap[names[j]]
+			if ei && ej {
+				return oi < oj
+			}
+			if ei {
+				return true
+			}
+			if ej {
+				return false
+			}
+			return names[i] < names[j]
+		})
+	} else {
+		sort.Strings(names)
+	}
+	return names
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/biogo/hts/sam"
 )
 
-// processBAMFile 处理单个BAM文件 - 使用新的数据结构
+// processBAMFile 处理单个BAM文件 - 添加细分类统计
 func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	// 打开BAM文件
 	f, err := os.Open(bamPath)
@@ -57,6 +57,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 			mdStr = mdTag.String()
 			mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
 		}
+		// mdStr, _ := getMDString(read)
 
 		// 分析详细的read类型
 		readInfo := analyzeReadDetailedInfo(read, mdStr)
@@ -174,6 +175,60 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 		// 保存突变到列表（可选）
 		sampleStats.MutationList = append(sampleStats.MutationList, readInfo.Mutations...)
 
+		// ----- 新增：细分类统计 -----
+		// 记录该read出现的细分类（用于组合统计）
+		insertSubtypes := make(map[InsertionSubtype]bool)
+		deleteSubtypes := make(map[DeletionSubtype]bool)
+		substSubtypes := make(map[SubstitutionSubtype]bool)
+
+		// 插入细分类
+		if readInfo.InsertSub != nil {
+			for _, ins := range readInfo.InsertSub.Insertions {
+				st := ins.Subtype
+				// 事件数
+				sampleStats.InsertSubtypeEvents[st]++
+				// 碱基数
+				sampleStats.InsertSubtypeBases[st] += ins.Length
+				insertSubtypes[st] = true
+			}
+			// reads数（每个细分类单独计）
+			for st := range insertSubtypes {
+				sampleStats.InsertSubtypeReads[st]++
+			}
+		}
+
+		// 缺失细分类
+		if readInfo.DeleteSub != nil {
+			for _, del := range readInfo.DeleteSub.Deletions {
+				st := del.Subtype
+				sampleStats.DeleteSubtypeEvents[st]++
+				sampleStats.DeleteSubtypeBases[st] += del.Length
+				deleteSubtypes[st] = true
+			}
+			for st := range deleteSubtypes {
+				sampleStats.DeleteSubtypeReads[st]++
+			}
+		}
+
+		// 替换细分类
+		if len(readInfo.Substitutions) > 0 {
+			for _, sub := range readInfo.Substitutions {
+				st := sub.Subtype
+				sampleStats.SubstitutionSubtypeEvents[st]++
+				sampleStats.SubstitutionSubtypeBases[st]++ // 替换碱基数为1
+				substSubtypes[st] = true
+			}
+			for st := range substSubtypes {
+				sampleStats.SubstitutionSubtypeReads[st]++
+			}
+		}
+
+		// 细分类组合统计
+		if len(insertSubtypes) > 0 || len(deleteSubtypes) > 0 || len(substSubtypes) > 0 {
+			combKey := buildSubtypeCombinationKey(insertSubtypes, deleteSubtypes, substSubtypes)
+			sampleStats.SubtypeCombinationCounts[combKey]++
+		}
+
 		sampleStats.Unlock()
 	}
 
@@ -250,6 +305,41 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	// 合并突变统计
 	for mutKey, count := range sampleStats.Mutations {
 		stats.TotalMutations[mutKey] += count
+	}
+
+	for st, cnt := range sampleStats.DeleteSubtypeReads {
+		stats.TotalDeleteSubtypeReads[st] += cnt
+	}
+	for st, cnt := range sampleStats.DeleteSubtypeEvents {
+		stats.TotalDeleteSubtypeEvents[st] += cnt
+	}
+	for st, cnt := range sampleStats.DeleteSubtypeBases {
+		stats.TotalDeleteSubtypeBases[st] += cnt
+	}
+
+	for st, cnt := range sampleStats.InsertSubtypeReads {
+		stats.TotalInsertSubtypeReads[st] += cnt
+	}
+	for st, cnt := range sampleStats.InsertSubtypeEvents {
+		stats.TotalInsertSubtypeEvents[st] += cnt
+	}
+	for st, cnt := range sampleStats.InsertSubtypeBases {
+		stats.TotalInsertSubtypeBases[st] += cnt
+	}
+
+	for st, cnt := range sampleStats.SubstitutionSubtypeReads {
+		stats.TotalSubstitutionSubtypeReads[st] += cnt
+	}
+	for st, cnt := range sampleStats.SubstitutionSubtypeEvents {
+		stats.TotalSubstitutionSubtypeEvents[st] += cnt
+	}
+	for st, cnt := range sampleStats.SubstitutionSubtypeBases {
+		stats.TotalSubstitutionSubtypeBases[st] += cnt
+	}
+
+	// ... 类似合并插入、替换细分类 ...
+	for comb, cnt := range sampleStats.SubtypeCombinationCounts {
+		stats.TotalSubtypeCombinationCounts[comb] += cnt
 	}
 
 	sampleStats.RUnlock()
