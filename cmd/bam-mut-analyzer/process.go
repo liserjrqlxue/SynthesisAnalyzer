@@ -59,6 +59,134 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 		}
 		// mdStr, _ := getMDString(read)
 
+		// ---------- 新增：位置详细统计 ----------
+		refStart := int(read.Pos) // 0-based
+		// 解析MD字符串，建立位置到参考碱基的映射
+		mdMap := parseMDToMap(mdStr, refStart)
+
+		refPos := refStart
+		readPos := 0
+		readIsPerfect := true
+		perfectUptoNow := true
+		cigarOps := read.Cigar
+
+		for ci, cigarOp := range cigarOps {
+			op := cigarOp.Type()
+			length := cigarOp.Len()
+
+			switch op {
+			case 0, 7, 8: // M, =, X
+				for j := 0; j < length; j++ {
+					pos := refPos + j + 1 // 1-based
+					isMismatch := false
+					if op == 8 {
+						isMismatch = true
+					} else if hasMD {
+						_, ok := mdMap[refPos+j]
+						if ok {
+							isMismatch = true
+						}
+					}
+					// 插入只影响 M 操作的最后一个位置
+					hasInsertAfter := false
+					if j == length-1 && ci+1 < len(cigarOps) && cigarOps[ci+1].Type() == 1 {
+						hasInsertAfter = true
+					}
+
+					sampleStats.Lock()
+					detail, exists := sampleStats.PositionStats[pos]
+					if !exists {
+						detail = &PositionDetail{}
+						sampleStats.PositionStats[pos] = detail
+					}
+					detail.Depth++
+
+					if perfectUptoNow && !isMismatch && !hasInsertAfter {
+						detail.PerfectUptoPosCount++
+					}
+
+					if hasInsertAfter {
+						if isMismatch {
+							detail.MismatchWithIns++
+						} else {
+							detail.MatchWithIns++
+						}
+						detail.Insertion++ // 该位置有一次插入事件
+					} else {
+						if isMismatch {
+							detail.MismatchPure++
+						} else {
+							detail.MatchPure++
+						}
+					}
+					sampleStats.Unlock()
+
+					// 更新 read 完美状态：遇到错配、插入、缺失都不完美
+					if isMismatch || hasInsertAfter {
+						readIsPerfect = false
+						perfectUptoNow = false
+					}
+				}
+				refPos += length
+				readPos += length
+
+			case 2, 3: // D, N
+				for j := 0; j < length; j++ {
+					pos := refPos + j + 1
+					sampleStats.Lock()
+					detail, exists := sampleStats.PositionStats[pos]
+					if !exists {
+						detail = &PositionDetail{}
+						sampleStats.PositionStats[pos] = detail
+					}
+					detail.Depth++
+					detail.Deletion++
+					sampleStats.Unlock()
+				}
+				readIsPerfect = false
+				perfectUptoNow = false
+				refPos += length
+
+			case 1: // I
+				readPos += length
+				readIsPerfect = false
+				perfectUptoNow = false
+				// 插入本身不占用参考位置，但影响前一个位置的统计（已在 M 操作中处理）
+			case 4: // S
+				readPos += length
+			}
+		}
+
+		// 整条read完美：为每个覆盖位置累加PerfectReadsCount
+		if readIsPerfect {
+			refPos = refStart
+			readPos = 0
+			for _, cigarOp := range cigarOps {
+				op := cigarOp.Type()
+				length := cigarOp.Len()
+				switch op {
+				case 0, 7, 8:
+					for j := 0; j < length; j++ {
+						pos := refPos + j + 1
+						sampleStats.Lock()
+						detail, exists := sampleStats.PositionStats[pos]
+						if !exists {
+							detail = &PositionDetail{}
+							sampleStats.PositionStats[pos] = detail
+						}
+						detail.PerfectReadsCount++
+						sampleStats.Unlock()
+					}
+					refPos += length
+					readPos += length
+				case 2, 3:
+					refPos += length
+				case 1, 4:
+					readPos += length
+				}
+			}
+		}
+
 		// 分析详细的read类型
 		readInfo := analyzeReadDetailedInfo(read, mdStr)
 
