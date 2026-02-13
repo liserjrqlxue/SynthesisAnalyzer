@@ -54,3 +54,19 @@ const (
 	DelDup                              // 与+1位相同
 	Mismatch                            // 其他
 )
+
+// 定义细分类名称映射
+var InsertNames = map[InsertionSubtype]string{
+	Dup1:   "Dup1",
+	Dup2:   "Dup2",
+	DupDup: "DupDup",
+	Ins1:   "Ins1",
+	Ins2:   "Ins2",
+	Ins3:   "Ins3",
+}
+
+var SubstNames = map[SubstitutionSubtype]string{
+	DupDel:   "DupDel",
+	DelDup:   "DelDup",
+	Mismatch: "Mismatch",
+}
