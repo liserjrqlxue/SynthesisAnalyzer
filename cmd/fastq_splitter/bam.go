@@ -26,6 +26,9 @@ func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *SampleInfo) (
 		positionStats[i].Position = i + 1 // 1-based position
 	}
 
+	// 初始化read类型计数器
+	readTypeCounts := &ReadTypeCounts{}
+
 	totalReads := int64(0)
 	mappedReads := int64(0)
 	totalMismatches := int64(0)
@@ -63,8 +66,14 @@ func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *SampleInfo) (
 			}
 		}
 
-		// 解析比对结果
-		a.parseAlignment(cigar, mdTag, fields[9], sample, &positionStats, &totalMatches, &totalMismatches)
+		// 解析比对结果并获取错误类型
+		errorFlags := a.parseAlignmentWithErrors(
+			cigar, mdTag, fields[9], sample,
+			&positionStats, &totalMatches, &totalMismatches,
+		)
+
+		// 根据错误类型分类read
+		a.classifyRead(errorFlags, readTypeCounts)
 	}
 
 	// 计算汇总统计
@@ -73,6 +82,7 @@ func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *SampleInfo) (
 		MappedReads:     mappedReads,
 		AverageCoverage: 0,
 		AverageIdentity: 0,
+		ReadTypeCounts:  readTypeCounts, // 添加类型统计
 	}
 
 	if totalReads > 0 {
@@ -123,13 +133,14 @@ func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *SampleInfo) (
 	}
 
 	return &SampleAlignment{
-		SampleName:    sample.Name,
-		ReferenceSeq:  sample.ReferenceSeq,
-		ReferenceLen:  sample.ReferenceLen,
-		PositionStats: positionStats,
-		Summary:       summary,
-		BamFile:       bamFile,
-		BamIndex:      bamFile + ".bai",
+		SampleName:     sample.Name,
+		ReferenceSeq:   sample.ReferenceSeq,
+		ReferenceLen:   sample.ReferenceLen,
+		PositionStats:  positionStats,
+		Summary:        summary,
+		BamFile:        bamFile,
+		BamIndex:       bamFile + ".bai",
+		ReadTypeCounts: readTypeCounts,
 	}, nil
 }
 
@@ -507,9 +518,10 @@ func (a *AlignmentAnalyzer) isMatchWithParser(refPos int, seqBase byte, parser *
 }
 
 // 解析比对结果（改进版）
-func (a *AlignmentAnalyzer) parseAlignment(cigar, mdTag, seq string, sample *SampleInfo,
-	positionStats *[]PositionStat, totalMatches, totalMismatches *int64) {
+func (a *AlignmentAnalyzer) parseAlignmentWithErrors(cigar, mdTag, seq string, sample *SampleInfo,
+	positionStats *[]PositionStat, totalMatches, totalMismatches *int64) *readErrorFlags {
 
+	flags := &readErrorFlags{}
 	refPos := 0
 	seqPos := 0
 	seqLen := len(seq)
@@ -541,7 +553,7 @@ func (a *AlignmentAnalyzer) parseAlignment(cigar, mdTag, seq string, sample *Sam
 				if seqPos >= seqLen {
 					fmt.Printf("错误: 序列位置越界 seqPos=%d, seqLen=%d\n", seqPos, seqLen)
 					slog.Error("错误: 序列位置越界", "seqPos", seqPos, "seqLen", seqLen, "cigar", cigar, "mdTag", mdTag, "seq", seq)
-					return
+					return flags
 				}
 
 				if refPos < len(*positionStats) {
@@ -554,6 +566,7 @@ func (a *AlignmentAnalyzer) parseAlignment(cigar, mdTag, seq string, sample *Sam
 					} else {
 						(*positionStats)[refPos].MismatchCount++
 						(*totalMismatches)++
+						flags.hasMismatch = true
 					}
 				}
 				refPos++
@@ -562,6 +575,7 @@ func (a *AlignmentAnalyzer) parseAlignment(cigar, mdTag, seq string, sample *Sam
 
 		case 'D', 'N':
 			// 缺失或跳过，只消耗参考序列
+			flags.hasDeletion = true
 			for j := 0; j < num; j++ {
 				if refPos < len(*positionStats) {
 					(*positionStats)[refPos].TotalReads++
@@ -571,6 +585,7 @@ func (a *AlignmentAnalyzer) parseAlignment(cigar, mdTag, seq string, sample *Sam
 			}
 
 		case 'I': // 插入
+			flags.hasInsertion = true
 			if refPos > 0 && refPos-1 < len(*positionStats) {
 				(*positionStats)[refPos-1].InsertionCount++
 			}
@@ -578,6 +593,7 @@ func (a *AlignmentAnalyzer) parseAlignment(cigar, mdTag, seq string, sample *Sam
 
 		case 'S':
 			// 软裁剪，只消耗序列
+			flags.hasInsertion = true
 			seqPos += num
 
 		case '=', 'X': // 明确的匹配/错配
@@ -585,7 +601,7 @@ func (a *AlignmentAnalyzer) parseAlignment(cigar, mdTag, seq string, sample *Sam
 				if seqPos >= seqLen {
 					fmt.Printf("错误: 序列位置越界 seqPos=%d, seqLen=%d\n", seqPos, seqLen)
 					slog.Error("错误: 序列位置越界", "seqPos", seqPos, "seqLen", seqLen, "cigar", cigar, "mdTag", mdTag, "seq", seq)
-					return
+					return flags
 				}
 
 				if refPos < len(*positionStats) {
@@ -597,6 +613,7 @@ func (a *AlignmentAnalyzer) parseAlignment(cigar, mdTag, seq string, sample *Sam
 					} else { // 'X'
 						(*positionStats)[refPos].MismatchCount++
 						(*totalMismatches)++
+						flags.hasMismatch = true
 					}
 				}
 				refPos++
@@ -604,15 +621,81 @@ func (a *AlignmentAnalyzer) parseAlignment(cigar, mdTag, seq string, sample *Sam
 			}
 		case 'H', 'P':
 			// 硬裁剪或填充，不消耗序列或参考序列
+			flags.hasInsertion = true
 			continue
 		default:
 			slog.Error("未知的CIGAR操作符", "op", op)
 		}
 	}
+	return flags
 
 	// 验证：序列应该被完全消耗（除了被裁剪的部分）
 	// 但硬裁剪（H）不影响序列长度，软裁剪（S）影响
 	// 这里不强制验证，因为有S/H操作
+}
+
+// 新增：根据错误类型分类read
+func (a *AlignmentAnalyzer) classifyRead(flags *readErrorFlags, counts *ReadTypeCounts) {
+	if flags == nil {
+		counts.Other++
+		return
+	}
+
+	// 统计错误类型
+	errorCount := 0
+	if flags.hasMismatch {
+		errorCount++
+	}
+	if flags.hasInsertion {
+		errorCount++
+	}
+	if flags.hasDeletion {
+		errorCount++
+	}
+
+	switch errorCount {
+	case 0:
+		// 完全正确的read
+		counts.PerfectReads++
+	case 1:
+		// 只有一种错误
+		if flags.hasMismatch {
+			counts.MismatchOnly++
+		} else if flags.hasInsertion {
+			counts.InsertionOnly++
+		} else if flags.hasDeletion {
+			counts.DeletionOnly++
+		}
+	case 2:
+		// 有两种错误
+		if flags.hasMismatch && flags.hasInsertion {
+			counts.MixedMismatchIns++
+		} else if flags.hasMismatch && flags.hasDeletion {
+			counts.MixedMismatchDel++
+		} else if flags.hasInsertion && flags.hasDeletion {
+			counts.MixedInsDel++
+		} else {
+			counts.Other++
+		}
+	case 3:
+		// 三种错误都有
+		counts.AllErrors++
+	default:
+		counts.Other++
+	}
+}
+
+// 新增：验证read类型统计的辅助函数
+func (a *AlignmentAnalyzer) ValidateReadTypeCounts(counts *ReadTypeCounts, mappedReads int64) bool {
+	if counts == nil {
+		return false
+	}
+
+	calculatedTotal := counts.PerfectReads + counts.MismatchOnly + counts.InsertionOnly +
+		counts.DeletionOnly + counts.MixedMismatchIns + counts.MixedMismatchDel +
+		counts.MixedInsDel + counts.AllErrors + counts.Other
+
+	return calculatedTotal == mappedReads
 }
 
 // 带调试信息的版本
@@ -631,7 +714,7 @@ func (a *AlignmentAnalyzer) parseAlignmentWithDebug(cigar, mdTag, seq string, sa
 	}()
 
 	// 调用正常的解析函数
-	a.parseAlignment(cigar, mdTag, seq, sample, positionStats, totalMatches, totalMismatches)
+	a.parseAlignmentWithErrors(cigar, mdTag, seq, sample, positionStats, totalMatches, totalMismatches)
 }
 
 func safeSubstr(s string, start, length int) string {
