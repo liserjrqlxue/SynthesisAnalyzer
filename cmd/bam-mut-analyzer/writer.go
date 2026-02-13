@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -1155,7 +1156,7 @@ func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 		writer.Flush()
 		file.Close()
 		sampleStats.RUnlock()
-		fmt.Printf("  样本 %s 的缺失位置统计已写入: %s\n", sampleName, filename)
+		slog.Debug("缺失位置统计已写入", "sampleName", sampleName, "filename", filename)
 	}
 
 	// 2. 汇总的单碱基缺失位置统计
@@ -1396,6 +1397,12 @@ func mainWrite(outputDir string, stats *MutationStats) {
 	if err := writeReadSubtypeStats(stats, outputDir); err != nil {
 		fmt.Printf("写入细分类统计失败: %v\n", err)
 	}
+
+	// 新增：样品-位置详细统计
+	if err := writePositionDetailedStats(stats, outputDir); err != nil {
+		fmt.Printf("写入位置详细统计失败: %v\n", err)
+	}
+
 }
 
 func mainPrint(stats *MutationStats) {
@@ -1426,21 +1433,6 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 
 	writer := bufio.NewWriter(file)
 	writer.WriteString("Sample,Category,Subtype,Reads,Events,Bases,AlignedReads,TotalReads\n")
-
-	// 定义细分类名称映射（在函数内部定义，修复未定义错误）
-	insertNames := map[InsertionSubtype]string{
-		Dup1:   "Dup1",
-		Dup2:   "Dup2",
-		DupDup: "DupDup",
-		Ins1:   "Ins1",
-		Ins2:   "Ins2",
-		Ins3:   "Ins3",
-	}
-	substNames := map[SubstitutionSubtype]string{
-		DupDel:   "DupDel",
-		DelDup:   "DelDup",
-		Mismatch: "Mismatch",
-	}
 
 	// 获取排序后的样本名列表
 	sampleNames := getSortedSampleNames(stats)
@@ -1507,7 +1499,7 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 	// 插入汇总
 	for st, cnt := range stats.TotalInsertSubtypeReads {
 		writer.WriteString(fmt.Sprintf("Total,Insertion,%s,%d,%d,%d,%d,%d\n",
-			insertNames[st], cnt,
+			InsertNames[st], cnt,
 			stats.TotalInsertSubtypeEvents[st],
 			stats.TotalInsertSubtypeBases[st],
 			stats.TotalAlignedReads, stats.TotalReadCount))
@@ -1515,7 +1507,7 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 	// 替换汇总
 	for st, cnt := range stats.TotalSubstitutionSubtypeReads {
 		writer.WriteString(fmt.Sprintf("Total,Substitution,%s,%d,%d,%d,%d,%d\n",
-			substNames[st], cnt,
+			SubstNames[st], cnt,
 			stats.TotalSubstitutionSubtypeEvents[st],
 			stats.TotalSubstitutionSubtypeBases[st],
 			stats.TotalAlignedReads, stats.TotalReadCount))
@@ -1590,4 +1582,50 @@ func getSortedSampleNames(stats *MutationStats) []string {
 		sort.Strings(names)
 	}
 	return names
+}
+
+// ========== 新增输出函数：样品-位置详细统计 ==========
+func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
+	sampleNames := getSortedSampleNames(stats)
+	for _, sampleName := range sampleNames {
+		sampleStats := stats.Samples[sampleName]
+		sampleStats.RLock()
+
+		filename := filepath.Join(outputDir, fmt.Sprintf("%s_position_detailed.csv", sampleName))
+		file, err := os.Create(filename)
+		if err != nil {
+			sampleStats.RUnlock()
+			return fmt.Errorf("创建文件失败 %s: %v", filename, err)
+		}
+		writer := bufio.NewWriter(file)
+		writer.WriteString("pos,depth,match_pure,match_with_ins,mismatch_pure,mismatch_with_ins,insertion,deletion,perfect_reads,perfect_upto_pos,alinged,total\n")
+
+		var positions []int
+		for pos := range sampleStats.PositionStats {
+			positions = append(positions, pos)
+		}
+		sort.Ints(positions)
+
+		for _, pos := range positions {
+			detail := sampleStats.PositionStats[pos]
+			writer.WriteString(
+				fmt.Sprintf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+					pos, detail.Depth,
+					detail.MatchPure, detail.MatchWithIns,
+					detail.MismatchPure, detail.MismatchWithIns,
+					detail.Insertion, detail.Deletion,
+					detail.PerfectReadsCount,
+					detail.PerfectUptoPosCount,
+					sampleStats.AlignedReads,
+					sampleStats.ReadCounts,
+				),
+			)
+		}
+
+		writer.Flush()
+		file.Close()
+		sampleStats.RUnlock()
+		fmt.Printf("  已写入: %s\n", filename)
+	}
+	return nil
 }
