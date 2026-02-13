@@ -113,9 +113,11 @@ func (a *AlignmentAnalyzer) alignSample(sample *SampleInfo) (*SampleAlignment, e
 	// 1. 运行minimap2
 	samFile := filepath.Join(sampleAlignDir, fmt.Sprintf("%s.sam", sample.Name))
 	cmd := exec.Command("minimap2",
-		"-a",       // 输出SAM格式
-		"-x", "sr", // 针对高通量测序
-		"--end-bonus=10",
+		"-a", // 输出SAM格式
+		// "-x", "map-ont",
+		"-x", "sr",
+		"-z", "800",
+		"--end-bonus=100",
 		"--eqx",
 		"--MD",
 		"-t", fmt.Sprintf("%d", a.config.AlignerThreads/len(a.samples)+1),
