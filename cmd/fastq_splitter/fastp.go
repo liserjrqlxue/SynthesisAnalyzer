@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -129,7 +130,7 @@ func (s *EnhancedSplitter) buildFastpCommand(r1Path, r2Path, outputFile, tempDir
 		"--merged_out", outputFile,
 		"--thread", "4",
 		"--merge",
-		"--overlap_len_require", "20",
+		"--overlap_len_require", strconv.Itoa(s.config.OverlapLenRequire),
 		"--overlap_diff_limit", "5",
 		"--qualified_quality_phred", fmt.Sprintf("%d", s.config.Quality),
 		"--length_required", fmt.Sprintf("%d", s.config.MergeLen-50),

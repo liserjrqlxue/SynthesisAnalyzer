@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -21,29 +22,41 @@ import (
 	"github.com/tealeg/xlsx"
 )
 
-func main() {
-	// 检查参数
-	if len(os.Args) < 3 {
-		fmt.Println("用法: fastq_splitter <Excel文件> [输出目录] [Fastq目录]")
-		fmt.Println("示例: fastq_splitter samples.xlsx ./output ./fastq")
-		os.Exit(1)
-	}
+var (
+	excelFile = flag.String(
+		"i",
+		"",
+		"<Excel文件>",
+	)
+	outputDir = flag.String(
+		"o",
+		"output",
+		"[输出目录]",
+	)
+	fastqDir = flag.String(
+		"fq",
+		"",
+		"[Fastq目录]",
+	)
+	overlap = flag.Int(
+		"m",
+		30,
+		"the minimum length to detect overlapped region of PE reads. This will affect overlap analysis based PE merge, adapter trimming and correction. 3",
+	)
+)
 
-	excelFile := os.Args[1]
-	outputDir := "./output"
-	fastqDir := ""
-	if len(os.Args) > 2 {
-		outputDir = os.Args[2]
-	}
-	if len(os.Args) > 3 {
-		fastqDir = os.Args[3]
+func main() {
+	flag.Parse()
+	if *excelFile == "" {
+		flag.Usage()
+		log.Fatalln("-i required!")
 	}
 
 	// 创建配置
 	config := &Config{
-		ExcelFile:    excelFile,
-		OutputDir:    outputDir,
-		FastqDir:     fastqDir,
+		ExcelFile:    *excelFile,
+		OutputDir:    *outputDir,
+		FastqDir:     *fastqDir,
 		Threads:      runtime.NumCPU(),
 		SearchWindow: 200, // 从头/尾搜索50bp
 		Quality:      20,
@@ -62,12 +75,14 @@ func main() {
 		Alignment: AlignmentConfig{
 			UseMinimap2:    true,
 			AlignerThreads: 4,
-			MapQThreshold:  20,
+			MapQThreshold:  10,
 			MinIdentity:    0.90,
 			SkipAlignment:  false,
 			KeepSamFiles:   false,
 			AnalysisOnly:   false,
 		},
+
+		OverlapLenRequire: *overlap,
 	}
 
 	// 处理可选参数
