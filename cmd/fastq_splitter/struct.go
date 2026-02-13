@@ -35,6 +35,10 @@ type Config struct {
 
 	// 比对相关配置
 	Alignment AlignmentConfig
+
+	// --overlap_len_require
+	// the minimum length to detect overlapped region of PE reads. This will affect overlap analysis based PE merge, adapter trimming and correction. 30 by default. (int [=30])
+	OverlapLenRequire int
 }
 
 // 合并文件与样品的关系
@@ -119,13 +123,26 @@ type FileMatcher struct {
 
 // 比对结果结构
 type SampleAlignment struct {
-	SampleName    string
-	ReferenceSeq  string
-	ReferenceLen  int
-	PositionStats []PositionStat
-	Summary       *AlignmentSummary
-	BamFile       string
-	BamIndex      string
+	SampleName     string
+	ReferenceSeq   string
+	ReferenceLen   int
+	PositionStats  []PositionStat
+	Summary        *AlignmentSummary
+	BamFile        string
+	BamIndex       string
+	ReadTypeCounts *ReadTypeCounts // 新增：记录各种类型的reads个数
+}
+
+type ReadTypeCounts struct {
+	PerfectReads     int64 // 完全正确的reads
+	MismatchOnly     int64 // 只有错配的reads
+	InsertionOnly    int64 // 只有插入的reads
+	DeletionOnly     int64 // 只有缺失的reads
+	MixedMismatchIns int64 // 同时有错配和插入
+	MixedMismatchDel int64 // 同时有错配和缺失
+	MixedInsDel      int64 // 同时有插入和缺失
+	AllErrors        int64 // 三种错误都有
+	Other            int64 // 其他组合或无法解析的
 }
 
 // 位置统计结构
@@ -147,8 +164,16 @@ type AlignmentSummary struct {
 	MappingRate      float64
 	AverageCoverage  float64
 	AverageIdentity  float64
-	SynthesisSuccess float64 // 合成成功率
-	ErrorPositions   []int   // 高错误率位置
+	SynthesisSuccess float64         // 合成成功率
+	ErrorPositions   []int           // 高错误率位置
+	ReadTypeCounts   *ReadTypeCounts // 新增
+}
+
+// 解析单个read时使用的临时结构体
+type readErrorFlags struct {
+	hasMismatch  bool
+	hasInsertion bool
+	hasDeletion  bool
 }
 
 // 比对结果结构
