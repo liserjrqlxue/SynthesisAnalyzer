@@ -2,6 +2,19 @@ package main
 
 import "sync"
 
+// ========== 新增：位置详细统计结构 ==========
+type PositionDetail struct {
+	Depth               int
+	MatchPure           int
+	MatchWithIns        int
+	MismatchPure        int
+	MismatchWithIns     int
+	Insertion           int
+	Deletion            int
+	PerfectReadsCount   int
+	PerfectUptoPosCount int
+}
+
 // InsertSubtype 插入子类型（多条插入）
 type InsertSubtype struct {
 	Insertions []InsertionInfo // 每条插入的信息
@@ -94,6 +107,8 @@ type SampleStats struct {
 
 	// 新增：细分类组合统计（reads维度）
 	SubtypeCombinationCounts map[string]int // 组合键 -> reads数
+
+	PositionStats map[int]*PositionDetail
 }
 
 // NewSampleStats 创建新的样本统计对象
@@ -122,6 +137,8 @@ func NewSampleStats() *SampleStats {
 		SubstitutionSubtypeEvents: make(map[SubstitutionSubtype]int),
 		SubstitutionSubtypeBases:  make(map[SubstitutionSubtype]int),
 		SubtypeCombinationCounts:  make(map[string]int),
+
+		PositionStats: make(map[int]*PositionDetail),
 	}
 }
 
