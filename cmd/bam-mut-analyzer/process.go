@@ -218,6 +218,17 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 		// 分析详细的read类型
 		readInfo := analyzeReadDetailedInfo(read, mdStr)
 
+		// 统计突变信息
+		mutationCount := len(readInfo.Mutations)
+		sampleStats.Lock()
+		sampleStats.SubstitutionCountDist[mutationCount]++
+		sampleStats.Unlock()
+		// 跳过非良好比对
+		if mutationCount > maxSubstitutions {
+			continue
+		}
+		sampleStats.GoodAlignedReads++
+
 		// 更新样本统计
 		sampleStats.Lock()
 
@@ -291,7 +302,6 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 		}
 
 		// 统计突变信息
-		mutationCount := len(readInfo.Mutations)
 		if mutationCount > 0 {
 			readsWithMutations++
 			totalMutations += mutationCount
@@ -300,10 +310,10 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 			sampleStats.SubstitutionReads++
 
 			// 替换事件个数维度：累加替换事件数
-			sampleStats.SubstitutionEventCount += len(readInfo.Mutations)
+			sampleStats.SubstitutionEventCount += mutationCount
 
 			// 替换碱基个数维度：累加替换碱基数（每个替换事件是一个碱基替换）
-			sampleStats.SubstitutionBaseTotal += len(readInfo.Mutations)
+			sampleStats.SubstitutionBaseTotal += mutationCount
 			// 碱基维度：替换计数
 			sampleStats.MutationBaseCounts["substitution"] += mutationCount
 
@@ -500,6 +510,11 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	for comb, cnt := range sampleStats.SubtypeCombinationCounts {
 		stats.TotalSubtypeCombinationCounts[comb] += cnt
 	}
+
+	for count, n := range sampleStats.SubstitutionCountDist {
+		stats.TotalSubstitutionCountDist[count] += n
+	}
+	stats.TotalGoodAlignedReads += sampleStats.GoodAlignedReads
 
 	sampleStats.RUnlock()
 	stats.Unlock()

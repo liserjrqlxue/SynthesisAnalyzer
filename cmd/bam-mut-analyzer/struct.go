@@ -128,6 +128,9 @@ type SampleStats struct {
 	RefLength int // 参考序列全长
 	HeadCut   int // 头切除长度（默认或Excel指定）
 	TailCut   int // 尾切除长度（默认或Excel指定）
+
+	SubstitutionCountDist map[int]int // 替换个数 -> 该个数的reads数
+	GoodAlignedReads      int         // 比对良好reads数（替换个数 <= 阈值）
 }
 
 // NewSampleStats 创建新的样本统计对象
@@ -157,7 +160,8 @@ func NewSampleStats() *SampleStats {
 		SubstitutionSubtypeBases:  make(map[SubstitutionSubtype]int),
 		SubtypeCombinationCounts:  make(map[string]int),
 
-		PositionStats: make(map[int]*PositionDetail),
+		PositionStats:         make(map[int]*PositionDetail),
+		SubstitutionCountDist: make(map[int]int),
 	}
 }
 
@@ -207,6 +211,9 @@ type MutationStats struct {
 	TotalSubstitutionSubtypeEvents map[SubstitutionSubtype]int
 	TotalSubstitutionSubtypeBases  map[SubstitutionSubtype]int
 	TotalSubtypeCombinationCounts  map[string]int // 总体组合统计
+
+	TotalSubstitutionCountDist map[int]int // 总体分布
+	TotalGoodAlignedReads      int         // 总体比对良好reads数
 }
 
 // NewMutationStats 创建新的统计对象
@@ -235,6 +242,8 @@ func NewMutationStats() *MutationStats {
 		TotalSubstitutionSubtypeEvents: make(map[SubstitutionSubtype]int),
 		TotalSubstitutionSubtypeBases:  make(map[SubstitutionSubtype]int),
 		TotalSubtypeCombinationCounts:  make(map[string]int),
+
+		TotalSubstitutionCountDist: make(map[int]int),
 	}
 	return stats
 }

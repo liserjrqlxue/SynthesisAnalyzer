@@ -218,7 +218,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	sort.Strings(mutationTypes)
 
 	// 写入表头
-	header := "Sample,Total_Reads,Aligned_Reads,Reads_With_Mutations,Total_Mutations"
+	header := "Sample,Total_Reads,Aligned_Reads,Good_Aligned_Reads,Reads_With_Mutations,Total_Mutations"
 	if len(mutationTypes) > 0 {
 		header += "," + strings.Join(mutationTypes, ",")
 	}
@@ -246,7 +246,16 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 		sampleStats.RLock()
 
 		var row strings.Builder
-		fmt.Fprintf(&row, "%s,%d,%d,%d,%d", sampleName, sampleStats.ReadCounts, sampleStats.AlignedReads, sampleStats.ReadsWithMutations, sampleStats.TotalMutations)
+		fmt.Fprintf(
+			&row,
+			"%s,%d,%d,%d,%d,%d",
+			sampleName,
+			sampleStats.ReadCounts,
+			sampleStats.AlignedReads,
+			sampleStats.GoodAlignedReads,
+			sampleStats.ReadsWithMutations,
+			sampleStats.TotalMutations,
+		)
 		for _, mut := range mutationTypes {
 			count := sampleStats.Mutations[mut]
 			fmt.Fprintf(&row, ",%d", count)
@@ -366,9 +375,8 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 
 	writer := bufio.NewWriter(file)
 
-	// 写入表头 - 扩展新字段
-	// 写入表头 - 扩展新字段
-	header := "Sample,TotalReads,AlignedReads,ReadsWithMutations"
+	// 表头添加 GoodAlignedReads
+	header := "Sample,TotalReads,AlignedReads,GoodAlignedReads,ReadsWithMutations"
 
 	// 原有read类型列
 	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
@@ -409,9 +417,10 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 
 		totalReads := sampleStats.ReadCounts
 		alignedReads := sampleStats.AlignedReads
+		goodAlignedReads := sampleStats.GoodAlignedReads
 		readsWithMuts := sampleStats.ReadsWithMutations
 
-		row := fmt.Sprintf("%s,%d,%d,%d", sampleName, totalReads, alignedReads, readsWithMuts)
+		row := fmt.Sprintf("%s,%d,%d,%d,%d", sampleName, totalReads, alignedReads, goodAlignedReads, readsWithMuts)
 
 		// 写入每种read类型的计数
 		for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
@@ -516,6 +525,37 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	}
 	writer.WriteString(fmt.Sprintf("SubstitutionReads,%d,%.4f%%,%.4f%%\n",
 		stats.TotalSubstitutionReads, percentageAligned, percentageTotal))
+
+	// 在原有“reads维度变异统计”部分之后，添加基于良好reads的比例
+	writer.WriteString("\n基于良好reads的统计（替换个数 <= 阈值）:\n")
+	goodAligned := stats.TotalGoodAlignedReads
+	if goodAligned > 0 {
+		// 例如：包含突变的reads在良好reads中的比例
+		readsWithMutsPct := float64(stats.TotalReadsWithMuts) / float64(goodAligned) * 100
+		writer.WriteString(fmt.Sprintf("ReadsWithMutations_GoodAlignedPct,%.4f%%\n", readsWithMutsPct))
+
+		// 也可以添加其他比例，如各read类型的比例，根据需要
+		for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
+			count := stats.TotalReadTypeCounts[rt]
+			pct := float64(count) / float64(goodAligned) * 100
+			writer.WriteString(fmt.Sprintf("%s_GoodAlignedPct,%.4f%%\n", ReadTypeNames[rt], pct))
+		}
+	} else {
+		writer.WriteString("No good aligned reads.\n")
+	}
+
+	// 替换个数分布
+	writer.WriteString("\n替换个数分布（基于所有比对reads）:\n")
+	var counts []int
+	for c := range stats.TotalSubstitutionCountDist {
+		counts = append(counts, c)
+	}
+	sort.Ints(counts)
+	for _, c := range counts {
+		n := stats.TotalSubstitutionCountDist[c]
+		pct := float64(n) / float64(stats.TotalAlignedReads) * 100
+		writer.WriteString(fmt.Sprintf("Substitutions_%d,%d,%.4f%%\n", c, n, pct))
+	}
 
 	// c. 新增：变异事件个数维度
 	writer.WriteString("\n变异事件个数维度:\n")

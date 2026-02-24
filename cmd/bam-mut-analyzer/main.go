@@ -17,6 +17,8 @@ var (
 	headCut int
 	tailCut int
 
+	maxSubstitutions int // 最大替换个数阈值
+
 	fullLengths map[string]int
 	headCuts    map[string]int
 	tailCuts    map[string]int
@@ -29,6 +31,7 @@ func init() {
 	flag.StringVar(&excelFile, "i", "", "可选参数：输入Excel文件，包含样本顺序")
 	flag.IntVar(&headCut, "head", 20, "头切除长度")
 	flag.IntVar(&tailCut, "tail", 20, "尾切除长度")
+	flag.IntVar(&maxSubstitutions, "max-sub", 5, "最大替换个数阈值，用于定义比对良好reads")
 }
 
 func main() {
