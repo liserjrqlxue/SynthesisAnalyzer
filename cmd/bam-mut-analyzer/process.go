@@ -13,7 +13,7 @@ import (
 )
 
 // processBAMFile 处理单个BAM文件 - 添加细分类统计
-func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
+func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFromExcel, headCutFromExcel, tailCutFromExcel int) error {
 	// 打开BAM文件
 	f, err := os.Open(bamPath)
 	if err != nil {
@@ -31,6 +31,34 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 
 	// 获取或创建样本统计
 	sampleStats := stats.getOrCreateSampleStats(sampleName)
+
+	// 获取参考序列长度（优先从BAM header获取）
+	refSeqLen := 0
+	for _, ref := range br.Header().Refs() {
+		if ref.Name() == sampleName {
+			refSeqLen = ref.Len()
+			break
+		}
+	}
+	// 如果BAM中没有，使用Excel提供的长度
+	if refSeqLen == 0 && refLenFromExcel > 0 {
+		refSeqLen = refLenFromExcel
+	}
+	if refSeqLen == 0 {
+		fmt.Printf("  警告: 无法获取样本 %s 的参考序列长度，头尾切除将不会应用\n", sampleName)
+	} else if refSeqLen != refLenFromExcel {
+		fmt.Printf("  警告: 样本 %s 的参考序列长度冲突：[%d vs. %d]\n", sampleName, refSeqLen, refLenFromExcel)
+	}
+
+	// 设置头尾切除长度：优先使用Excel提供的，否则用全局默认
+	sampleHeadCut := headCut
+	sampleTailCut := tailCut
+	if headCutFromExcel > 0 {
+		sampleHeadCut = headCutFromExcel
+	}
+	if tailCutFromExcel > 0 {
+		sampleTailCut = tailCutFromExcel
+	}
 
 	var totalReads, alignedReads int
 	var readsWithMutations, totalMutations int
@@ -365,6 +393,9 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats) error {
 	sampleStats.ReadCounts = totalReads
 	sampleStats.AlignedReads = alignedReads
 	sampleStats.ReadsWithMutations = readsWithMutations
+	sampleStats.RefLength = refSeqLen
+	sampleStats.HeadCut = sampleHeadCut
+	sampleStats.TailCut = sampleTailCut
 	// 合并突变统计
 	for _, count := range sampleStats.Mutations {
 		sampleStats.TotalMutations += count
@@ -513,8 +544,18 @@ func processBAMFiles(bamFiles []string) (stats *MutationStats) {
 			sampleDir := filepath.Dir(path)
 			sampleName := filepath.Base(sampleDir)
 
+			refLen := 0
+			headCutFromExcel := 0
+			tailCutFromExcel := 0
+			if fullLengths != nil {
+				refLen = fullLengths[sampleName]
+				headCutFromExcel = headCuts[sampleName]
+				tailCutFromExcel = tailCuts[sampleName]
+			}
+
 			// 处理BAM文件
-			if err := processBAMFile(path, sampleName, stats); err != nil {
+			if err := processBAMFile(path, sampleName, stats,
+				refLen, headCutFromExcel, tailCutFromExcel); err != nil {
 				fmt.Printf("处理文件 %s 失败: %v\n", path, err)
 			}
 		}(bamPath)

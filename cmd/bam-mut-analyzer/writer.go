@@ -92,9 +92,7 @@ func writePositionStats(stats *MutationStats, outputDir string) error {
 		writer.Flush()
 		writer2.Flush()
 		sampleStats.RUnlock()
-		fmt.Printf("  已写入: %s\n", filename)
-		fmt.Printf("  已写入: %s\n", filename2)
-
+		slog.Debug("已写入", "filename", filename, "filename2", filename2)
 	}
 
 	return nil
@@ -1587,10 +1585,26 @@ func getSortedSampleNames(stats *MutationStats) []string {
 // ========== 新增输出函数：样品-位置详细统计 ==========
 func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 	sampleNames := getSortedSampleNames(stats)
+
+	// 汇总数据结构：修正后位置 -> TotalPositionDetail
+	totalPosStats := make(map[int]*TotalPositionDetail)
+
 	for _, sampleName := range sampleNames {
 		sampleStats := stats.Samples[sampleName]
 		sampleStats.RLock()
 
+		refLength := sampleStats.RefLength
+		headCut := sampleStats.HeadCut
+		tailCut := sampleStats.TailCut
+		// 计算有效区间（1-based）
+		minPos := 1
+		maxPos := int(^uint(0) >> 1)
+		if refLength > 0 {
+			minPos = headCut + 1
+			maxPos = refLength - tailCut
+		}
+
+		// 样品输出文件
 		filename := filepath.Join(outputDir, fmt.Sprintf("%s_position_detailed.csv", sampleName))
 		file, err := os.Create(filename)
 		if err != nil {
@@ -1598,7 +1612,8 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 			return fmt.Errorf("创建文件失败 %s: %v", filename, err)
 		}
 		writer := bufio.NewWriter(file)
-		writer.WriteString("pos,depth,match_pure,match_with_ins,mismatch_pure,mismatch_with_ins,insertion,deletion,perfect_reads,perfect_upto_pos,alinged,total\n")
+		// 写入表头：不再包含百分比，改为计数
+		writer.WriteString("pos,depth,match_pure,match_with_ins,mismatch_pure,mismatch_with_ins,insertion,deletion,perfect_reads,perfect_upto_pos\n")
 
 		var positions []int
 		for pos := range sampleStats.PositionStats {
@@ -1606,20 +1621,42 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 		}
 		sort.Ints(positions)
 
-		for _, pos := range positions {
-			detail := sampleStats.PositionStats[pos]
+		for _, rawPos := range positions {
+			if rawPos < minPos || rawPos > maxPos {
+				continue
+			}
+			detail := sampleStats.PositionStats[rawPos]
+			correctedPos := rawPos - headCut // 新位置从1开始
+
+			// 样品行输出计数（不计算百分比）
 			writer.WriteString(
-				fmt.Sprintf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
-					pos, detail.Depth,
+				fmt.Sprintf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+					correctedPos, detail.Depth,
 					detail.MatchPure, detail.MatchWithIns,
 					detail.MismatchPure, detail.MismatchWithIns,
 					detail.Insertion, detail.Deletion,
-					detail.PerfectReadsCount,
-					detail.PerfectUptoPosCount,
-					sampleStats.AlignedReads,
-					sampleStats.ReadCounts,
+					detail.PerfectReadsCount, detail.PerfectUptoPosCount,
 				),
 			)
+
+			// 累加到汇总
+			total, ok := totalPosStats[correctedPos]
+			if !ok {
+				total = &TotalPositionDetail{}
+				totalPosStats[correctedPos] = total
+			}
+			total.Depth += detail.Depth
+			total.MatchPure += detail.MatchPure
+			total.MatchWithIns += detail.MatchWithIns
+			total.MismatchPure += detail.MismatchPure
+			total.MismatchWithIns += detail.MismatchWithIns
+			total.Insertion += detail.Insertion
+			total.Deletion += detail.Deletion
+			total.PerfectReadsCount += detail.PerfectReadsCount
+			total.PerfectUptoPosCount += detail.PerfectUptoPosCount
+			// 累加该样品的 aligned 和 total
+			total.AlignedSum += sampleStats.AlignedReads
+			total.TotalSum += sampleStats.ReadCounts
 		}
 
 		writer.Flush()
@@ -1627,5 +1664,38 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 		sampleStats.RUnlock()
 		fmt.Printf("  已写入: %s\n", filename)
 	}
+
+	// 写入汇总文件
+	filename := filepath.Join(outputDir, "total_position_detailed.csv")
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("创建汇总文件失败: %v", err)
+	}
+	defer file.Close()
+	writer := bufio.NewWriter(file)
+	writer.WriteString("pos,depth,match_pure,match_with_ins,mismatch_pure,mismatch_with_ins,insertion,deletion,perfect_reads,perfect_upto_pos,aligned,total\n")
+
+	var totalPositions []int
+	for pos := range totalPosStats {
+		totalPositions = append(totalPositions, pos)
+	}
+	sort.Ints(totalPositions)
+
+	for _, pos := range totalPositions {
+		detail := totalPosStats[pos]
+		writer.WriteString(
+			fmt.Sprintf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+				pos, detail.Depth,
+				detail.MatchPure, detail.MatchWithIns,
+				detail.MismatchPure, detail.MismatchWithIns,
+				detail.Insertion, detail.Deletion,
+				detail.PerfectReadsCount, detail.PerfectUptoPosCount,
+				detail.AlignedSum, detail.TotalSum,
+			),
+		)
+	}
+	writer.Flush()
+	fmt.Printf("  已写入: %s\n", filename)
+
 	return nil
 }

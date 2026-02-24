@@ -15,6 +15,21 @@ type PositionDetail struct {
 	PerfectUptoPosCount int
 }
 
+// TotalPositionDetail 用于汇总各位置统计
+type TotalPositionDetail struct {
+	Depth               int
+	MatchPure           int
+	MatchWithIns        int
+	MismatchPure        int
+	MismatchWithIns     int
+	Insertion           int
+	Deletion            int
+	PerfectReadsCount   int
+	PerfectUptoPosCount int
+	AlignedSum          int // 覆盖该位置的所有样品的 aligned reads 之和
+	TotalSum            int // 覆盖该位置的所有样品的 total reads 之和
+}
+
 // InsertSubtype 插入子类型（多条插入）
 type InsertSubtype struct {
 	Insertions []InsertionInfo // 每条插入的信息
@@ -109,6 +124,10 @@ type SampleStats struct {
 	SubtypeCombinationCounts map[string]int // 组合键 -> reads数
 
 	PositionStats map[int]*PositionDetail
+
+	RefLength int // 参考序列全长
+	HeadCut   int // 头切除长度（默认或Excel指定）
+	TailCut   int // 尾切除长度（默认或Excel指定）
 }
 
 // NewSampleStats 创建新的样本统计对象

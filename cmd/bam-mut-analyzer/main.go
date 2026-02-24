@@ -13,6 +13,13 @@ var (
 	outputDir   string
 	excelFile   string
 	sampleOrder []string // 样本顺序列表
+
+	headCut int
+	tailCut int
+
+	fullLengths map[string]int
+	headCuts    map[string]int
+	tailCuts    map[string]int
 )
 
 func init() {
@@ -20,6 +27,8 @@ func init() {
 	flag.StringVar(&inputDir, "d", "", "输入目录，包含样本子目录")
 	flag.StringVar(&outputDir, "o", "", "输出目录, 默认输入目录/mutation_stats")
 	flag.StringVar(&excelFile, "i", "", "可选参数：输入Excel文件，包含样本顺序")
+	flag.IntVar(&headCut, "head", 20, "头切除长度")
+	flag.IntVar(&tailCut, "tail", 20, "尾切除长度")
 }
 
 func main() {
@@ -44,7 +53,7 @@ func main() {
 	if excelFile != "" {
 		fmt.Printf("读取Excel文件: %s\n", excelFile)
 		var err error
-		sampleOrder, err = readExcelSampleOrder(excelFile)
+		sampleOrder, fullLengths, headCuts, tailCuts, err = readExcelSampleOrder(excelFile)
 		if err != nil {
 			fmt.Printf("错误: 读取Excel文件失败: %v\n", err)
 			os.Exit(1)
