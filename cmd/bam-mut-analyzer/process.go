@@ -268,7 +268,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 			}
 		}
 
-		// 统计缺失信息
+		// 统计缺失细分类（原代码中已有统计，现在需要添加 Del1 碱基分布）
 		if readInfo.DeleteSub != nil && len(readInfo.DeleteSub.Deletions) > 0 {
 			// reads维度：包含缺失的reads数
 			sampleStats.DeleteReads++
@@ -292,7 +292,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 				// 单碱基缺失统计
 				if deletion.Length == 1 && len(deletion.Bases) == 1 {
 					base := deletion.Bases[0]
-					sampleStats.DeleteBaseCounts[base]++
+					sampleStats.Del1BaseCounts[base]++
 
 					// 缺失位置统计
 					posKey := fmt.Sprintf("%d:%c", deletion.Position, base)
@@ -457,7 +457,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	}
 
 	// 合并缺失碱基统计
-	for base, count := range sampleStats.DeleteBaseCounts {
+	for base, count := range sampleStats.Del1BaseCounts {
 		stats.TotalDeleteBaseCounts[base] += count
 	}
 
@@ -514,7 +514,15 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	for count, n := range sampleStats.SubstitutionCountDist {
 		stats.TotalSubstitutionCountDist[count] += n
 	}
+
+	// 合并 Del1 碱基分布
+	for base, cnt := range sampleStats.Del1BaseCounts {
+		stats.TotalDel1BaseCounts[base] += cnt
+	}
+
 	stats.TotalGoodAlignedReads += sampleStats.GoodAlignedReads
+	// 累加 RefLength * GoodAlignedReads
+	stats.TotalRefLengthGoodAligned += (sampleStats.RefLength - sampleStats.HeadCut - sampleStats.TailCut) * sampleStats.GoodAlignedReads
 
 	sampleStats.RUnlock()
 	stats.Unlock()

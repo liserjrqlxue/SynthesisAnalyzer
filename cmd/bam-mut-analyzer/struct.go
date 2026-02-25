@@ -79,7 +79,6 @@ type SampleStats struct {
 	InsertLengthDist     map[int]int      // 插入长度 -> count
 	DeleteLengthDist     map[int]int      // 缺失长度 -> count
 	MaxDeleteLengthDist  map[int]int      // 最长缺失长度 -> count
-	DeleteBaseCounts     map[byte]int     // 缺失碱基 -> count（长度为1的缺失）
 	InsertBaseCounts     map[string]int   // 插入序列 -> count
 	DeletePositionCounts map[string]int   // "位置:碱基" -> count
 	MutationBaseCounts   map[string]int   // 碱基维度变异统计
@@ -109,6 +108,8 @@ type SampleStats struct {
 	DeleteSubtypeReads  map[DeletionSubtype]int // 包含该细分类缺失的reads数
 	DeleteSubtypeEvents map[DeletionSubtype]int // 该细分类缺失事件总数
 	DeleteSubtypeBases  map[DeletionSubtype]int // 该细分类缺失碱基总数
+	// 新增：Del1缺失碱基分布
+	Del1BaseCounts map[byte]int // 缺失碱基 -> 事件数（注意：事件数即缺失个数）
 
 	// 新增：插入细分类统计
 	InsertSubtypeReads  map[InsertionSubtype]int
@@ -144,7 +145,6 @@ func NewSampleStats() *SampleStats {
 		InsertLengthDist:     make(map[int]int),
 		DeleteLengthDist:     make(map[int]int),
 		MaxDeleteLengthDist:  make(map[int]int),
-		DeleteBaseCounts:     make(map[byte]int),
 		InsertBaseCounts:     make(map[string]int),
 		DeletePositionCounts: make(map[string]int),
 		MutationBaseCounts:   make(map[string]int),
@@ -162,6 +162,7 @@ func NewSampleStats() *SampleStats {
 
 		PositionStats:         make(map[int]*PositionDetail),
 		SubstitutionCountDist: make(map[int]int),
+		Del1BaseCounts:        make(map[byte]int),
 	}
 }
 
@@ -214,6 +215,10 @@ type MutationStats struct {
 
 	TotalSubstitutionCountDist map[int]int // 总体分布
 	TotalGoodAlignedReads      int         // 总体比对良好reads数
+	// 新增：总Del1缺失碱基分布
+	TotalDel1BaseCounts map[byte]int
+	// 新增：RefLength * GoodAlignedReads 的累加（用于比例计算）
+	TotalRefLengthGoodAligned int // 所有样本的 RefLength * GoodAlignedReads 之和
 }
 
 // NewMutationStats 创建新的统计对象
@@ -244,6 +249,7 @@ func NewMutationStats() *MutationStats {
 		TotalSubtypeCombinationCounts:  make(map[string]int),
 
 		TotalSubstitutionCountDist: make(map[int]int),
+		TotalDel1BaseCounts:        make(map[byte]int),
 	}
 	return stats
 }

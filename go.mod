@@ -6,6 +6,7 @@ require (
 	github.com/biogo/hts v1.4.5
 	github.com/bits-and-blooms/bloom/v3 v3.7.1
 	github.com/klauspost/pgzip v1.2.6
+	github.com/samber/lo v1.52.0
 	github.com/tealeg/xlsx v1.0.5
 	github.com/xuri/excelize/v2 v2.10.0
 	golang.org/x/exp v0.0.0-20251209150349-8475f28825e9

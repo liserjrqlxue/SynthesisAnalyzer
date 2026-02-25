@@ -31,7 +31,8 @@ type DeletionSubtype int
 
 const (
 	Del1 DeletionSubtype = iota // 长度1
-	Del2                        // 长度>1
+	Del2                        // 长度2
+	Del3                        // 长度>2
 )
 
 // 新增：插入细分类

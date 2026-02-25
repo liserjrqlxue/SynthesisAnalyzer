@@ -3,12 +3,15 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/samber/lo"
 )
 
 // 更新输出函数以使用新的数据结构
@@ -147,7 +150,7 @@ func writeSampleMutationStats(stats *MutationStats, outputDir string) error {
 
 		writer.Flush()
 		sampleStats.RUnlock()
-		fmt.Printf("  已写入: %s\n", filename)
+		slog.Debug("已写入", "filename", filename)
 	}
 
 	return nil
@@ -363,6 +366,18 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	return nil
 }
 
+func write1line(w io.Writer, name string, count, reads, base, total int) {
+	fmt.Fprintf(
+		w,
+		"%s,%d,%.4f%%,%.4f%%,%.4f%%\n",
+		name,
+		count,
+		float64(count)/float64(reads)*100,
+		float64(count)/float64(base)*100,
+		float64(count)/float64(total)*100,
+	)
+}
+
 // writeReadTypeStats 写入read类型统计 - 更新输出
 func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	// 1. 各样本的read类型统计
@@ -465,87 +480,58 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	writer = bufio.NewWriter(file)
 
 	// 写入表头 - 添加新统计
-	writer.WriteString("Statistic,Count,PercentageOfAlignedReads,PercentageOfTotalReads\n")
+	writer.WriteString("Statistic,Count,PercentageOfGoodAlignedReads,PercentageOfAlignedReads,PercentageOfTotalReads\n")
 
 	totalReads := stats.TotalReadCount
 	alignedReads := stats.TotalAlignedReads
+	readsCount := stats.TotalGoodAlignedReads
+	baseCount := stats.TotalRefLengthGoodAligned
+	totalEvents := stats.TotalInsertEventCount + stats.TotalDeleteEventCount + stats.TotalSubstitutionEventCount
+	totalBases := stats.TotalInsertBaseTotal + stats.TotalDeleteBaseTotal + stats.TotalSubstitutionBaseTotal
+	totalDel1 := lo.Sum(lo.Values(stats.TotalDel1BaseCounts))
 
 	// a. 原有read类型统计
 	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
-		count := stats.TotalReadTypeCounts[rt]
-		percentageAligned := 0.0
-		percentageTotal := 0.0
-
-		if alignedReads > 0 {
-			percentageAligned = float64(count) / float64(alignedReads) * 100
-		}
-		if totalReads > 0 {
-			percentageTotal = float64(count) / float64(totalReads) * 100
-		}
-
-		writer.WriteString(fmt.Sprintf("%s,%d,%.4f%%,%.4f%%\n",
-			ReadTypeNames[rt], count, percentageAligned, percentageTotal))
+		write1line(writer, ReadTypeNames[rt], stats.TotalReadTypeCounts[rt], readsCount, alignedReads, totalReads)
 	}
 
+	writer.WriteString("\n变异大类统计（非互斥）:\n")
 	// b. 新增：reads维度变异统计（非互斥）
-	writer.WriteString("\nReads维度变异统计（非互斥）:\n")
-
+	// writer.WriteString("\nReads维度变异统计（非互斥）:\n")
 	// 包含插入的reads
-	percentageAligned := 0.0
-	percentageTotal := 0.0
-	if alignedReads > 0 {
-		percentageAligned = float64(stats.TotalInsertReads) / float64(alignedReads) * 100
-	}
-	if totalReads > 0 {
-		percentageTotal = float64(stats.TotalInsertReads) / float64(totalReads) * 100
-	}
-	writer.WriteString(fmt.Sprintf("InsertReads,%d,%.4f%%,%.4f%%\n",
-		stats.TotalInsertReads, percentageAligned, percentageTotal))
-
+	write1line(writer, "InsertReads", stats.TotalInsertReads, readsCount, alignedReads, totalReads)
 	// 包含缺失的reads
-	percentageAligned = 0.0
-	percentageTotal = 0.0
-	if alignedReads > 0 {
-		percentageAligned = float64(stats.TotalDeleteReads) / float64(alignedReads) * 100
-	}
-	if totalReads > 0 {
-		percentageTotal = float64(stats.TotalDeleteReads) / float64(totalReads) * 100
-	}
-	writer.WriteString(fmt.Sprintf("DeleteReads,%d,%.4f%%,%.4f%%\n",
-		stats.TotalDeleteReads, percentageAligned, percentageTotal))
-
+	write1line(writer, "DeleteReads", stats.TotalDeleteReads, readsCount, alignedReads, totalReads)
 	// 包含替换的reads
-	percentageAligned = 0.0
-	percentageTotal = 0.0
-	if alignedReads > 0 {
-		percentageAligned = float64(stats.TotalSubstitutionReads) / float64(alignedReads) * 100
-	}
-	if totalReads > 0 {
-		percentageTotal = float64(stats.TotalSubstitutionReads) / float64(totalReads) * 100
-	}
-	writer.WriteString(fmt.Sprintf("SubstitutionReads,%d,%.4f%%,%.4f%%\n",
-		stats.TotalSubstitutionReads, percentageAligned, percentageTotal))
+	write1line(writer, "SubstitutionReads", stats.TotalSubstitutionReads, readsCount, alignedReads, totalReads)
 
-	// 在原有“reads维度变异统计”部分之后，添加基于良好reads的比例
-	writer.WriteString("\n基于良好reads的统计（替换个数 <= 阈值）:\n")
-	goodAligned := stats.TotalGoodAlignedReads
-	if goodAligned > 0 {
-		// 例如：包含突变的reads在良好reads中的比例
-		readsWithMutsPct := float64(stats.TotalReadsWithMuts) / float64(goodAligned) * 100
-		writer.WriteString(fmt.Sprintf("ReadsWithMutations_GoodAlignedPct,%.4f%%\n", readsWithMutsPct))
+	// c. 新增：变异事件个数维度
+	// writer.WriteString("\n变异事件个数维度:\n")
+	// 插入事件个数
+	write1line(writer, "InsertEvents", stats.TotalInsertEventCount, readsCount, baseCount, totalEvents)
+	// 缺失事件个数
+	write1line(writer, "DeleteEvents", stats.TotalDeleteEventCount, readsCount, baseCount, totalEvents)
+	// 替换事件个数
+	write1line(writer, "SubstitutionEvents", stats.TotalSubstitutionEventCount, readsCount, baseCount, totalEvents)
 
-		// 也可以添加其他比例，如各read类型的比例，根据需要
-		for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
-			count := stats.TotalReadTypeCounts[rt]
-			pct := float64(count) / float64(goodAligned) * 100
-			writer.WriteString(fmt.Sprintf("%s_GoodAlignedPct,%.4f%%\n", ReadTypeNames[rt], pct))
-		}
-	} else {
-		writer.WriteString("No good aligned reads.\n")
-	}
+	// d. 新增：碱基个数维度
+	// writer.WriteString("\n碱基个数维度:\n")
+	// 插入碱基总数
+	write1line(writer, "InsertBases", stats.TotalInsertBaseTotal, readsCount, baseCount, totalBases)
+	// 缺失碱基总数
+	write1line(writer, "DeleteBases", stats.TotalDeleteBaseTotal, readsCount, baseCount, totalBases)
+	// 替换碱基总数
+	write1line(writer, "SubstitutionBases", stats.TotalSubstitutionBaseTotal, readsCount, baseCount, totalBases)
+
+	// e. 汇总信息
+	writer.WriteString("\n汇总信息:\n")
+	write1line(writer, "TotalReads", totalReads, totalReads, totalReads, totalReads)
+	write1line(writer, "AlignedReads", alignedReads, alignedReads, alignedReads, totalReads)
+	write1line(writer, "GoodAlignedReads", readsCount, readsCount, alignedReads, totalReads)
+	write1line(writer, "ReadsWithMutations", stats.TotalReadsWithMuts, readsCount, alignedReads, totalReads)
 
 	// 替换个数分布
-	writer.WriteString("\n替换个数分布（基于所有比对reads）:\n")
+	writer.WriteString("\n替换个数分布（基于良好reads）:\n")
 	var counts []int
 	for c := range stats.TotalSubstitutionCountDist {
 		counts = append(counts, c)
@@ -553,124 +539,217 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	sort.Ints(counts)
 	for _, c := range counts {
 		n := stats.TotalSubstitutionCountDist[c]
-		pct := float64(n) / float64(stats.TotalAlignedReads) * 100
-		writer.WriteString(fmt.Sprintf("Substitutions_%d,%d,%.4f%%\n", c, n, pct))
+		pct := float64(n) / float64(readsCount) * 100
+		fmt.Fprintf(writer, "%d,%d,%.4f%%\n", c, n, pct)
 	}
-
-	// c. 新增：变异事件个数维度
-	writer.WriteString("\n变异事件个数维度:\n")
-
-	totalEvents := stats.TotalInsertEventCount + stats.TotalDeleteEventCount + stats.TotalSubstitutionEventCount
-
-	// 插入事件个数
-	eventPercentage := 0.0
-	if totalEvents > 0 {
-		eventPercentage = float64(stats.TotalInsertEventCount) / float64(totalEvents) * 100
-	}
-	writer.WriteString(fmt.Sprintf("InsertEvents,%d,%.4f%%,-\n",
-		stats.TotalInsertEventCount, eventPercentage))
-
-	// 缺失事件个数
-	eventPercentage = 0.0
-	if totalEvents > 0 {
-		eventPercentage = float64(stats.TotalDeleteEventCount) / float64(totalEvents) * 100
-	}
-	writer.WriteString(fmt.Sprintf("DeleteEvents,%d,%.4f%%,-\n",
-		stats.TotalDeleteEventCount, eventPercentage))
-
-	// 替换事件个数
-	eventPercentage = 0.0
-	if totalEvents > 0 {
-		eventPercentage = float64(stats.TotalSubstitutionEventCount) / float64(totalEvents) * 100
-	}
-	writer.WriteString(fmt.Sprintf("SubstitutionEvents,%d,%.4f%%,-\n",
-		stats.TotalSubstitutionEventCount, eventPercentage))
-
-	// d. 新增：碱基个数维度
-	writer.WriteString("\n碱基个数维度（变异长度累加）:\n")
-
-	totalBases := stats.TotalInsertBaseTotal + stats.TotalDeleteBaseTotal + stats.TotalSubstitutionBaseTotal
-
-	// 插入碱基总数
-	basePercentage := 0.0
-	if totalBases > 0 {
-		basePercentage = float64(stats.TotalInsertBaseTotal) / float64(totalBases) * 100
-	}
-	writer.WriteString(fmt.Sprintf("InsertBases,%d,%.4f%%,-\n",
-		stats.TotalInsertBaseTotal, basePercentage))
-
-	// 缺失碱基总数
-	basePercentage = 0.0
-	if totalBases > 0 {
-		basePercentage = float64(stats.TotalDeleteBaseTotal) / float64(totalBases) * 100
-	}
-	writer.WriteString(fmt.Sprintf("DeleteBases,%d,%.4f%%,-\n",
-		stats.TotalDeleteBaseTotal, basePercentage))
-
-	// 替换碱基总数
-	basePercentage = 0.0
-	if totalBases > 0 {
-		basePercentage = float64(stats.TotalSubstitutionBaseTotal) / float64(totalBases) * 100
-	}
-	writer.WriteString(fmt.Sprintf("SubstitutionBases,%d,%.4f%%,-\n",
-		stats.TotalSubstitutionBaseTotal, basePercentage))
-
-	// e. 汇总信息
-	writer.WriteString("\n汇总信息:\n")
-	writer.WriteString(fmt.Sprintf("TotalReads,%d,100.0000%%,100.0000%%\n", totalReads))
-	writer.WriteString(fmt.Sprintf("AlignedReads,%d,100.0000%%,%.4f%%\n",
-		alignedReads, float64(alignedReads)/float64(totalReads)*100))
-	writer.WriteString(fmt.Sprintf("ReadsWithMutations,%d,%.4f%%,%.4f%%\n",
-		stats.TotalReadsWithMuts,
-		float64(stats.TotalReadsWithMuts)/float64(alignedReads)*100,
-		float64(stats.TotalReadsWithMuts)/float64(totalReads)*100))
 
 	// 以追加方式或重新生成整个文件
 	// 为了简洁，我们在原有writeReadTypeStats末尾添加新section
 	// 假设我们已经写完了原有内容，现在追加
-	writer.WriteString("\n细分类统计（事件数）:\n")
+	writer.WriteString("\n细分类统计:\n")
 	// 缺失
-	for st, cnt := range stats.TotalDeleteSubtypeEvents {
-		name := "Del1"
-		if st == Del2 {
-			name = "Del2"
+	for st := Del1; st <= Del3; st++ {
+		var name string
+		switch st {
+		case Del1:
+			name = "D:Del1"
+		case Del2:
+			name = "D:Del2"
+		case Del3:
+			name = "D:Del3"
 		}
-		writer.WriteString(fmt.Sprintf("%s,%d,%.4f%%\n", name, cnt,
-			float64(cnt)/float64(stats.TotalDeleteEventCount)*100))
+		var count = stats.TotalDeleteSubtypeEvents[st]
+		write1line(writer, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
 	}
+
 	// 插入
-	for st, cnt := range stats.TotalInsertSubtypeEvents {
-		name := ""
+	for st := Dup1; st <= Ins3; st++ {
+		var name string
 		switch st {
 		case Dup1:
-			name = "Dup1"
+			name = "I:Dup1"
 		case Dup2:
-			name = "Dup2"
+			name = "I:Dup2"
 		case DupDup:
-			name = "DupDup"
+			name = "I:DupDup"
 		case Ins1:
-			name = "Ins1"
+			name = "I:Ins1"
 		case Ins2:
-			name = "Ins2"
+			name = "I:Ins2"
 		case Ins3:
-			name = "Ins3"
+			name = "I:Ins3"
 		}
-		writer.WriteString(fmt.Sprintf("%s,%d,%.4f%%\n", name, cnt,
-			float64(cnt)/float64(stats.TotalInsertEventCount)*100))
+		var count = stats.TotalInsertSubtypeEvents[st]
+		write1line(writer, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
 	}
+
 	// 替换
-	for st, cnt := range stats.TotalSubstitutionSubtypeEvents {
-		name := ""
+	for st := DupDel; st <= Mismatch; st++ {
+		var name string
 		switch st {
 		case DupDel:
-			name = "DupDel"
+			name = "X:DupDel"
 		case DelDup:
-			name = "DelDup"
+			name = "X:DelDup"
 		case Mismatch:
-			name = "Mismatch"
+			name = "X:Mismatch"
 		}
-		writer.WriteString(fmt.Sprintf("%s,%d,%.4f%%\n", name, cnt,
-			float64(cnt)/float64(stats.TotalSubstitutionEventCount)*100))
+		var count = stats.TotalSubstitutionSubtypeEvents[st]
+		write1line(writer, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
+	}
+
+	// ===== 新增：样品平均比例计算 =====
+	sortedNames := getSortedSampleNames(stats) // 使用已有的排序函数
+
+	// 定义累加器结构
+	type SumPct struct {
+		sumGood    float64
+		sumAligned float64
+		sumTotal   float64
+		count      int
+	}
+	sums := make(map[string]*SumPct)
+
+	// 初始化需要统计的项（与已有输出保持一致）
+	// 主类型
+	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
+		sums[ReadTypeNames[rt]] = &SumPct{}
+	}
+	bases := []byte{'A', 'C', 'G', 'T'}
+	for _, base := range bases {
+		name := "Del1_" + string(base)
+		sums[name] = &SumPct{}
+	}
+
+	// reads维度变异统计
+	sums["InsertReads"] = &SumPct{}
+	sums["DeleteReads"] = &SumPct{}
+	sums["SubstitutionReads"] = &SumPct{}
+	sums["ReadsWithMutations"] = &SumPct{}
+	sums["GoodAlignedReads"] = &SumPct{}
+
+	// 遍历每个样本，累加比例
+	for _, sampleName := range sortedNames {
+		sampleStats := stats.Samples[sampleName]
+		sampleStats.RLock()
+		good := sampleStats.GoodAlignedReads
+		aligned := sampleStats.AlignedReads
+		total := sampleStats.ReadCounts
+		// 主类型比例
+		for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
+			count := sampleStats.ReadTypeCounts[rt]
+			pctGood := float64(count) / float64(good) * 100
+			pctAligned := float64(count) / float64(aligned) * 100
+			pctTotal := float64(count) / float64(total) * 100
+			sums[ReadTypeNames[rt]].sumGood += pctGood
+			sums[ReadTypeNames[rt]].sumAligned += pctAligned
+			sums[ReadTypeNames[rt]].sumTotal += pctTotal
+			sums[ReadTypeNames[rt]].count++
+		}
+
+		bases := []byte{'A', 'C', 'G', 'T'}
+		for _, base := range bases {
+			name := "Del1_" + string(base)
+			sums[name].sumGood += float64(sampleStats.Del1BaseCounts[base]) / float64(good) * 100
+			sums[name].sumAligned += float64(sampleStats.Del1BaseCounts[base]) / float64(aligned) * 100
+			sums[name].sumTotal += float64(sampleStats.Del1BaseCounts[base]) / float64(total) * 100
+			sums[name].count++
+		}
+
+		// reads维度变异统计比例
+		// InsertReads
+		pctGood := float64(sampleStats.InsertReads) / float64(good) * 100
+		pctAligned := float64(sampleStats.InsertReads) / float64(aligned) * 100
+		pctTotal := float64(sampleStats.InsertReads) / float64(total) * 100
+		sums["InsertReads"].sumGood += pctGood
+		sums["InsertReads"].sumAligned += pctAligned
+		sums["InsertReads"].sumTotal += pctTotal
+		sums["InsertReads"].count++
+
+		// DeleteReads
+		pctGood = float64(sampleStats.DeleteReads) / float64(good) * 100
+		pctAligned = float64(sampleStats.DeleteReads) / float64(aligned) * 100
+		pctTotal = float64(sampleStats.DeleteReads) / float64(total) * 100
+		sums["DeleteReads"].sumGood += pctGood
+		sums["DeleteReads"].sumAligned += pctAligned
+		sums["DeleteReads"].sumTotal += pctTotal
+		sums["DeleteReads"].count++
+
+		// SubstitutionReads
+		pctGood = float64(sampleStats.SubstitutionReads) / float64(good) * 100
+		pctAligned = float64(sampleStats.SubstitutionReads) / float64(aligned) * 100
+		pctTotal = float64(sampleStats.SubstitutionReads) / float64(total) * 100
+		sums["SubstitutionReads"].sumGood += pctGood
+		sums["SubstitutionReads"].sumAligned += pctAligned
+		sums["SubstitutionReads"].sumTotal += pctTotal
+		sums["SubstitutionReads"].count++
+
+		// ReadsWithMutations
+		pctGood = float64(sampleStats.ReadsWithMutations) / float64(good) * 100
+		pctAligned = float64(sampleStats.ReadsWithMutations) / float64(aligned) * 100
+		pctTotal = float64(sampleStats.ReadsWithMutations) / float64(total) * 100
+		sums["ReadsWithMutations"].sumGood += pctGood
+		sums["ReadsWithMutations"].sumAligned += pctAligned
+		sums["ReadsWithMutations"].sumTotal += pctTotal
+		sums["ReadsWithMutations"].count++
+
+		// GoodAlignedReads
+		pctGood = float64(sampleStats.GoodAlignedReads) / float64(good) * 100
+		pctAligned = float64(sampleStats.GoodAlignedReads) / float64(aligned) * 100
+		pctTotal = float64(sampleStats.GoodAlignedReads) / float64(total) * 100
+		sums["GoodAlignedReads"].sumGood += pctGood
+		sums["GoodAlignedReads"].sumAligned += pctAligned
+		sums["GoodAlignedReads"].sumTotal += pctTotal
+		sums["GoodAlignedReads"].count++
+
+		sampleStats.RUnlock()
+	}
+
+	// 写入样品平均比例部分
+	writer.WriteString("\n样品平均比例（每个样本的比例取算术平均）:\n")
+	writer.WriteString("Statistic,SampleMeanGoodAlignedPct,SampleMeanAlignedPct,SampleMeanTotalPct\n")
+
+	// 定义输出顺序
+	order := []string{
+		ReadTypeNames[ReadTypeMatch],
+		ReadTypeNames[ReadTypeInsert],
+		ReadTypeNames[ReadTypeDelete],
+		ReadTypeNames[ReadTypeSubstitution],
+		ReadTypeNames[ReadTypeInsertDelete],
+		ReadTypeNames[ReadTypeInsertSubstitution],
+		ReadTypeNames[ReadTypeDeleteSubstitution],
+		ReadTypeNames[ReadTypeAll],
+		"InsertReads",
+		"DeleteReads",
+		"SubstitutionReads",
+		"ReadsWithMutations",
+		"GoodAlignedReads",
+	}
+
+	for _, name := range order {
+		s := sums[name]
+		if s == nil || s.count == 0 {
+			continue
+		}
+		meanGood := s.sumGood / float64(s.count)
+		meanAligned := s.sumAligned / float64(s.count)
+		meanTotal := s.sumTotal / float64(s.count)
+		fmt.Fprintf(writer, "%s,%.4f%%,%.4f%%,%.4f%%\n", name, meanGood, meanAligned, meanTotal)
+	}
+
+	// 在原有内容的合适位置（例如在“替换个数分布”之后）添加 Del1 碱基分布
+	writer.WriteString("\nDel1缺失碱基分布:\n")
+	for _, base := range bases {
+		name := "Del1_" + string(base)
+		write1line(writer, name, stats.TotalDel1BaseCounts[base], readsCount, baseCount, totalDel1)
+		s := sums[name]
+		if s == nil || s.count == 0 {
+			continue
+		}
+		meanGood := s.sumGood / float64(s.count)
+		meanAligned := s.sumAligned / float64(s.count)
+		meanTotal := s.sumTotal / float64(s.count)
+		fmt.Fprintf(writer, "%s_mean,%.4f,%.4f%%,%.4f%%,%.4f%%\n", name, s.sumGood, meanGood, meanAligned, meanTotal)
 	}
 
 	writer.Flush()
@@ -1054,7 +1133,7 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 			}
 			sampleStats.RLock()
 
-			count := sampleStats.DeleteBaseCounts[base]
+			count := sampleStats.Del1BaseCounts[base]
 			if count > 0 {
 				sampleCounts = append(sampleCounts, fmt.Sprintf("%s:%d", sampleName, count))
 				sampleReads = append(sampleReads, fmt.Sprintf("%s:%d", sampleName, sampleStats.ReadCounts))
@@ -1702,7 +1781,8 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 		writer.Flush()
 		file.Close()
 		sampleStats.RUnlock()
-		fmt.Printf("  已写入: %s\n", filename)
+		slog.Debug("已写入", "filename", filename)
+
 	}
 
 	// 写入汇总文件

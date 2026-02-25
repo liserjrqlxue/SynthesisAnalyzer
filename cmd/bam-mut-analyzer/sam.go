@@ -727,10 +727,14 @@ func classifyInsertion(seq []byte, readPos int, length int) InsertionSubtype {
 
 // 新增：缺失细分类判定
 func classifyDeletion(length int) DeletionSubtype {
-	if length == 1 {
+	switch length {
+	case 1:
 		return Del1
+	case 2:
+		return Del2
+	default: // >2
+		return Del3
 	}
-	return Del2
 }
 
 // classifySubstitution 判定替换细分类
