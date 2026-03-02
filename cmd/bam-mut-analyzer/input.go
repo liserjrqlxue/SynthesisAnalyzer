@@ -8,15 +8,14 @@ import (
 )
 
 // readExcelSampleOrder 使用 excelize 读取 Excel 文件，基于表头确定列
-// 返回: 样品顺序列表, 样品名->全长参考长度, 样品名->头切除长度, 样品名->尾切除长度, 错误
-func readExcelSampleOrder(filePath string) ([]string, map[string]int, map[string]int, map[string]int, error) {
+// 返回: 样品顺序列表, 样品名->全长参考序列, 样品名->头切除长度, 样品名->尾切除长度, 错误
+func readExcelSampleOrder(filePath string) ([]string, map[string]string, map[string]int, map[string]int, error) {
 	f, err := excelize.OpenFile(filePath)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("打开Excel文件失败: %v", err)
 	}
 	defer f.Close()
 
-	// 获取 Sheet1 的所有行
 	rows, err := f.GetRows("Sheet1")
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("读取Sheet1失败: %v", err)
@@ -61,7 +60,7 @@ func readExcelSampleOrder(filePath string) ([]string, map[string]int, map[string
 	}
 
 	var samples []string
-	fullLengths := make(map[string]int)
+	fullSeqs := make(map[string]string)
 	headCuts := make(map[string]int)
 	tailCuts := make(map[string]int)
 
@@ -84,7 +83,7 @@ func readExcelSampleOrder(filePath string) ([]string, map[string]int, map[string
 		}
 
 		fullSeq := targetSeq + synthSeq + postSeq
-		fullLengths[sampleName] = len(fullSeq)
+		fullSeqs[sampleName] = fullSeq
 		headCuts[sampleName] = len(targetSeq) // 头切除长度 = 靶标序列长度
 		tailCuts[sampleName] = len(postSeq)   // 尾切除长度 = 后靶标长度
 		samples = append(samples, sampleName)
@@ -94,5 +93,5 @@ func readExcelSampleOrder(filePath string) ([]string, map[string]int, map[string
 		return nil, nil, nil, nil, fmt.Errorf("没有有效的数据行")
 	}
 
-	return samples, fullLengths, headCuts, tailCuts, nil
+	return samples, fullSeqs, headCuts, tailCuts, nil
 }

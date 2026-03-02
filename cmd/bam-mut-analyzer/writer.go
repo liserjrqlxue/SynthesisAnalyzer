@@ -486,6 +486,7 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	alignedReads := stats.TotalAlignedReads
 	readsCount := stats.TotalGoodAlignedReads
 	baseCount := stats.TotalRefLengthGoodAligned
+	totalVarReads := stats.TotalInsertReads + stats.TotalDeleteReads + stats.TotalSubstitutionReads
 	totalEvents := stats.TotalInsertEventCount + stats.TotalDeleteEventCount + stats.TotalSubstitutionEventCount
 	totalBases := stats.TotalInsertBaseTotal + stats.TotalDeleteBaseTotal + stats.TotalSubstitutionBaseTotal
 	totalDel1 := lo.Sum(lo.Values(stats.TotalDel1BaseCounts))
@@ -499,11 +500,11 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	// b. 新增：reads维度变异统计（非互斥）
 	// writer.WriteString("\nReads维度变异统计（非互斥）:\n")
 	// 包含插入的reads
-	write1line(writer, "InsertReads", stats.TotalInsertReads, readsCount, alignedReads, totalReads)
+	write1line(writer, "InsertReads", stats.TotalInsertReads, readsCount, baseCount, totalVarReads)
 	// 包含缺失的reads
-	write1line(writer, "DeleteReads", stats.TotalDeleteReads, readsCount, alignedReads, totalReads)
+	write1line(writer, "DeleteReads", stats.TotalDeleteReads, readsCount, baseCount, totalVarReads)
 	// 包含替换的reads
-	write1line(writer, "SubstitutionReads", stats.TotalSubstitutionReads, readsCount, alignedReads, totalReads)
+	write1line(writer, "SubstitutionReads", stats.TotalSubstitutionReads, readsCount, baseCount, totalVarReads)
 
 	// c. 新增：变异事件个数维度
 	// writer.WriteString("\n变异事件个数维度:\n")
@@ -742,6 +743,10 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	for _, base := range bases {
 		name := "Del1_" + string(base)
 		write1line(writer, name, stats.TotalDel1BaseCounts[base], readsCount, baseCount, totalDel1)
+	}
+	writer.WriteString("\nDel1缺失碱基分布(样品算术平均):\n")
+	for _, base := range bases {
+		name := "Del1_" + string(base)
 		s := sums[name]
 		if s == nil || s.count == 0 {
 			continue
@@ -750,6 +755,32 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 		meanAligned := s.sumAligned / float64(s.count)
 		meanTotal := s.sumTotal / float64(s.count)
 		fmt.Fprintf(writer, "%s_mean,%.4f,%.4f%%,%.4f%%,%.4f%%\n", name, s.sumGood, meanGood, meanAligned, meanTotal)
+	}
+	// 输出切除后参考序列 ACGT 组成及修正的 Del1 缺失率
+	if stats.TotalRefLengthAfterTrim > 0 {
+		writer.WriteString("\n切除后参考序列ACGT组成及Del1缺失率（按碱基归一化）:\n")
+		totalBases := stats.TotalRefLengthAfterTrim
+		acgtPct := make(map[byte]float64)
+		var totalDel1Fix float64
+		for _, base := range []byte{'A', 'C', 'G', 'T'} {
+			cnt := stats.TotalRefACGTCounts[base]
+			pct := float64(cnt) / float64(totalBases)
+			totalDel1Fix += float64(stats.TotalDel1BaseCounts[base]) / pct
+			acgtPct[base] = pct
+			fmt.Fprintf(writer, "%c_pct,%.4f%%\n", base, pct*100)
+		}
+
+		writer.WriteString("\nDel1缺失事件数及按碱基归一化率:\n")
+		for _, base := range bases {
+			name := "Del1_" + string(base)
+			delCnt := stats.TotalDel1BaseCounts[base] // 假设已统计
+			readsRatio := float64(delCnt) * 100 / float64(readsCount) / acgtPct[base]
+			baseRatio := float64(delCnt) * 100 / float64(baseCount) / acgtPct[base]
+			ratio := float64(delCnt) * 100 / float64(totalDel1Fix) / acgtPct[base]
+			fmt.Fprintf(writer, "%s_fix,%d,%.4f%%,%.4f%%,%.4f%%\n", name, delCnt, readsRatio, baseRatio, ratio)
+		}
+	} else {
+		writer.WriteString("\n无参考序列信息，跳过ACGT组成分析\n")
 	}
 
 	writer.Flush()

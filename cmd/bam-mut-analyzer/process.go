@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,7 +14,7 @@ import (
 )
 
 // processBAMFile 处理单个BAM文件 - 添加细分类统计
-func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFromExcel, headCutFromExcel, tailCutFromExcel int) error {
+func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFromExcel, headCutFromExcel, tailCutFromExcel int, fullSeqFromExcel string) error {
 	// 打开BAM文件
 	f, err := os.Open(bamPath)
 	if err != nil {
@@ -31,6 +32,37 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 
 	// 获取或创建样本统计
 	sampleStats := stats.getOrCreateSampleStats(sampleName)
+
+	// 计算切除头尾后的参考序列ACGT计数
+	if fullSeqFromExcel != "" {
+		// 确定切除长度（优先Excel，否则全局）
+		sampleHeadCut := headCut
+		sampleTailCut := tailCut
+		if headCutFromExcel > 0 {
+			sampleHeadCut = headCutFromExcel
+		}
+		if tailCutFromExcel > 0 {
+			sampleTailCut = tailCutFromExcel
+		}
+		totalLen := len(fullSeqFromExcel)
+		if sampleHeadCut+sampleTailCut < totalLen {
+			trimmedSeq := fullSeqFromExcel[sampleHeadCut : totalLen-sampleTailCut]
+			acgtCounts := make(map[byte]int)
+			for i := 0; i < len(trimmedSeq); i++ {
+				b := trimmedSeq[i]
+				if b == 'A' || b == 'C' || b == 'G' || b == 'T' {
+					acgtCounts[b]++
+				}
+				// 根据需要也可统计N
+			}
+			sampleStats.Lock()
+			sampleStats.RefACGTCounts = acgtCounts
+			sampleStats.RefLengthAfterTrim = len(trimmedSeq)
+			sampleStats.Unlock()
+		} else {
+			fmt.Printf("  警告: 样本 %s 的切除长度超过序列全长\n", sampleName)
+		}
+	}
 
 	// 获取参考序列长度（优先从BAM header获取）
 	refSeqLen := 0
@@ -418,6 +450,17 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	stats.TotalAlignedReads += alignedReads
 	stats.TotalReadsWithMuts += readsWithMutations
 
+	// 累加 ACGT 统计
+	if fullSeqFromExcel != "" {
+		sampleStats.RLock()
+		stats.TotalRefACGTCounts['A'] += sampleStats.RefACGTCounts['A']
+		stats.TotalRefACGTCounts['C'] += sampleStats.RefACGTCounts['C']
+		stats.TotalRefACGTCounts['G'] += sampleStats.RefACGTCounts['G']
+		stats.TotalRefACGTCounts['T'] += sampleStats.RefACGTCounts['T']
+		stats.TotalRefLengthAfterTrim += sampleStats.RefLengthAfterTrim
+		sampleStats.RUnlock()
+	}
+
 	// 合并样本统计到总统计
 	sampleStats.RLock()
 
@@ -570,15 +613,17 @@ func processBAMFiles(bamFiles []string) (stats *MutationStats) {
 			refLen := 0
 			headCutFromExcel := 0
 			tailCutFromExcel := 0
-			if fullLengths != nil {
-				refLen = fullLengths[sampleName]
+			fullSeq := ""
+			if fullSeqs != nil {
+				fullSeq = fullSeqs[sampleName]
+				refLen = len(fullSeq)
 				headCutFromExcel = headCuts[sampleName]
 				tailCutFromExcel = tailCuts[sampleName]
 			}
 
 			// 处理BAM文件
 			if err := processBAMFile(path, sampleName, stats,
-				refLen, headCutFromExcel, tailCutFromExcel); err != nil {
+				refLen, headCutFromExcel, tailCutFromExcel, fullSeq); err != nil {
 				fmt.Printf("处理文件 %s 失败: %v\n", path, err)
 			}
 		}(bamPath)
@@ -590,8 +635,8 @@ func processBAMFiles(bamFiles []string) (stats *MutationStats) {
 	return stats
 }
 
-// findBAMFiles 查找所有BAM文件
-func findBAMFiles(inputDir string) ([]string, error) {
+// findBAMFiles 查找所有BAM文件，并尝试补充参考序列
+func findBAMFiles(inputDir string, fullSeqs map[string]string) ([]string, error) {
 	var bamFiles []string
 
 	if excelFile != "" && len(sampleOrder) > 0 {
@@ -599,13 +644,35 @@ func findBAMFiles(inputDir string) ([]string, error) {
 		for _, sampleName := range sampleOrder {
 			sortBam := filepath.Join(inputDir, "samples", sampleName, sampleName+".sorted.bam")
 			filterBam := filepath.Join(inputDir, sampleName, sampleName+".filter.bam")
+			var bamPath string
 			if _, err := os.Stat(sortBam); err == nil {
-				bamFiles = append(bamFiles, sortBam)
+				bamPath = sortBam
 			} else if _, err := os.Stat(filterBam); err == nil {
-				bamFiles = append(bamFiles, filterBam)
-
+				bamPath = filterBam
 			} else {
-				fmt.Printf("警告: 找不到样本 %s 的BAM文件: %s or %s\n", sampleName, sortBam, filterBam)
+				fmt.Printf("警告: 找不到样本 %s 的BAM文件: %s 或 %s\n", sampleName, sortBam, filterBam)
+				continue
+			}
+			bamFiles = append(bamFiles, bamPath)
+
+			// 若 fullSeqs 中尚无该样本的参考序列，尝试查找 .ref.fa 文件
+			if _, ok := fullSeqs[sampleName]; !ok || fullSeqs[sampleName] == "" {
+				refCandidates := []string{
+					filepath.Join(inputDir, "samples", sampleName, sampleName+".ref.fa"),
+					filepath.Join(inputDir, sampleName, sampleName+".ref.fa"),
+				}
+				for _, refPath := range refCandidates {
+					if _, err := os.Stat(refPath); err == nil {
+						seq, err := readRefFasta(refPath)
+						if err != nil {
+							fmt.Printf("警告: 读取参考文件 %s 失败: %v\n", refPath, err)
+						} else {
+							fullSeqs[sampleName] = seq
+							fmt.Printf("从参考文件 %s 加载序列，长度 %d\n", refPath, len(seq))
+						}
+						break
+					}
+				}
 			}
 		}
 	} else {
@@ -615,12 +682,31 @@ func findBAMFiles(inputDir string) ([]string, error) {
 				return err
 			}
 
-			if !info.IsDir() {
-				if strings.HasSuffix(path, ".sorted.bam") {
-					bamFiles = append(bamFiles, path)
-				} else if strings.HasSuffix(path, ".filter.bam") {
-					bamFiles = append(bamFiles, path)
+			if !info.IsDir() && (strings.HasSuffix(path, ".sorted.bam") || strings.HasSuffix(path, ".filter.bam")) {
+				bamFiles = append(bamFiles, path)
+
+				// ===== 新增：尝试补充参考序列 =====
+				sampleName := filepath.Base(filepath.Dir(path))
+				if _, ok := fullSeqs[sampleName]; !ok || fullSeqs[sampleName] == "" {
+					// 构造可能的参考文件路径
+					refCandidates := []string{
+						filepath.Join(filepath.Dir(path), sampleName+".ref.fa"),
+						filepath.Join(filepath.Dir(path), "ref.fa"),
+					}
+					for _, refPath := range refCandidates {
+						if _, err := os.Stat(refPath); err == nil {
+							seq, err := readRefFasta(refPath)
+							if err != nil {
+								fmt.Printf("警告: 读取参考文件 %s 失败: %v\n", refPath, err)
+							} else {
+								fullSeqs[sampleName] = seq
+								fmt.Printf("从参考文件 %s 加载序列，长度 %d\n", refPath, len(seq))
+							}
+							break
+						}
+					}
 				}
+				// ===== 新增结束 =====
 			}
 
 			return nil
@@ -635,4 +721,27 @@ func findBAMFiles(inputDir string) ([]string, error) {
 	}
 
 	return bamFiles, nil
+}
+
+// readRefFasta 读取FASTA文件，返回第一条序列的序列字符串（忽略标题行）
+func readRefFasta(fastaPath string) (string, error) {
+	file, err := os.Open(fastaPath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	var seq strings.Builder
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, ">") {
+			continue
+		}
+		seq.WriteString(strings.TrimSpace(line))
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return seq.String(), nil
 }

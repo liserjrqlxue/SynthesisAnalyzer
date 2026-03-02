@@ -126,9 +126,11 @@ type SampleStats struct {
 
 	PositionStats map[int]*PositionDetail
 
-	RefLength int // 参考序列全长
-	HeadCut   int // 头切除长度（默认或Excel指定）
-	TailCut   int // 尾切除长度（默认或Excel指定）
+	RefLength          int          // 参考序列全长
+	HeadCut            int          // 头切除长度（默认或Excel指定）
+	TailCut            int          // 尾切除长度（默认或Excel指定）
+	RefACGTCounts      map[byte]int // 切除头尾后参考序列中A、C、G、T的计数
+	RefLengthAfterTrim int          // 切除头尾后的参考长度
 
 	SubstitutionCountDist map[int]int // 替换个数 -> 该个数的reads数
 	GoodAlignedReads      int         // 比对良好reads数（替换个数 <= 阈值）
@@ -163,6 +165,7 @@ func NewSampleStats() *SampleStats {
 		PositionStats:         make(map[int]*PositionDetail),
 		SubstitutionCountDist: make(map[int]int),
 		Del1BaseCounts:        make(map[byte]int),
+		RefACGTCounts:         make(map[byte]int),
 	}
 }
 
@@ -219,6 +222,9 @@ type MutationStats struct {
 	TotalDel1BaseCounts map[byte]int
 	// 新增：RefLength * GoodAlignedReads 的累加（用于比例计算）
 	TotalRefLengthGoodAligned int // 所有样本的 RefLength * GoodAlignedReads 之和
+
+	TotalRefACGTCounts      map[byte]int // 所有样本切除后参考中ACGT计数之和
+	TotalRefLengthAfterTrim int          // 所有样本切除后参考长度之和
 }
 
 // NewMutationStats 创建新的统计对象
@@ -250,6 +256,7 @@ func NewMutationStats() *MutationStats {
 
 		TotalSubstitutionCountDist: make(map[int]int),
 		TotalDel1BaseCounts:        make(map[byte]int),
+		TotalRefACGTCounts:         make(map[byte]int),
 	}
 	return stats
 }

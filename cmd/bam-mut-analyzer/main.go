@@ -19,9 +19,10 @@ var (
 
 	maxSubstitutions int // 最大替换个数阈值
 
-	fullLengths map[string]int
-	headCuts    map[string]int
-	tailCuts    map[string]int
+	// fullLengths map[string]int
+	fullSeqs = make(map[string]string)
+	headCuts map[string]int
+	tailCuts map[string]int
 )
 
 func init() {
@@ -29,7 +30,7 @@ func init() {
 	flag.StringVar(&inputDir, "d", "", "输入目录，包含样本子目录")
 	flag.StringVar(&outputDir, "o", "", "输出目录, 默认输入目录/mutation_stats")
 	flag.StringVar(&excelFile, "i", "", "可选参数：输入Excel文件，包含样本顺序")
-	flag.IntVar(&headCut, "head", 20, "头切除长度")
+	flag.IntVar(&headCut, "head", 27, "头切除长度")
 	flag.IntVar(&tailCut, "tail", 20, "尾切除长度")
 	flag.IntVar(&maxSubstitutions, "max-sub", 5, "最大替换个数阈值，用于定义比对良好reads")
 }
@@ -56,7 +57,7 @@ func main() {
 	if excelFile != "" {
 		fmt.Printf("读取Excel文件: %s\n", excelFile)
 		var err error
-		sampleOrder, fullLengths, headCuts, tailCuts, err = readExcelSampleOrder(excelFile)
+		sampleOrder, fullSeqs, headCuts, tailCuts, err = readExcelSampleOrder(excelFile)
 		if err != nil {
 			fmt.Printf("错误: 读取Excel文件失败: %v\n", err)
 			os.Exit(1)
@@ -74,7 +75,7 @@ func main() {
 	}
 
 	// 查找所有BAM文件
-	bamFiles, err := findBAMFiles(inputDir)
+	bamFiles, err := findBAMFiles(inputDir, fullSeqs)
 	if err != nil {
 		fmt.Printf("查找BAM文件失败: %v\n", err)
 		os.Exit(1)
