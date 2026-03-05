@@ -134,6 +134,11 @@ type SampleStats struct {
 
 	SubstitutionCountDist map[int]int // 替换个数 -> 该个数的reads数
 	GoodAlignedReads      int         // 比对良好reads数（替换个数 <= 阈值）
+
+	// 新增：Del3 缺失前一个碱基分布
+	Del3PrevBaseCounts map[byte]int
+	// 新增：Del3 缺失第一个碱基分布
+	Del3FirstBaseCounts map[byte]int
 }
 
 // NewSampleStats 创建新的样本统计对象
@@ -166,6 +171,8 @@ func NewSampleStats() *SampleStats {
 		SubstitutionCountDist: make(map[int]int),
 		Del1BaseCounts:        make(map[byte]int),
 		RefACGTCounts:         make(map[byte]int),
+		Del3PrevBaseCounts:    make(map[byte]int),
+		Del3FirstBaseCounts:   make(map[byte]int),
 	}
 }
 
@@ -225,6 +232,11 @@ type MutationStats struct {
 
 	TotalRefACGTCounts      map[byte]int // 所有样本切除后参考中ACGT计数之和
 	TotalRefLengthAfterTrim int          // 所有样本切除后参考长度之和
+
+	// 新增：总 Del3 缺失前一个碱基分布
+	TotalDel3PrevBaseCounts map[byte]int
+	// 新增：总 Del3 缺失第一个碱基分布
+	TotalDel3FirstBaseCounts map[byte]int
 }
 
 // NewMutationStats 创建新的统计对象
@@ -257,6 +269,8 @@ func NewMutationStats() *MutationStats {
 		TotalSubstitutionCountDist: make(map[int]int),
 		TotalDel1BaseCounts:        make(map[byte]int),
 		TotalRefACGTCounts:         make(map[byte]int),
+		TotalDel3PrevBaseCounts:    make(map[byte]int),
+		TotalDel3FirstBaseCounts:   make(map[byte]int),
 	}
 	return stats
 }

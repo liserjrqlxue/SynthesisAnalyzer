@@ -1598,11 +1598,11 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 			if st == Del2 {
 				subtypeName = "Del2"
 			}
-			writer.WriteString(fmt.Sprintf("%s,Deletion,%s,%d,%d,%d,%d,%d\n",
+			fmt.Fprintf(writer, "%s,Deletion,%s,%d,%d,%d,%d,%d\n",
 				sampleName, subtypeName, cnt,
 				sampleStats.DeleteSubtypeEvents[st],
 				sampleStats.DeleteSubtypeBases[st],
-				aligned, total))
+				aligned, total)
 		}
 		// 插入细分类
 		insertNames := map[InsertionSubtype]string{
@@ -1610,23 +1610,24 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 			Ins1: "Ins1", Ins2: "Ins2", Ins3: "Ins3",
 		}
 		for st, cnt := range sampleStats.InsertSubtypeReads {
-			writer.WriteString(fmt.Sprintf("%s,Insertion,%s,%d,%d,%d,%d,%d\n",
+			fmt.Fprintf(writer, "%s,Insertion,%s,%d,%d,%d,%d,%d\n",
 				sampleName, insertNames[st], cnt,
 				sampleStats.InsertSubtypeEvents[st],
 				sampleStats.InsertSubtypeBases[st],
-				aligned, total))
+				aligned, total)
 		}
 		// 替换细分类
 		substNames := map[SubstitutionSubtype]string{
 			DupDel: "DupDel", DelDup: "DelDup", Mismatch: "Mismatch",
 		}
 		for st, cnt := range sampleStats.SubstitutionSubtypeReads {
-			writer.WriteString(fmt.Sprintf("%s,Substitution,%s,%d,%d,%d,%d,%d\n",
+			fmt.Fprintf(writer, "%s,Substitution,%s,%d,%d,%d,%d,%d\n",
 				sampleName, substNames[st], cnt,
 				sampleStats.SubstitutionSubtypeEvents[st],
 				sampleStats.SubstitutionSubtypeBases[st],
-				aligned, total))
+				aligned, total)
 		}
+
 		sampleStats.RUnlock()
 	}
 
@@ -1638,27 +1639,128 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 		if st == Del2 {
 			subtypeName = "Del2"
 		}
-		writer.WriteString(fmt.Sprintf("Total,Deletion,%s,%d,%d,%d,%d,%d\n",
+		fmt.Fprintf(writer, "Total,Deletion,%s,%d,%d,%d,%d,%d\n",
 			subtypeName, cnt,
 			stats.TotalDeleteSubtypeEvents[st],
 			stats.TotalDeleteSubtypeBases[st],
-			stats.TotalAlignedReads, stats.TotalReadCount))
+			stats.TotalAlignedReads, stats.TotalReadCount)
 	}
 	// 插入汇总
 	for st, cnt := range stats.TotalInsertSubtypeReads {
-		writer.WriteString(fmt.Sprintf("Total,Insertion,%s,%d,%d,%d,%d,%d\n",
+		fmt.Fprintf(writer, "Total,Insertion,%s,%d,%d,%d,%d,%d\n",
 			InsertNames[st], cnt,
 			stats.TotalInsertSubtypeEvents[st],
 			stats.TotalInsertSubtypeBases[st],
-			stats.TotalAlignedReads, stats.TotalReadCount))
+			stats.TotalAlignedReads, stats.TotalReadCount)
 	}
 	// 替换汇总
 	for st, cnt := range stats.TotalSubstitutionSubtypeReads {
-		writer.WriteString(fmt.Sprintf("Total,Substitution,%s,%d,%d,%d,%d,%d\n",
+		fmt.Fprintf(writer, "Total,Substitution,%s,%d,%d,%d,%d,%d\n",
 			SubstNames[st], cnt,
 			stats.TotalSubstitutionSubtypeEvents[st],
 			stats.TotalSubstitutionSubtypeBases[st],
-			stats.TotalAlignedReads, stats.TotalReadCount))
+			stats.TotalAlignedReads, stats.TotalReadCount)
+	}
+
+	// 新增：输出 Del3 前一个碱基和第一个碱基分布
+	// 定义碱基顺序
+	bases := []byte{'A', 'C', 'G', 'T', 'N'}
+
+	// 样品维度
+	for _, sampleName := range sampleNames {
+		sampleStats := stats.Samples[sampleName]
+		sampleStats.RLock()
+		aligned := sampleStats.AlignedReads
+		total := sampleStats.ReadCounts
+		refLen := sampleStats.RefLengthAfterTrim
+		refCounts := sampleStats.RefACGTCounts
+
+		// Del3PrevBase
+		for _, base := range bases {
+			cnt := sampleStats.Del3PrevBaseCounts[base]
+			if cnt > 0 {
+				writer.WriteString(fmt.Sprintf("%s,Del3PrevBase,%c,%d,%d,%d,%d,%d\n",
+					sampleName, base, 0, cnt, 0, aligned, total)) // Reads=0, Events=cnt, Bases=0
+			}
+		}
+		// Del3FirstBase
+		for _, base := range bases {
+			cnt := sampleStats.Del3FirstBaseCounts[base]
+			if cnt > 0 {
+				writer.WriteString(fmt.Sprintf("%s,Del3FirstBase,%c,%d,%d,%d,%d,%d\n",
+					sampleName, base, 0, cnt, 0, aligned, total))
+			}
+		}
+
+		// Del3PrevBase_fix
+		for _, base := range bases {
+			cnt := sampleStats.Del3PrevBaseCounts[base]
+			if cnt > 0 && refLen > 0 {
+				baseCnt := refCounts[base]
+				if baseCnt > 0 {
+					adjusted := float64(cnt) * float64(refLen) / float64(baseCnt)
+					writer.WriteString(fmt.Sprintf("%s,Del3PrevBase_fix,%c,%d,%.4f,%d,%d,%d\n",
+						sampleName, base, 0, adjusted, 0, aligned, total))
+				}
+			}
+		}
+		// Del3FirstBase_fix
+		for _, base := range bases {
+			cnt := sampleStats.Del3FirstBaseCounts[base]
+			if cnt > 0 && refLen > 0 {
+				baseCnt := refCounts[base]
+				if baseCnt > 0 {
+					adjusted := float64(cnt) * float64(refLen) / float64(baseCnt)
+					writer.WriteString(fmt.Sprintf("%s,Del3FirstBase_fix,%c,%d,%.4f,%d,%d,%d\n",
+						sampleName, base, 0, adjusted, 0, aligned, total))
+				}
+			}
+		}
+		sampleStats.RUnlock()
+	}
+
+	// 汇总行
+	writer.WriteString("Total,Del3PrevBase,,\n") // 占位
+	for _, base := range bases {
+		cnt := stats.TotalDel3PrevBaseCounts[base]
+		if cnt > 0 {
+			fmt.Fprintf(writer, "Total,Del3PrevBase,%c,%d,%d,%d,%d,%d\n",
+				base, 0, cnt, 0, stats.TotalAlignedReads, stats.TotalReadCount)
+		}
+	}
+	writer.WriteString("Total,Del3FirstBase,,\n")
+	for _, base := range bases {
+		cnt := stats.TotalDel3FirstBaseCounts[base]
+		if cnt > 0 {
+			fmt.Fprintf(writer, "Total,Del3FirstBase,%c,%d,%d,%d,%d,%d\n",
+				base, 0, cnt, 0, stats.TotalAlignedReads, stats.TotalReadCount)
+		}
+	}
+
+	// 总维度
+	totalRefLen := stats.TotalRefLengthAfterTrim
+	totalRefCounts := stats.TotalRefACGTCounts
+	for _, base := range bases {
+		cnt := stats.TotalDel3PrevBaseCounts[base]
+		if cnt > 0 && totalRefLen > 0 {
+			baseCnt := totalRefCounts[base]
+			if baseCnt > 0 {
+				adjusted := float64(cnt) * float64(totalRefLen) / float64(baseCnt)
+				writer.WriteString(fmt.Sprintf("Total,Del3PrevBase_fix,%c,%d,%.4f,%d,%d,%d\n",
+					base, 0, adjusted, 0, stats.TotalAlignedReads, stats.TotalReadCount))
+			}
+		}
+	}
+	for _, base := range bases {
+		cnt := stats.TotalDel3FirstBaseCounts[base]
+		if cnt > 0 && totalRefLen > 0 {
+			baseCnt := totalRefCounts[base]
+			if baseCnt > 0 {
+				adjusted := float64(cnt) * float64(totalRefLen) / float64(baseCnt)
+				writer.WriteString(fmt.Sprintf("Total,Del3FirstBase_fix,%c,%d,%.4f,%d,%d,%d\n",
+					base, 0, adjusted, 0, stats.TotalAlignedReads, stats.TotalReadCount))
+			}
+		}
 	}
 
 	writer.Flush()
@@ -1681,16 +1783,16 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 		aligned := sampleStats.AlignedReads
 		total := sampleStats.ReadCounts
 		for comb, cnt := range sampleStats.SubtypeCombinationCounts {
-			writer.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d\n",
-				comb, sampleName, cnt, aligned, total))
+			fmt.Fprintf(writer, "%s,%s,%d,%d,%d\n",
+				comb, sampleName, cnt, aligned, total)
 		}
 		sampleStats.RUnlock()
 	}
 
 	// 汇总组合统计
 	for comb, cnt := range stats.TotalSubtypeCombinationCounts {
-		writer.WriteString(fmt.Sprintf("%s,Total,%d,%d,%d\n",
-			comb, cnt, stats.TotalAlignedReads, stats.TotalReadCount))
+		fmt.Fprintf(writer, "%s,Total,%d,%d,%d\n",
+			comb, cnt, stats.TotalAlignedReads, stats.TotalReadCount)
 	}
 
 	writer.Flush()

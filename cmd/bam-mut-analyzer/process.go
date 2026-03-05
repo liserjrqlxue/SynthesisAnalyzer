@@ -300,39 +300,6 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 			}
 		}
 
-		// 统计缺失细分类（原代码中已有统计，现在需要添加 Del1 碱基分布）
-		if readInfo.DeleteSub != nil && len(readInfo.DeleteSub.Deletions) > 0 {
-			// reads维度：包含缺失的reads数
-			sampleStats.DeleteReads++
-
-			for _, deletion := range readInfo.DeleteSub.Deletions {
-				// 缺失事件个数维度：每个缺失事件计数
-				sampleStats.DeleteEventCount++
-
-				// 缺失碱基个数维度：累加缺失碱基数
-				sampleStats.DeleteBaseTotal += deletion.Length
-				// 碱基维度：缺失碱基数
-				sampleStats.MutationBaseCounts["deletion"] += deletion.Length
-
-				// 缺失长度分布
-				length := deletion.Length
-				if length > 3 {
-					length = 4 // >3
-				}
-				sampleStats.DeleteLengthDist[length]++
-
-				// 单碱基缺失统计
-				if deletion.Length == 1 && len(deletion.Bases) == 1 {
-					base := deletion.Bases[0]
-					sampleStats.Del1BaseCounts[base]++
-
-					// 缺失位置统计
-					posKey := fmt.Sprintf("%d:%c", deletion.Position, base)
-					sampleStats.DeletePositionCounts[posKey]++
-				}
-			}
-		}
-
 		// 统计突变信息
 		if mutationCount > 0 {
 			readsWithMutations++
@@ -397,11 +364,55 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 
 		// 缺失细分类
 		if readInfo.DeleteSub != nil {
+			if len(readInfo.DeleteSub.Deletions) > 0 {
+				// reads维度：包含缺失的reads数
+				sampleStats.DeleteReads++
+			}
 			for _, del := range readInfo.DeleteSub.Deletions {
+				// 缺失事件个数维度：每个缺失事件计数
+				sampleStats.DeleteEventCount++
+
+				// 缺失碱基个数维度：累加缺失碱基数
+				sampleStats.DeleteBaseTotal += del.Length
+				sampleStats.MutationBaseCounts["deletion"] += del.Length
+
+				// 缺失长度分布
+				length := del.Length
+				if length > 3 {
+					length = 4 // >3
+				}
+				sampleStats.DeleteLengthDist[length]++
+
 				st := del.Subtype
 				sampleStats.DeleteSubtypeEvents[st]++
 				sampleStats.DeleteSubtypeBases[st] += del.Length
 				deleteSubtypes[st] = true
+
+				// 单碱基缺失统计
+				if st == Del1 && len(del.Bases) == 1 {
+					base := del.Bases[0]
+					sampleStats.Del1BaseCounts[base]++
+
+					// 缺失位置统计
+					posKey := fmt.Sprintf("%d:%c", del.Position, base)
+					sampleStats.DeletePositionCounts[posKey]++
+				}
+
+				// 新增：对于 Del3，记录前一个碱基和第一个缺失碱基
+				if st == Del3 && fullSeqFromExcel != "" {
+					// 缺失位置（1-based）
+					pos := del.Position
+					// 前一个碱基位置（注意：pos-1 必须在有效范围内）
+					if pos-1 >= 1 && pos-1 <= len(fullSeqFromExcel) {
+						prevBase := fullSeqFromExcel[pos-2] // 字符串索引从0开始
+						sampleStats.Del3PrevBaseCounts[prevBase]++
+					}
+					// 第一个缺失碱基
+					if len(del.Bases) > 0 {
+						firstBase := del.Bases[0]
+						sampleStats.Del3FirstBaseCounts[firstBase]++
+					}
+				}
 			}
 			for st := range deleteSubtypes {
 				sampleStats.DeleteSubtypeReads[st]++
@@ -561,6 +572,14 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	// 合并 Del1 碱基分布
 	for base, cnt := range sampleStats.Del1BaseCounts {
 		stats.TotalDel1BaseCounts[base] += cnt
+	}
+
+	// 合并 Del3 相邻碱基分布
+	for base, cnt := range sampleStats.Del3PrevBaseCounts {
+		stats.TotalDel3PrevBaseCounts[base] += cnt
+	}
+	for base, cnt := range sampleStats.Del3FirstBaseCounts {
+		stats.TotalDel3FirstBaseCounts[base] += cnt
 	}
 
 	stats.TotalGoodAlignedReads += sampleStats.GoodAlignedReads
