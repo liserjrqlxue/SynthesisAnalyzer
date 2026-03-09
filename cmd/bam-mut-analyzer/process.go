@@ -402,16 +402,20 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 				if st == Del3 && fullSeqFromExcel != "" {
 					// 缺失位置（1-based）
 					pos := del.Position
+					var prevBase byte
+					var firstBase byte
 					// 前一个碱基位置（注意：pos-1 必须在有效范围内）
 					if pos-1 >= 1 && pos-1 <= len(fullSeqFromExcel) {
-						prevBase := fullSeqFromExcel[pos-2] // 字符串索引从0开始
+						prevBase = fullSeqFromExcel[pos-2] // 字符串索引从0开始
 						sampleStats.Del3PrevBaseCounts[prevBase]++
 					}
 					// 第一个缺失碱基
 					if len(del.Bases) > 0 {
-						firstBase := del.Bases[0]
+						firstBase = del.Bases[0]
 						sampleStats.Del3FirstBaseCounts[firstBase]++
 					}
+					combKey := fmt.Sprintf("%c>%c", prevBase, firstBase)
+					sampleStats.Del3PrevFirstCombCounts[combKey]++
 				}
 			}
 			for st := range deleteSubtypes {
@@ -580,6 +584,9 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	}
 	for base, cnt := range sampleStats.Del3FirstBaseCounts {
 		stats.TotalDel3FirstBaseCounts[base] += cnt
+	}
+	for key, cnt := range sampleStats.Del3PrevFirstCombCounts {
+		stats.TotalDel3PrevFirstCombCounts[key] += cnt
 	}
 
 	stats.TotalGoodAlignedReads += sampleStats.GoodAlignedReads

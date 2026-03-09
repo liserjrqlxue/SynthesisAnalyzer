@@ -138,7 +138,8 @@ type SampleStats struct {
 	// 新增：Del3 缺失前一个碱基分布
 	Del3PrevBaseCounts map[byte]int
 	// 新增：Del3 缺失第一个碱基分布
-	Del3FirstBaseCounts map[byte]int
+	Del3FirstBaseCounts     map[byte]int
+	Del3PrevFirstCombCounts map[string]int // 组合计数，键如 "AC"
 }
 
 // NewSampleStats 创建新的样本统计对象
@@ -167,12 +168,13 @@ func NewSampleStats() *SampleStats {
 		SubstitutionSubtypeBases:  make(map[SubstitutionSubtype]int),
 		SubtypeCombinationCounts:  make(map[string]int),
 
-		PositionStats:         make(map[int]*PositionDetail),
-		SubstitutionCountDist: make(map[int]int),
-		Del1BaseCounts:        make(map[byte]int),
-		RefACGTCounts:         make(map[byte]int),
-		Del3PrevBaseCounts:    make(map[byte]int),
-		Del3FirstBaseCounts:   make(map[byte]int),
+		PositionStats:           make(map[int]*PositionDetail),
+		SubstitutionCountDist:   make(map[int]int),
+		Del1BaseCounts:          make(map[byte]int),
+		RefACGTCounts:           make(map[byte]int),
+		Del3PrevBaseCounts:      make(map[byte]int),
+		Del3FirstBaseCounts:     make(map[byte]int),
+		Del3PrevFirstCombCounts: make(map[string]int),
 	}
 }
 
@@ -236,7 +238,8 @@ type MutationStats struct {
 	// 新增：总 Del3 缺失前一个碱基分布
 	TotalDel3PrevBaseCounts map[byte]int
 	// 新增：总 Del3 缺失第一个碱基分布
-	TotalDel3FirstBaseCounts map[byte]int
+	TotalDel3FirstBaseCounts     map[byte]int
+	TotalDel3PrevFirstCombCounts map[string]int
 }
 
 // NewMutationStats 创建新的统计对象
@@ -266,11 +269,12 @@ func NewMutationStats() *MutationStats {
 		TotalSubstitutionSubtypeBases:  make(map[SubstitutionSubtype]int),
 		TotalSubtypeCombinationCounts:  make(map[string]int),
 
-		TotalSubstitutionCountDist: make(map[int]int),
-		TotalDel1BaseCounts:        make(map[byte]int),
-		TotalRefACGTCounts:         make(map[byte]int),
-		TotalDel3PrevBaseCounts:    make(map[byte]int),
-		TotalDel3FirstBaseCounts:   make(map[byte]int),
+		TotalSubstitutionCountDist:   make(map[int]int),
+		TotalDel1BaseCounts:          make(map[byte]int),
+		TotalRefACGTCounts:           make(map[byte]int),
+		TotalDel3PrevBaseCounts:      make(map[byte]int),
+		TotalDel3FirstBaseCounts:     make(map[byte]int),
+		TotalDel3PrevFirstCombCounts: make(map[string]int),
 	}
 	return stats
 }

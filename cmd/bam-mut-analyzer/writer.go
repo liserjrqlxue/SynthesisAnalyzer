@@ -1716,6 +1716,35 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 				}
 			}
 		}
+		// 遍历所有可能的组合
+		for _, b1 := range bases {
+			for _, b2 := range bases {
+				key := fmt.Sprintf("%c>%c", b1, b2)
+				cnt := sampleStats.Del3PrevFirstCombCounts[key]
+				if cnt == 0 {
+					continue
+				}
+				// 原始计数
+				writer.WriteString(fmt.Sprintf("%s,Del3PrevFirstComb,%s,%d,%d,%d,%d,%d\n",
+					sampleName, key, 0, cnt, 0, aligned, total))
+				// 修正值（按碱基比例）
+				if refLen > 0 {
+					base1Cnt := refCounts[b1]
+					base2Cnt := refCounts[b2]
+					if base1Cnt > 0 && base2Cnt > 0 {
+						// 归一化因子：期望计数 = (base1Cnt/refLen)*(base2Cnt/refLen)*refLen = base1Cnt*base2Cnt/refLen
+						// 调整为每参考碱基的计数，乘以refLen保持量纲
+						expected := float64(base1Cnt*base2Cnt) / float64(refLen)
+						adjusted := float64(cnt) / expected // 实际/期望
+						// 或者乘以refLen得到每参考长度的计数：adjusted = float64(cnt) * float64(refLen) / float64(base1Cnt*base2Cnt)
+						// 我们采用后者，与单个碱基的修正公式一致（单个碱基修正：cnt * refLen / baseCnt）
+						adjusted = float64(cnt) * float64(refLen) / float64(base1Cnt*base2Cnt)
+						writer.WriteString(fmt.Sprintf("%s,Del3PrevFirstComb_fix,%s,%d,%.4f,%d,%d,%d\n",
+							sampleName, key, 0, adjusted, 0, aligned, total))
+					}
+				}
+			}
+		}
 		sampleStats.RUnlock()
 	}
 
@@ -1736,18 +1765,41 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 				base, 0, cnt, 0, stats.TotalAlignedReads, stats.TotalReadCount)
 		}
 	}
-
 	// 总维度
 	totalRefLen := stats.TotalRefLengthAfterTrim
 	totalRefCounts := stats.TotalRefACGTCounts
+	for _, b1 := range bases {
+		for _, b2 := range bases {
+			key := fmt.Sprintf("%c>%c", b1, b2)
+			cnt := stats.TotalDel3PrevFirstCombCounts[key]
+			if cnt == 0 {
+				continue
+			}
+			// 原始计数
+			fmt.Fprintf(writer, "Total,Del3PrevFirstComb,%s,%d,%d,%d,%d,%d\n",
+				key, 0, cnt, 0, stats.TotalAlignedReads, stats.TotalReadCount)
+			// 修正值
+			if totalRefLen > 0 {
+				base1Cnt := totalRefCounts[b1]
+				base2Cnt := totalRefCounts[b2]
+				if base1Cnt > 0 && base2Cnt > 0 {
+					adjusted := float64(cnt) * float64(totalRefLen) / float64(base1Cnt*base2Cnt)
+					writer.WriteString(fmt.Sprintf("Total,Del3PrevFirstComb_fix,%s,%d,%.4f,%d,%d,%d\n",
+						key, 0, adjusted, 0, stats.TotalAlignedReads, stats.TotalReadCount))
+				}
+			}
+		}
+	}
+
+	// 总维度
 	for _, base := range bases {
 		cnt := stats.TotalDel3PrevBaseCounts[base]
 		if cnt > 0 && totalRefLen > 0 {
 			baseCnt := totalRefCounts[base]
 			if baseCnt > 0 {
 				adjusted := float64(cnt) * float64(totalRefLen) / float64(baseCnt)
-				writer.WriteString(fmt.Sprintf("Total,Del3PrevBase_fix,%c,%d,%.4f,%d,%d,%d\n",
-					base, 0, adjusted, 0, stats.TotalAlignedReads, stats.TotalReadCount))
+				fmt.Fprintf(writer, "Total,Del3PrevBase_fix,%c,%d,%.4f,%d,%d,%d\n",
+					base, 0, adjusted, 0, stats.TotalAlignedReads, stats.TotalReadCount)
 			}
 		}
 	}
@@ -1757,8 +1809,8 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 			baseCnt := totalRefCounts[base]
 			if baseCnt > 0 {
 				adjusted := float64(cnt) * float64(totalRefLen) / float64(baseCnt)
-				writer.WriteString(fmt.Sprintf("Total,Del3FirstBase_fix,%c,%d,%.4f,%d,%d,%d\n",
-					base, 0, adjusted, 0, stats.TotalAlignedReads, stats.TotalReadCount))
+				fmt.Fprintf(writer, "Total,Del3FirstBase_fix,%c,%d,%.4f,%d,%d,%d\n",
+					base, 0, adjusted, 0, stats.TotalAlignedReads, stats.TotalReadCount)
 			}
 		}
 	}
