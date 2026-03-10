@@ -67,6 +67,11 @@ type ReadDetailedInfo struct {
 	CombinationKey string             // 细分类组合唯一键（排序后拼接）
 }
 
+type PositionNMerStats struct {
+	NCorrect  int
+	N1Correct int
+}
+
 // SampleStats 单个样本的统计信息 - 添加新字段
 type SampleStats struct {
 	sync.RWMutex
@@ -126,6 +131,7 @@ type SampleStats struct {
 
 	PositionStats map[int]*PositionDetail
 
+	RefSeqFull         string       // 完整的原始参考序列
 	RefLength          int          // 参考序列全长
 	HeadCut            int          // 头切除长度（默认或Excel指定）
 	TailCut            int          // 尾切除长度（默认或Excel指定）
@@ -140,6 +146,8 @@ type SampleStats struct {
 	// 新增：Del3 缺失第一个碱基分布
 	Del3FirstBaseCounts     map[byte]int
 	Del3PrevFirstCombCounts map[string]int // 组合计数，键如 "AC"
+
+	NMerStats map[int]*PositionNMerStats // 1-base
 }
 
 // NewSampleStats 创建新的样本统计对象
@@ -175,6 +183,8 @@ func NewSampleStats() *SampleStats {
 		Del3PrevBaseCounts:      make(map[byte]int),
 		Del3FirstBaseCounts:     make(map[byte]int),
 		Del3PrevFirstCombCounts: make(map[string]int),
+
+		NMerStats: make(map[int]*PositionNMerStats),
 	}
 }
 

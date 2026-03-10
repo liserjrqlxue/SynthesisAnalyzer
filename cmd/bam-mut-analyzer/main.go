@@ -14,8 +14,9 @@ var (
 	excelFile   string
 	sampleOrder []string // 样本顺序列表
 
-	headCut int
-	tailCut int
+	headCut  int
+	tailCut  int
+	nMerSize int
 
 	maxSubstitutions int // 最大替换个数阈值
 
@@ -33,6 +34,7 @@ func init() {
 	flag.IntVar(&headCut, "head", 27, "头切除长度")
 	flag.IntVar(&tailCut, "tail", 20, "尾切除长度")
 	flag.IntVar(&maxSubstitutions, "max-sub", 5, "最大替换个数阈值，用于定义比对良好reads")
+	flag.IntVar(&nMerSize, "n", 4, "N-mer 统计的 N 值（默认4，即统计5-mer准确率）")
 }
 
 func main() {

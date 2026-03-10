@@ -35,6 +35,9 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 
 	// 计算切除头尾后的参考序列ACGT计数
 	if fullSeqFromExcel != "" {
+		sampleStats.Lock()
+
+		sampleStats.RefSeqFull = fullSeqFromExcel
 		// 确定切除长度（优先Excel，否则全局）
 		sampleHeadCut := headCut
 		sampleTailCut := tailCut
@@ -55,13 +58,13 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 				}
 				// 根据需要也可统计N
 			}
-			sampleStats.Lock()
 			sampleStats.RefACGTCounts = acgtCounts
 			sampleStats.RefLengthAfterTrim = len(trimmedSeq)
-			sampleStats.Unlock()
 		} else {
 			fmt.Printf("  警告: 样本 %s 的切除长度超过序列全长\n", sampleName)
 		}
+
+		sampleStats.Unlock()
 	}
 
 	// 获取参考序列长度（优先从BAM header获取）
@@ -124,6 +127,9 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 		// 解析MD字符串，建立位置到参考碱基的映射
 		mdMap := parseMDToMap(mdStr, refStart)
 
+		// 新增：N-mer 统计所需变量
+		consecutiveMatch := 0 // 当前位置之前连续正确的碱基数（不包括当前）
+
 		refPos := refStart
 		readPos := 0
 		readIsPerfect := true
@@ -137,7 +143,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 			switch op {
 			case 0, 7, 8: // M, =, X
 				for j := 0; j < length; j++ {
-					pos := refPos + j + 1 // 1-based
+					currentPos := refPos + j + 1 // 1-based
 					isMismatch := false
 					if op == 8 {
 						isMismatch = true
@@ -154,10 +160,10 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 					}
 
 					sampleStats.Lock()
-					detail, exists := sampleStats.PositionStats[pos]
+					detail, exists := sampleStats.PositionStats[currentPos]
 					if !exists {
 						detail = &PositionDetail{}
-						sampleStats.PositionStats[pos] = detail
+						sampleStats.PositionStats[currentPos] = detail
 					}
 					detail.Depth++
 
@@ -179,6 +185,27 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 							detail.MatchPure++
 						}
 					}
+
+					// 根据之前连续正确数判断是否满足 N 条件
+					if consecutiveMatch >= nMerSize {
+						// 获取该位置的 N-mer 统计对象
+						posStats, ok := sampleStats.NMerStats[currentPos]
+						if !ok {
+							posStats = &PositionNMerStats{}
+							sampleStats.NMerStats[currentPos] = posStats
+						}
+						posStats.NCorrect++ // 前 N 个碱基正确
+						if !isMismatch {
+							posStats.N1Correct++ // 前 N+1 个碱基正确
+						}
+					}
+
+					// 更新连续匹配计数器
+					if !isMismatch {
+						consecutiveMatch++
+					} else {
+						consecutiveMatch = 0
+					}
 					sampleStats.Unlock()
 
 					// 更新 read 完美状态：遇到错配、插入、缺失都不完美
@@ -191,7 +218,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 				readPos += length
 
 			case 2, 3: // D, N
-				for j := 0; j < length; j++ {
+				for j := range length {
 					pos := refPos + j + 1
 					sampleStats.Lock()
 					detail, exists := sampleStats.PositionStats[pos]
@@ -205,6 +232,10 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 				}
 				readIsPerfect = false
 				perfectUptoNow = false
+
+				// 缺失时不产生覆盖位置，但会打断连续性
+				consecutiveMatch = 0
+
 				refPos += length
 
 			case 1: // I
@@ -212,8 +243,13 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 				readIsPerfect = false
 				perfectUptoNow = false
 				// 插入本身不占用参考位置，但影响前一个位置的统计（已在 M 操作中处理）
+				// 插入打断连续性
+				consecutiveMatch = 0
 			case 4: // S
 				readPos += length
+				// 软剪接通常表示 read 开头或结尾，不影响连续匹配？但实际会打断，因为前面的碱基不参与参考序列
+				// 保守重置
+				consecutiveMatch = 0
 			}
 		}
 
@@ -595,26 +631,26 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 
 	sampleStats.RUnlock()
 	stats.Unlock()
-
-	// 计算比对率
-	alignmentRate := 0.0
-	if totalReads > 0 {
-		alignmentRate = float64(alignedReads) / float64(totalReads) * 100
-	}
-
-	fmt.Printf("  总reads数: %d\n", totalReads)
-	fmt.Printf("  比对reads数: %d (%.2f%%)\n", alignedReads, alignmentRate)
-	fmt.Printf("  包含突变的reads数: %d\n", readsWithMutations)
-	fmt.Printf("  总突变数: %d\n", totalMutations)
-	fmt.Printf("  Read类型统计:\n")
-	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
-		count := sampleStats.ReadTypeCounts[rt]
-		if count > 0 {
-			percentage := float64(count) / float64(totalReads) * 100
-			fmt.Printf("    %s: %d (%.2f%%)\n", ReadTypeNames[rt], count, percentage)
+	/*
+		// 计算比对率
+		alignmentRate := 0.0
+		if totalReads > 0 {
+			alignmentRate = float64(alignedReads) / float64(totalReads) * 100
 		}
-	}
 
+		fmt.Printf("  总reads数: %d\n", totalReads)
+		fmt.Printf("  比对reads数: %d (%.2f%%)\n", alignedReads, alignmentRate)
+		fmt.Printf("  包含突变的reads数: %d\n", readsWithMutations)
+		fmt.Printf("  总突变数: %d\n", totalMutations)
+		fmt.Printf("  Read类型统计:\n")
+		for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
+			count := sampleStats.ReadTypeCounts[rt]
+			if count > 0 {
+				percentage := float64(count) / float64(totalReads) * 100
+				fmt.Printf("    %s: %d (%.2f%%)\n", ReadTypeNames[rt], count, percentage)
+			}
+		}
+	*/
 	return nil
 }
 

@@ -1551,6 +1551,9 @@ func mainWrite(outputDir string, stats *MutationStats) {
 		fmt.Printf("写入位置详细统计失败: %v\n", err)
 	}
 
+	if err := writeNMerStats(stats, outputDir); err != nil {
+		fmt.Printf("写入 N-mer 统计失败: %v\n", err)
+	}
 }
 
 func mainPrint(stats *MutationStats) {
@@ -2000,7 +2003,85 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 		)
 	}
 	writer.Flush()
-	fmt.Printf("  已写入: %s\n", filename)
+	slog.Debug("  已写入", "filename", filename)
 
+	return nil
+}
+
+func writeNMerStats(stats *MutationStats, outputDir string) error {
+	sampleNames := getSortedSampleNames(stats)
+	for _, sampleName := range sampleNames {
+		sampleStats := stats.Samples[sampleName]
+		sampleStats.RLock()
+
+		// 使用完整的参考序列
+		fullSeq := sampleStats.RefSeqFull
+		/* 		if fullSeq == "" {
+			fmt.Printf("  警告: 样本 %s 无参考序列，跳过 N-mer 统计\n", sampleName)
+			sampleStats.RUnlock()
+			continue
+		} */
+
+		// 确定有效位置范围（切除头尾后）
+		refLen := sampleStats.RefLength
+		headCut := sampleStats.HeadCut
+		tailCut := sampleStats.TailCut
+		minPos := 1
+		maxPos := int(^uint(0) >> 1)
+		if refLen > 0 {
+			minPos = headCut + 1
+			maxPos = refLen - tailCut
+		}
+
+		// 收集并排序位置
+		var positions []int
+		for pos := range sampleStats.NMerStats {
+			if pos >= minPos && pos <= maxPos {
+				positions = append(positions, pos)
+			}
+		}
+		sort.Ints(positions)
+
+		filename := filepath.Join(outputDir, fmt.Sprintf("%s_nmer_stats.csv", sampleName))
+		file, err := os.Create(filename)
+		if err != nil {
+			sampleStats.RUnlock()
+			return fmt.Errorf("创建文件失败 %s: %v", filename, err)
+		}
+		writer := bufio.NewWriter(file)
+		writer.WriteString("pos,prefix_N,base,N_correct,N+1_correct,step_accuracy\n")
+
+		for _, rawPos := range positions {
+			correctedPos := rawPos - headCut // 切除头后的新位置
+			prefix := "NNNN"
+			base := "N"
+
+			if rawPos > nMerSize {
+				// 提取前缀：原始序列中 [rawPos-N, rawPos-1] 区间
+				startIdx := rawPos - nMerSize - 1 // 0-based 起始
+				endIdx := rawPos - 2              // 0-based 结束（包含）
+				if len(fullSeq) >= rawPos {
+					prefix = fullSeq[startIdx : endIdx+1]
+					base = fullSeq[rawPos-1 : rawPos] // 当前碱基
+				}
+			}
+
+			nm := sampleStats.NMerStats[rawPos]
+			if nm == nil {
+				continue
+			}
+			stepAcc := 0.0
+			if nm.NCorrect > 0 {
+				stepAcc = float64(nm.N1Correct) / float64(nm.NCorrect)
+			}
+			writer.WriteString(fmt.Sprintf("%d,%s,%s,%d,%d,%.6f\n",
+				correctedPos, prefix, base, nm.NCorrect, nm.N1Correct, stepAcc))
+		}
+
+		writer.Flush()
+		file.Close()
+		sampleStats.RUnlock()
+		slog.Debug("  已写入", "filename", filename)
+	}
 	return nil
 }
