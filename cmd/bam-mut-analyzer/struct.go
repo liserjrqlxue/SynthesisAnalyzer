@@ -148,6 +148,8 @@ type SampleStats struct {
 	Del3PrevFirstCombCounts map[string]int // 组合计数，键如 "AC"
 
 	NMerStats map[int]*PositionNMerStats // 1-base
+
+	AlignedBases int // 样本所有比对read的总参考覆盖碱基数
 }
 
 // NewSampleStats 创建新的样本统计对象
@@ -241,6 +243,7 @@ type MutationStats struct {
 	TotalDel1BaseCounts map[byte]int
 	// 新增：RefLength * GoodAlignedReads 的累加（用于比例计算）
 	TotalRefLengthGoodAligned int // 所有样本的 RefLength * GoodAlignedReads 之和
+	TotalAlignedBases         int // 所有样本的 AlignedBases 之和
 
 	TotalRefACGTCounts      map[byte]int // 所有样本切除后参考中ACGT计数之和
 	TotalRefLengthAfterTrim int          // 所有样本切除后参考长度之和

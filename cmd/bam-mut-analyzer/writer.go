@@ -1554,6 +1554,10 @@ func mainWrite(outputDir string, stats *MutationStats) {
 	if err := writeNMerStats(stats, outputDir); err != nil {
 		fmt.Printf("写入 N-mer 统计失败: %v\n", err)
 	}
+
+	if err := writeSubstitutionStats(stats, outputDir); err != nil {
+		fmt.Printf("写入替换突变统计失败: %v\n", err)
+	}
 }
 
 func mainPrint(stats *MutationStats) {
@@ -2083,5 +2087,195 @@ func writeNMerStats(stats *MutationStats, outputDir string) error {
 		sampleStats.RUnlock()
 		slog.Debug("  已写入", "filename", filename)
 	}
+	return nil
+}
+
+// writeSubstitutionStats 输出替换突变的样品维度和总体统计
+func writeSubstitutionStats(stats *MutationStats, outputDir string) error {
+	sampleNames := getSortedSampleNames(stats)
+
+	// 收集所有突变类型（从所有样本中）
+	allMuts := make(map[string]bool)
+	for _, sampleName := range sampleNames {
+		sampleStats := stats.Samples[sampleName]
+		sampleStats.RLock()
+		for mut := range sampleStats.Mutations {
+			allMuts[mut] = true
+		}
+		sampleStats.RUnlock()
+	}
+	var mutList []string
+	for mut := range allMuts {
+		mutList = append(mutList, mut)
+	}
+	sort.Strings(mutList)
+
+	// 准备数据：每个样本的替换突变计数和总替换数
+	type sampleData struct {
+		totalSubs    int
+		subCounts    map[string]int
+		alignedBases int
+		refBaseCnt   map[byte]int // 参考序列中ACGT的计数
+		refBase      int          // 参考序列碱基数
+	}
+	sampleDataMap := make(map[string]*sampleData)
+	// totalAlignedBases := stats.TotalAlignedBases
+	totalSubsAll := 0
+	totalRefBaseCntAll := map[byte]int{'A': 0, 'C': 0, 'G': 0, 'T': 0, 'N': 0}
+	totalRefBase := 0
+
+	for _, sampleName := range sampleNames {
+		sampleStats := stats.Samples[sampleName]
+		sampleStats.RLock()
+		data := &sampleData{
+			totalSubs:    0,
+			subCounts:    make(map[string]int),
+			alignedBases: sampleStats.AlignedBases,
+			refBaseCnt:   make(map[byte]int),
+		}
+		// 复制 refACGTCounts
+		for b, c := range sampleStats.RefACGTCounts {
+			data.refBaseCnt[b] = c
+			data.refBase += c
+			totalRefBaseCntAll[b] += c
+			totalRefBase += c
+
+		}
+		for mut, cnt := range sampleStats.Mutations {
+			// 只统计替换（突变类型长度>2且中间是>，且 ref/alt 都是ACGTN，其实所有 mutation 都是替换）
+			if len(mut) == 3 && mut[1] == '>' {
+				data.subCounts[mut] = cnt
+				data.totalSubs += cnt
+				totalSubsAll += cnt
+			}
+		}
+		sampleDataMap[sampleName] = data
+		sampleStats.RUnlock()
+	}
+
+	// 输出文件
+	filename := filepath.Join(outputDir, "substitution_stats.csv")
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("创建文件失败: %v", err)
+	}
+	defer file.Close()
+	writer := bufio.NewWriter(file)
+	writer.WriteString("ID,Mutation,Count,Frequency,Ratio,RatioFix\n")
+
+	// 样品维度
+	for _, sampleName := range sampleNames {
+		data := sampleDataMap[sampleName]
+		if data == nil {
+			continue
+		}
+		for _, mut := range mutList {
+			cnt := data.subCounts[mut]
+			if cnt == 0 {
+				continue
+			}
+			// Frequency = cnt / data.totalSubs
+			freq := 0.0
+			// if data.totalSubs > 0 {
+			freq = float64(cnt) / float64(data.totalSubs)
+			// }
+			// Ratio = cnt / data.alignedBases
+			ratio := 0.0
+			// if data.alignedBases > 0 {
+			ratio = float64(cnt) / float64(data.alignedBases)
+			// }
+			// RatioFix = cnt / refBaseCnt[refBase]
+			refBase := mut[0] // 第一个字符
+			refCnt := data.refBaseCnt[refBase]
+			ratioFix := 0.0
+			// if refCnt > 0 {
+			ratioFix = float64(cnt) / float64(data.alignedBases) / float64(refCnt) * float64(data.refBase)
+			// }
+			fmt.Fprintf(writer, "%s,%s,%d,%.6g,%.6g,%.6g\n",
+				sampleName, mut, cnt, freq, ratio, ratioFix)
+		}
+	}
+
+	// 总体：加权平均（即直接使用总计数计算）
+	// 计算总体的总替换数、总比对碱基、总参考碱基数
+	totalSubs := totalSubsAll
+	totalAligned := stats.TotalAlignedBases
+	// 总参考碱基计数已累计在 totalRefBaseCntAll 中
+
+	for _, mut := range mutList {
+		// 先统计所有样本中该突变的计数总和
+		totalCnt := 0
+		for _, data := range sampleDataMap {
+			totalCnt += data.subCounts[mut]
+		}
+		if totalCnt == 0 {
+			continue
+		}
+		// Frequency 加权
+		freq := 0.0
+		// if totalSubs > 0 {
+		freq = float64(totalCnt) / float64(totalSubs)
+		// }
+		// Ratio 加权
+		ratio := 0.0
+		// if totalAligned > 0 {
+		ratio = float64(totalCnt) / float64(totalAligned)
+		// }
+		// RatioFix 加权
+		refBase := mut[0]
+		refCnt := totalRefBaseCntAll[refBase]
+		ratioFix := 0.0
+		// if refCnt > 0 {
+		ratioFix = float64(totalCnt) / float64(totalAligned) / float64(refCnt) * float64(totalRefBase)
+		// }
+		fmt.Fprintf(writer, "WeightedAverage,%s,%d,%.6g,%.6g,%.6g\n",
+			mut, totalCnt, freq, ratio, ratioFix)
+	}
+
+	// 算术平均：对所有样品的比值求算术平均
+	// 需要先计算每个样品的每个突变的三种比值，然后对每个突变求平均
+	for _, mut := range mutList {
+		sumFreq := 0.0
+		sumRatio := 0.0
+		sumRatioFix := 0.0
+		nSamples := 0
+		for _, sampleName := range sampleNames {
+			data := sampleDataMap[sampleName]
+			cnt := data.subCounts[mut]
+			if cnt == 0 {
+				continue
+			}
+			nSamples++
+			// Frequency 样品内
+			// if data.totalSubs > 0 {
+			sumFreq += float64(cnt) / float64(data.totalSubs)
+			// }
+			// Ratio 样品内
+			// if data.alignedBases > 0 {
+			sumRatio += float64(cnt) / float64(data.alignedBases)
+			// }
+			// RatioFix 样品内
+			refBase := mut[0]
+			// if data.refBaseCnt[refBase] > 0 {
+			sumRatioFix += float64(cnt) / float64(data.alignedBases) / float64(data.refBaseCnt[refBase]) * float64(data.refBase)
+			// }
+		}
+		if nSamples == 0 {
+			continue
+		}
+		avgFreq := sumFreq / float64(nSamples)
+		avgRatio := sumRatio / float64(nSamples)
+		avgRatioFix := sumRatioFix / float64(nSamples)
+		// 对于算术平均，Count 列可以填该突变的总数（或留空？），这里我们填总数以保持一致性
+		totalCnt := 0
+		for _, data := range sampleDataMap {
+			totalCnt += data.subCounts[mut]
+		}
+		fmt.Fprintf(writer, "ArithmeticAverage,%s,%d,%.6g,%.6g,%.6g\n",
+			mut, totalCnt, avgFreq, avgRatio, avgRatioFix)
+	}
+
+	writer.Flush()
+	fmt.Printf("替换突变统计已写入: %s\n", filename)
 	return nil
 }

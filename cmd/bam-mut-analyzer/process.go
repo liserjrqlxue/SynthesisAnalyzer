@@ -136,13 +136,17 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 		perfectUptoNow := true
 		cigarOps := read.Cigar
 
+		alignedBasesThisRead := 0
+		// 消耗参考位置的操作：M, D, N, =, X
+		// alignedBasesThisRead += length
 		for ci, cigarOp := range cigarOps {
 			op := cigarOp.Type()
 			length := cigarOp.Len()
 
 			switch op {
 			case 0, 7, 8: // M, =, X
-				for j := 0; j < length; j++ {
+				alignedBasesThisRead += length
+				for j := range length {
 					currentPos := refPos + j + 1 // 1-based
 					isMismatch := false
 					if op == 8 {
@@ -218,6 +222,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 				readPos += length
 
 			case 2, 3: // D, N
+				alignedBasesThisRead += length
 				for j := range length {
 					pos := refPos + j + 1
 					sampleStats.Lock()
@@ -290,6 +295,8 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 		mutationCount := len(readInfo.Mutations)
 		sampleStats.Lock()
 		sampleStats.SubstitutionCountDist[mutationCount]++
+		sampleStats.AlignedBases += alignedBasesThisRead
+
 		sampleStats.Unlock()
 		// 跳过非良好比对
 		if mutationCount > maxSubstitutions {
@@ -628,6 +635,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	stats.TotalGoodAlignedReads += sampleStats.GoodAlignedReads
 	// 累加 RefLength * GoodAlignedReads
 	stats.TotalRefLengthGoodAligned += (sampleStats.RefLength - sampleStats.HeadCut - sampleStats.TailCut) * sampleStats.GoodAlignedReads
+	stats.TotalAlignedBases += sampleStats.AlignedBases
 
 	sampleStats.RUnlock()
 	stats.Unlock()
