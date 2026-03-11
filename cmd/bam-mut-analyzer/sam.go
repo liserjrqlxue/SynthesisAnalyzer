@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"sort"
 	"strconv"
@@ -310,7 +309,7 @@ func analyzeReadType(read *sam.Record) ReadType {
 
 // analyzeReadDetailedInfo 分析详细的read信息 - 更新统计逻辑
 // 同时修改 analyzeReadDetailedInfo，获取 mdMap 并传入
-func analyzeReadDetailedInfo(read *sam.Record, mdStr string) ReadDetailedInfo {
+func analyzeReadDetailedInfo(read *sam.Record, mdStr, refSeq string) ReadDetailedInfo {
 	var (
 		info ReadDetailedInfo
 		// 获取参考起始位置
@@ -322,7 +321,7 @@ func analyzeReadDetailedInfo(read *sam.Record, mdStr string) ReadDetailedInfo {
 
 	// 分析插入子类型
 	if hasInsertInCigar(read) {
-		info.InsertSub = analyzeInsertSubtype(read)
+		info.InsertSub = analyzeInsertSubtype(read, refSeq)
 	}
 
 	// 分析缺失子类型
@@ -360,7 +359,7 @@ func hasDeleteInCigar(read *sam.Record) bool {
 }
 
 // analyzeInsertSubtype 分析插入子类型 - 添加细分类
-func analyzeInsertSubtype(read *sam.Record) *InsertSubtype {
+func analyzeInsertSubtype(read *sam.Record, refSeq string) *InsertSubtype {
 	subtype := &InsertSubtype{}
 
 	seq := read.Seq.Expand()
@@ -470,7 +469,7 @@ func analyzeDeleteSubtype(read *sam.Record, mdStr string, refStart int) *DeleteS
 func analyzeSubstitutions(mutations []Mutation, mdMap map[int]string) []SubstitutionInfo {
 	var subs []SubstitutionInfo
 	for _, mut := range mutations {
-		subtype := classifySubstitution(mut.Position, mut.Alt, mdMap)
+		subtype := classifySubstitution(mut.Position, mut.Ref, mut.Alt, mdMap)
 		subs = append(subs, SubstitutionInfo{
 			Position: mut.Position,
 			Ref:      mut.Ref,
@@ -512,14 +511,7 @@ func buildSubtypeCombinationKey(insertSubtypes map[InsertionSubtype]bool, delete
 	}
 	// 替换
 	for st := range substSubtypes {
-		switch st {
-		case DupDel:
-			tags = append(tags, "DupDel")
-		case DelDup:
-			tags = append(tags, "DelDup")
-		case Mismatch:
-			tags = append(tags, "Mismatch")
-		}
+		tags = append(tags, SubstNames[st])
 	}
 	sort.Strings(tags)
 	return strings.Join(tags, "_")
@@ -581,94 +573,6 @@ func parseDeletionInfoFromMD(mdStr string, refStart int) []DeletionInfo {
 	}
 
 	return deletions
-}
-
-// getDetailedTypeKeyFromInfo 从ReadDetailedInfo获取详细类型的字符串键
-func getDetailedTypeKeyFromInfo(info ReadDetailedInfo) string {
-	key := ReadTypeNames[info.MainType]
-
-	// 添加插入子类型信息
-	if info.InsertSub != nil && len(info.InsertSub.Insertions) > 0 {
-		// 统计各长度插入的个数
-		len1, len2, len3, lenMore := 0, 0, 0, 0
-		sameCount, diffCount := 0, 0
-
-		for _, insertion := range info.InsertSub.Insertions {
-			switch {
-			case insertion.Length == 1:
-				len1++
-			case insertion.Length == 2:
-				len2++
-			case insertion.Length == 3:
-				len3++
-			default:
-				lenMore++
-			}
-
-			if insertion.IsSameAsFlanking {
-				sameCount++
-			} else {
-				diffCount++
-			}
-		}
-
-		// 添加插入长度分布
-		if len1 > 0 {
-			key += fmt.Sprintf("_I1x%d", len1)
-		}
-		if len2 > 0 {
-			key += fmt.Sprintf("_I2x%d", len2)
-		}
-		if len3 > 0 {
-			key += fmt.Sprintf("_I3x%d", len3)
-		}
-		if lenMore > 0 {
-			key += fmt.Sprintf("_I>3x%d", lenMore)
-		}
-
-		// 添加是否与两边相同
-		if sameCount > 0 {
-			key += fmt.Sprintf("_same%d", sameCount)
-		}
-		if diffCount > 0 {
-			key += fmt.Sprintf("_diff%d", diffCount)
-		}
-	}
-
-	// 添加缺失子类型信息
-	if info.DeleteSub != nil && len(info.DeleteSub.Deletions) > 0 {
-		// 统计各长度缺失的个数
-		len1, len2, len3, lenMore := 0, 0, 0, 0
-
-		for _, deletion := range info.DeleteSub.Deletions {
-			switch {
-			case deletion.Length == 1:
-				len1++
-			case deletion.Length == 2:
-				len2++
-			case deletion.Length == 3:
-				len3++
-			default:
-				lenMore++
-			}
-		}
-
-		// 添加缺失长度分布
-		if len1 > 0 {
-			key += fmt.Sprintf("_D1x%d", len1)
-		}
-		if len2 > 0 {
-			key += fmt.Sprintf("_D2x%d", len2)
-		}
-		if len3 > 0 {
-			key += fmt.Sprintf("_D3x%d", len3)
-		}
-		if lenMore > 0 {
-			key += fmt.Sprintf("_D>3x%d", lenMore)
-		}
-	}
-
-	return key
 }
 
 func isDigit(c byte) bool {
@@ -739,7 +643,7 @@ func classifyDeletion(length int) DeletionSubtype {
 
 // classifySubstitution 判定替换细分类
 // 需要参考序列上相邻位置的碱基，通过 mdMap（位置->参考碱基）查询
-func classifySubstitution(pos int, altBase string, mdMap map[int]string) SubstitutionSubtype {
+func classifySubstitution(pos int, refBase, altBase string, mdMap map[int]string) SubstitutionSubtype {
 	// 查询 -1 位置参考碱基
 	refMinus1, okMinus := mdMap[pos-1]
 	if !okMinus {
@@ -759,5 +663,11 @@ func classifySubstitution(pos int, altBase string, mdMap map[int]string) Substit
 	if altBase == refPlus1 {
 		return DelDup
 	}
-	return Mismatch
+	if refBase == "A" && altBase == "G" {
+		return MismatchA_G
+	}
+	if refBase == "C" && altBase == "T" {
+		return MismatchC_T
+	}
+	return OtherMismatch
 }

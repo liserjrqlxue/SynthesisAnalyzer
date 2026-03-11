@@ -69,7 +69,6 @@ type SampleStats struct {
 	PositionDetails   map[string]map[string]int // position -> mutation -> count
 
 	ReadTypeCounts       map[ReadType]int // read type -> count
-	DetailedTypeCounts   map[string]int   // 详细类型 -> count
 	InsertLengthDist     map[int]int      // 插入长度 -> count
 	DeleteLengthDist     map[int]int      // 缺失长度 -> count
 	MaxDeleteLengthDist  map[int]int      // 最长缺失长度 -> count
@@ -234,7 +233,6 @@ func NewSampleStats() *SampleStats {
 		Mutations:            make(map[string]int),
 		PositionDetails:      make(map[string]map[string]int),
 		ReadTypeCounts:       make(map[ReadType]int),
-		DetailedTypeCounts:   make(map[string]int),
 		InsertLengthDist:     make(map[int]int),
 		DeleteLengthDist:     make(map[int]int),
 		MaxDeleteLengthDist:  make(map[int]int),
@@ -270,9 +268,8 @@ type MutationStats struct {
 	sync.RWMutex
 	Samples map[string]*SampleStats // sample -> 样本统计
 
-	TotalMutations          map[string]int   // mutation -> total count
-	TotalReadTypeCounts     map[ReadType]int // 所有样本的read type统计
-	TotalDetailedTypeCounts map[string]int   // 所有样本的详细类型统计
+	TotalMutations      map[string]int   // mutation -> total count
+	TotalReadTypeCounts map[ReadType]int // 所有样本的read type统计
 
 	TotalDeleteLengthDist     map[int]int    // 所有样本的缺失长度分布
 	TotalMaxDeleteLengthDist  map[int]int    // 所有样本的最长缺失长度分布
@@ -336,7 +333,6 @@ func NewMutationStats() *MutationStats {
 		Samples:                  make(map[string]*SampleStats),
 		TotalMutations:           make(map[string]int),
 		TotalReadTypeCounts:      make(map[ReadType]int),
-		TotalDetailedTypeCounts:  make(map[string]int),
 		TotalInsertLengthDist:    make(map[int]int),
 		TotalDeleteLengthDist:    make(map[int]int),
 		TotalMaxDeleteLengthDist: make(map[int]int),

@@ -292,7 +292,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 		}
 
 		// 分析详细的read类型
-		readInfo := analyzeReadDetailedInfo(read, mdStr)
+		readInfo := analyzeReadDetailedInfo(read, mdStr, fullSeqFromExcel)
 
 		// 统计突变信息
 		mutationCount := len(readInfo.Mutations)
@@ -312,10 +312,6 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 
 		// 更新read类型统计
 		sampleStats.ReadTypeCounts[readInfo.MainType]++
-
-		// 更新详细类型统计
-		typeKey := getDetailedTypeKeyFromInfo(readInfo)
-		sampleStats.DetailedTypeCounts[typeKey]++
 
 		// 统计插入信息
 		if readInfo.InsertSub != nil && len(readInfo.InsertSub.Insertions) > 0 {
@@ -543,11 +539,6 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	// 合并read类型统计
 	for rt, count := range sampleStats.ReadTypeCounts {
 		stats.TotalReadTypeCounts[rt] += count
-	}
-
-	// 合并详细类型统计
-	for typeKey, count := range sampleStats.DetailedTypeCounts {
-		stats.TotalDetailedTypeCounts[typeKey] += count
 	}
 
 	// 合并插入长度分布
