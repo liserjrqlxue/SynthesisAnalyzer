@@ -233,6 +233,9 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 					}
 					detail.Depth++
 					detail.Deletion++
+					if length == 1 {
+						detail.Del1++
+					}
 					sampleStats.Unlock()
 				}
 				readIsPerfect = false

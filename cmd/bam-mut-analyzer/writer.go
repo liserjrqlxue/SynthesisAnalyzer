@@ -1903,7 +1903,7 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 	sampleNames := getSortedSampleNames(stats)
 
 	// 汇总数据结构：修正后位置 -> TotalPositionDetail
-	totalPosStats := make(map[int]*TotalPositionDetail)
+	totalPosStats := make(map[int]*PositionDetail)
 
 	for _, sampleName := range sampleNames {
 		sampleStats := stats.Samples[sampleName]
@@ -1929,7 +1929,7 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 		}
 		writer := bufio.NewWriter(file)
 		// 写入表头：不再包含百分比，改为计数
-		writer.WriteString("pos,depth,match_pure,match_with_ins,mismatch_pure,mismatch_with_ins,insertion,deletion,perfect_reads,perfect_upto_pos\n")
+		writer.WriteString("pos,depth,match_pure,match_with_ins,mismatch_pure,mismatch_with_ins,insertion,deletion,del1,perfect_reads,perfect_upto_pos\n")
 
 		var positions []int
 		for pos := range sampleStats.PositionStats {
@@ -1946,11 +1946,11 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 
 			// 样品行输出计数（不计算百分比）
 			writer.WriteString(
-				fmt.Sprintf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+				fmt.Sprintf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
 					correctedPos, detail.Depth,
 					detail.MatchPure, detail.MatchWithIns,
 					detail.MismatchPure, detail.MismatchWithIns,
-					detail.Insertion, detail.Deletion,
+					detail.Insertion, detail.Deletion, detail.Del1,
 					detail.PerfectReadsCount, detail.PerfectUptoPosCount,
 				),
 			)
@@ -1958,7 +1958,7 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 			// 累加到汇总
 			total, ok := totalPosStats[correctedPos]
 			if !ok {
-				total = &TotalPositionDetail{}
+				total = &PositionDetail{}
 				totalPosStats[correctedPos] = total
 			}
 			total.Depth += detail.Depth
@@ -1968,6 +1968,7 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 			total.MismatchWithIns += detail.MismatchWithIns
 			total.Insertion += detail.Insertion
 			total.Deletion += detail.Deletion
+			total.Del1 += detail.Del1
 			total.PerfectReadsCount += detail.PerfectReadsCount
 			total.PerfectUptoPosCount += detail.PerfectUptoPosCount
 			// 累加该样品的 aligned 和 total
@@ -1990,7 +1991,7 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 	}
 	defer file.Close()
 	writer := bufio.NewWriter(file)
-	writer.WriteString("pos,depth,match_pure,match_with_ins,mismatch_pure,mismatch_with_ins,insertion,deletion,perfect_reads,perfect_upto_pos,aligned,total\n")
+	writer.WriteString("pos,depth,match_pure,match_with_ins,mismatch_pure,mismatch_with_ins,insertion,deletion,del1,perfect_reads,perfect_upto_pos,aligned,total\n")
 
 	var totalPositions []int
 	for pos := range totalPosStats {
@@ -2001,11 +2002,11 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 	for _, pos := range totalPositions {
 		detail := totalPosStats[pos]
 		writer.WriteString(
-			fmt.Sprintf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+			fmt.Sprintf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
 				pos, detail.Depth,
 				detail.MatchPure, detail.MatchWithIns,
 				detail.MismatchPure, detail.MismatchWithIns,
-				detail.Insertion, detail.Deletion,
+				detail.Insertion, detail.Deletion, detail.Del1,
 				detail.PerfectReadsCount, detail.PerfectUptoPosCount,
 				detail.AlignedSum, detail.TotalSum,
 			),

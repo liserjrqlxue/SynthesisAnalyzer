@@ -11,19 +11,7 @@ type PositionDetail struct {
 	MismatchWithIns     int
 	Insertion           int
 	Deletion            int
-	PerfectReadsCount   int
-	PerfectUptoPosCount int
-}
-
-// TotalPositionDetail 用于汇总各位置统计
-type TotalPositionDetail struct {
-	Depth               int
-	MatchPure           int
-	MatchWithIns        int
-	MismatchPure        int
-	MismatchWithIns     int
-	Insertion           int
-	Deletion            int
+	Del1                int
 	PerfectReadsCount   int
 	PerfectUptoPosCount int
 	AlignedSum          int // 覆盖该位置的所有样品的 aligned reads 之和
