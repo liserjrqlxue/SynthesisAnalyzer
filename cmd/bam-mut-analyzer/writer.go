@@ -1601,9 +1601,14 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 
 		// 缺失细分类
 		for st, cnt := range sampleStats.DeleteSubtypeReads {
-			subtypeName := "Del1"
-			if st == Del2 {
+			var subtypeName string
+			switch st {
+			case Del1:
+				subtypeName = "Del1"
+			case Del2:
 				subtypeName = "Del2"
+			case Del3:
+				subtypeName = "Del3"
 			}
 			fmt.Fprintf(writer, "%s,Deletion,%s,%d,%d,%d,%d,%d\n",
 				sampleName, subtypeName, cnt,
