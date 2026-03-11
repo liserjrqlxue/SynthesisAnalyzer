@@ -51,9 +51,11 @@ const (
 type SubstitutionSubtype int
 
 const (
-	DupDel   SubstitutionSubtype = iota // 与-1位相同
-	DelDup                              // 与+1位相同
-	Mismatch                            // 其他
+	DupDel        SubstitutionSubtype = iota // 与-1位相同
+	DelDup                                   // 与+1位相同
+	MismatchA_G                              // A>G
+	MismatchC_T                              // C>T
+	OtherMismatch                            // 其他
 )
 
 // 定义细分类名称映射
@@ -67,7 +69,9 @@ var InsertNames = map[InsertionSubtype]string{
 }
 
 var SubstNames = map[SubstitutionSubtype]string{
-	DupDel:   "DupDel",
-	DelDup:   "DelDup",
-	Mismatch: "Mismatch",
+	DupDel:        "DupDel",
+	DelDup:        "DelDup",
+	MismatchA_G:   "MismatchA>G",
+	MismatchC_T:   "MismatchC>T",
+	OtherMismatch: "OtherMismatch",
 }
