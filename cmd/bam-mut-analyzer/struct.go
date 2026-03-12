@@ -392,10 +392,10 @@ type SubstitutionInfo struct {
 	Subtype  SubstitutionSubtype
 }
 
-// MDOp 表示MD标签的操作
-type MDOp struct {
-	Type   byte
-	Length int
-	Base   byte
-	Bases  string
+// 定义累加器结构
+type SumPct struct {
+	sumGood    float64
+	sumAligned float64
+	sumTotal   float64
+	count      int
 }
