@@ -26,10 +26,9 @@ type InsertSubtype struct {
 
 // InsertionInfo 单条插入信息
 type InsertionInfo struct {
-	Length           int              // 插入长度
-	IsSameAsFlanking bool             // 插入字符是否与插入位置两边碱基相同
-	Bases            string           // 插入的碱基序列
-	Subtype          InsertionSubtype // 细分类
+	Length  int              // 插入长度
+	Bases   string           // 插入的碱基序列
+	Subtype InsertionSubtype // 细分类
 }
 
 // DeleteSubtype 缺失子类型
