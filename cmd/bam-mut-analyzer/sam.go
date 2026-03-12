@@ -376,12 +376,28 @@ func analyzeInsertSubtype(read *sam.Record, refSeq string) *InsertSubtype {
 			refPos += length
 			readPos += length
 		case sam.CigarInsertion: // I
-			insertion := InsertionInfo{
-				Bases:   string(seq[readPos:min(readPos+length, len(seq))]),
-				Length:  length,
-				Subtype: classifyInsertion(seq, readPos, length, refSeq, refPos),
+			insertionSubtype := classifyInsertion(seq, readPos, length, refSeq, refPos)
+			// DupDup 转换为 2个Dup1
+			if insertionSubtype == DupDup {
+				insertion1 := InsertionInfo{
+					Bases:   string(seq[readPos:min(readPos+1, len(seq))]),
+					Length:  1,
+					Subtype: Dup1,
+				}
+				insertion2 := InsertionInfo{
+					Bases:   string(seq[readPos+1 : min(readPos+2, len(seq))]),
+					Length:  1,
+					Subtype: Dup1,
+				}
+				subtype.Insertions = append(subtype.Insertions, insertion1, insertion2)
+			} else {
+				insertion := InsertionInfo{
+					Bases:   string(seq[readPos:min(readPos+length, len(seq))]),
+					Length:  length,
+					Subtype: insertionSubtype,
+				}
+				subtype.Insertions = append(subtype.Insertions, insertion)
 			}
-			subtype.Insertions = append(subtype.Insertions, insertion)
 			readPos += length
 		case sam.CigarSoftClipped: // I, S
 			readPos += length

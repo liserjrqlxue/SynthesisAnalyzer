@@ -208,6 +208,7 @@ func (s *SampleStats) NormalizeDeletionsByContinuousBases() {
 				// 如果该位置原本不存在（深度为0），则忽略
 				continue
 			}
+			detail.Base = currentBase
 			if detail.Depth > 0 {
 				// 新 Deletion = avgRate * Depth，四舍五入
 				newDel := int(avgRate*float64(detail.Depth) + 0.5)

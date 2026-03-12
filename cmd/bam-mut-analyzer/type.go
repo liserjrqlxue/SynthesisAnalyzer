@@ -41,7 +41,7 @@ type InsertionSubtype int
 const (
 	Dup1   InsertionSubtype = iota // 长度1，与-1或+1碱基一致
 	Dup2                           // 长度2，插入序列一致且与-1或+1碱基一致
-	DupDup                         // 长度2，插入序列不一致，第一位与-1一致，第二位与+1一致
+	DupDup                         // 长度2，插入序列不一致，第一位与-1一致，第二位与+1一致 -> 2个Dup1
 	Ins1                           // 长度1，非Dup1
 	Ins2                           // 长度2，非Dup2/DupDup
 	Ins3                           // 长度>2
@@ -59,6 +59,12 @@ const (
 )
 
 // 定义细分类名称映射
+var DeleteNames = map[DeletionSubtype]string{
+	Del1: "Del1",
+	Del2: "Del2",
+	Del3: "Del3",
+}
+
 var InsertNames = map[InsertionSubtype]string{
 	Dup1:   "Dup1",
 	Dup2:   "Dup2",

@@ -572,7 +572,8 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 		case Dup2:
 			name = "I:Dup2"
 		case DupDup:
-			name = "I:DupDup"
+			// name = "I:DupDup"
+			continue
 		case Ins1:
 			name = "I:Ins1"
 		case Ins2:
@@ -1488,8 +1489,7 @@ func mainPrint(stats *MutationStats) {
 	fmt.Printf("\n处理完成!\n")
 	fmt.Printf("总体统计:\n")
 	fmt.Printf("  总reads数: %d\n", stats.TotalReadCount)
-	fmt.Printf("  总包含突变reads数: %d\n", stats.TotalReadsWithMuts)
-	fmt.Printf("  Read类型分布:\n")
+	fmt.Printf("  细分类统计:\n")
 	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
 		count := stats.TotalReadTypeCounts[rt]
 		if count > 0 {
@@ -1497,6 +1497,28 @@ func mainPrint(stats *MutationStats) {
 			fmt.Printf("    %s: %d (%.2f%%)\n", ReadTypeNames[rt], count, percentage)
 		}
 	}
+	totalEvents := stats.TotalInsertEventCount + stats.TotalDeleteEventCount + stats.TotalSubstitutionEventCount
+	// 缺失
+	for st := Del1; st <= Del3; st++ {
+		var name = "D:" + DeleteNames[st]
+		var count = stats.TotalDeleteSubtypeEvents[st]
+		write1line(os.Stdout, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
+	}
+
+	// 插入
+	for st := Dup1; st <= Ins3; st++ {
+		var name = "I:" + InsertNames[st]
+		var count = stats.TotalInsertSubtypeEvents[st]
+		write1line(os.Stdout, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
+	}
+
+	// 替换
+	for st := DupDel; st <= OtherMismatch; st++ {
+		var name = "X:" + SubstNames[st]
+		var count = stats.TotalSubstitutionSubtypeEvents[st]
+		write1line(os.Stdout, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
+	}
+
 }
 
 // 新增：输出细分类统计
@@ -1524,39 +1546,29 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 
 		// 缺失细分类
 		for st, cnt := range sampleStats.DeleteSubtypeReads {
-			var subtypeName string
-			switch st {
-			case Del1:
-				subtypeName = "Del1"
-			case Del2:
-				subtypeName = "Del2"
-			case Del3:
-				subtypeName = "Del3"
-			}
 			fmt.Fprintf(writer, "%s,Deletion,%s,%d,%d,%d,%d,%d\n",
-				sampleName, subtypeName, cnt,
+				sampleName, DeleteNames[st], cnt,
 				sampleStats.DeleteSubtypeEvents[st],
 				sampleStats.DeleteSubtypeBases[st],
-				aligned, total)
+				aligned, total,
+			)
 		}
 		// 插入细分类
-		insertNames := map[InsertionSubtype]string{
-			Dup1: "Dup1", Dup2: "Dup2", DupDup: "DupDup",
-			Ins1: "Ins1", Ins2: "Ins2", Ins3: "Ins3",
-		}
 		for st, cnt := range sampleStats.InsertSubtypeReads {
 			fmt.Fprintf(writer, "%s,Insertion,%s,%d,%d,%d,%d,%d\n",
-				sampleName, insertNames[st], cnt,
+				sampleName, InsertNames[st], cnt,
 				sampleStats.InsertSubtypeEvents[st],
 				sampleStats.InsertSubtypeBases[st],
-				aligned, total)
+				aligned, total,
+			)
 		}
 		for st, cnt := range sampleStats.SubstitutionSubtypeReads {
 			fmt.Fprintf(writer, "%s,Substitution,%s,%d,%d,%d,%d,%d\n",
 				sampleName, SubstNames[st], cnt,
 				sampleStats.SubstitutionSubtypeEvents[st],
 				sampleStats.SubstitutionSubtypeBases[st],
-				aligned, total)
+				aligned, total,
+			)
 		}
 
 		sampleStats.RUnlock()
@@ -1848,7 +1860,7 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 		}
 		writer := bufio.NewWriter(file)
 		// 写入表头：不再包含百分比，改为计数
-		writer.WriteString("pos,depth,match_pure,match_with_ins,mismatch_pure,mismatch_with_ins,insertion,deletion,del1,perfect_reads,perfect_upto_pos\n")
+		writer.WriteString("pos,base,depth,match_pure,match_with_ins,mismatch_pure,mismatch_with_ins,insertion,deletion,del1,perfect_reads,perfect_upto_pos\n")
 
 		var positions []int
 		for pos := range sampleStats.PositionStats {
@@ -1865,8 +1877,8 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 
 			// 样品行输出计数（不计算百分比）
 			writer.WriteString(
-				fmt.Sprintf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
-					correctedPos, detail.Depth,
+				fmt.Sprintf("%d,%c,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+					correctedPos, detail.Base, detail.Depth,
 					detail.MatchPure, detail.MatchWithIns,
 					detail.MismatchPure, detail.MismatchWithIns,
 					detail.Insertion, detail.Deletion, detail.Del1,
