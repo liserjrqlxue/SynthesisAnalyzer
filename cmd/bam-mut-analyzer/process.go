@@ -28,7 +28,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	}
 	defer br.Close()
 
-	fmt.Printf("处理样本: %s\n", sampleName)
+	// fmt.Printf("处理样本: %s\n", sampleName)
 
 	// 获取或创建样本统计
 	sampleStats := stats.getOrCreateSampleStats(sampleName)
@@ -501,6 +501,9 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	}
 	sampleStats.Unlock()
 
+	// 平滑连续碱基缺失分配
+	sampleStats.NormalizeDeletionsByContinuousBases()
+
 	// 更新总统计
 	stats.Lock()
 	stats.TotalReadCount += totalReads
@@ -732,7 +735,7 @@ func findBAMFiles(inputDir string, fullSeqs map[string]string) ([]string, error)
 							fmt.Printf("警告: 读取参考文件 %s 失败: %v\n", refPath, err)
 						} else {
 							fullSeqs[sampleName] = seq
-							fmt.Printf("从参考文件 %s 加载序列，长度 %d\n", refPath, len(seq))
+							// fmt.Printf("从参考文件 %s 加载序列，长度 %d\n", refPath, len(seq))
 						}
 						break
 					}
