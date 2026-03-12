@@ -1,5 +1,7 @@
 package main
 
+import "io"
+
 // ReadType 表示read的类型
 type ReadType int
 
@@ -80,4 +82,33 @@ var SubstNames = map[SubstitutionSubtype]string{
 	MismatchA_G:   "MismatchA>G",
 	MismatchC_T:   "MismatchC>T",
 	OtherMismatch: "OtherMismatch",
+}
+
+func (stats *MutationStats) WriteSubtype(writer io.Writer) {
+	totalEvents := stats.TotalInsertEventCount + stats.TotalDeleteEventCount + stats.TotalSubstitutionEventCount
+
+	// 缺失
+	for st := Del1; st <= Del3; st++ {
+		name := "D:" + DeleteNames[st]
+		count := stats.TotalDeleteSubtypeEvents[st]
+		write1line(writer, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
+	}
+
+	// 插入
+	for st := Dup1; st <= Ins3; st++ {
+		if st == DupDup {
+			continue
+		}
+		name := "I:" + InsertNames[st]
+		count := stats.TotalInsertSubtypeEvents[st]
+		write1line(writer, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
+	}
+
+	// 替换
+	for st := DupDel; st <= OtherMismatch; st++ {
+		var name = "X:" + SubstNames[st]
+		var count = stats.TotalSubstitutionSubtypeEvents[st]
+		write1line(writer, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
+	}
+
 }

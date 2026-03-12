@@ -548,60 +548,11 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	// 为了简洁，我们在原有writeReadTypeStats末尾添加新section
 	// 假设我们已经写完了原有内容，现在追加
 	writer.WriteString("\n细分类统计:\n")
-	// 缺失
-	for st := Del1; st <= Del3; st++ {
-		var name string
-		switch st {
-		case Del1:
-			name = "D:Del1"
-		case Del2:
-			name = "D:Del2"
-		case Del3:
-			name = "D:Del3"
-		}
-		var count = stats.TotalDeleteSubtypeEvents[st]
-		write1line(writer, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
-	}
-
-	// 插入
-	for st := Dup1; st <= Ins3; st++ {
-		var name string
-		switch st {
-		case Dup1:
-			name = "I:Dup1"
-		case Dup2:
-			name = "I:Dup2"
-		case DupDup:
-			// name = "I:DupDup"
-			continue
-		case Ins1:
-			name = "I:Ins1"
-		case Ins2:
-			name = "I:Ins2"
-		case Ins3:
-			name = "I:Ins3"
-		}
-		var count = stats.TotalInsertSubtypeEvents[st]
-		write1line(writer, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
-	}
-
-	// 替换
-	for st := DupDel; st <= OtherMismatch; st++ {
-		var name = "X:" + SubstNames[st]
-		var count = stats.TotalSubstitutionSubtypeEvents[st]
-		write1line(writer, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
-	}
+	stats.WriteSubtype(writer)
 
 	// ===== 新增：样品平均比例计算 =====
 	sortedNames := getSortedSampleNames(stats) // 使用已有的排序函数
 
-	// 定义累加器结构
-	type SumPct struct {
-		sumGood    float64
-		sumAligned float64
-		sumTotal   float64
-		count      int
-	}
 	sums := make(map[string]*SumPct)
 
 	// 初始化需要统计的项（与已有输出保持一致）
@@ -1497,28 +1448,7 @@ func mainPrint(stats *MutationStats) {
 			fmt.Printf("    %s: %d (%.2f%%)\n", ReadTypeNames[rt], count, percentage)
 		}
 	}
-	totalEvents := stats.TotalInsertEventCount + stats.TotalDeleteEventCount + stats.TotalSubstitutionEventCount
-	// 缺失
-	for st := Del1; st <= Del3; st++ {
-		var name = "D:" + DeleteNames[st]
-		var count = stats.TotalDeleteSubtypeEvents[st]
-		write1line(os.Stdout, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
-	}
-
-	// 插入
-	for st := Dup1; st <= Ins3; st++ {
-		var name = "I:" + InsertNames[st]
-		var count = stats.TotalInsertSubtypeEvents[st]
-		write1line(os.Stdout, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
-	}
-
-	// 替换
-	for st := DupDel; st <= OtherMismatch; st++ {
-		var name = "X:" + SubstNames[st]
-		var count = stats.TotalSubstitutionSubtypeEvents[st]
-		write1line(os.Stdout, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
-	}
-
+	stats.WriteSubtype(os.Stdout)
 }
 
 // 新增：输出细分类统计
