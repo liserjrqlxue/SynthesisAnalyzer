@@ -307,8 +307,7 @@ func analyzeReadType(read *sam.Record) ReadType {
 	return ReadTypeMatch
 }
 
-// analyzeReadDetailedInfo 分析详细的read信息 - 更新统计逻辑
-// 同时修改 analyzeReadDetailedInfo，获取 mdMap 并传入
+// analyzeReadDetailedInfo 分析详细的read信息
 func analyzeReadDetailedInfo(read *sam.Record, mdStr, refSeq string) ReadDetailedInfo {
 	var (
 		info ReadDetailedInfo
@@ -330,10 +329,9 @@ func analyzeReadDetailedInfo(read *sam.Record, mdStr, refSeq string) ReadDetaile
 	}
 
 	// 解析突变
-	var mdMap map[int]string
-	info.Mutations, mdMap = parseMutationsWithMD(read)
+	info.Mutations, _ = parseMutationsWithMD(read)
 	// 分析替换细分类
-	info.Substitutions = analyzeSubstitutions(info.Mutations, mdMap)
+	info.Substitutions = analyzeSubstitutions(info.Mutations, refSeq)
 
 	return info
 }
@@ -358,15 +356,11 @@ func hasDeleteInCigar(read *sam.Record) bool {
 	return false
 }
 
-// analyzeInsertSubtype 分析插入子类型 - 添加细分类
+// analyzeInsertSubtype 分析插入子类型，使用参考序列
 func analyzeInsertSubtype(read *sam.Record, refSeq string) *InsertSubtype {
 	subtype := &InsertSubtype{}
-
 	seq := read.Seq.Expand()
-	refStart := int(read.Pos) // 0-basedd
-
-	// 分析CIGAR操作
-	refPos := refStart
+	refPos := int(read.Pos) // 0-basedd
 	readPos := 0
 
 	for _, cigarOp := range read.Cigar {
@@ -374,36 +368,6 @@ func analyzeInsertSubtype(read *sam.Record, refSeq string) *InsertSubtype {
 		length := cigarOp.Len()
 
 		if op == sam.CigarInsertion { // I: 插入
-			// 记录插入长度
-			insertion := InsertionInfo{
-				Length:  length,
-				Subtype: classifyInsertion(seq, readPos, length), // 简化
-			}
-			// 获取插入序列
-			if readPos+length <= len(seq) {
-				insertion.Bases = string(seq[readPos : readPos+length])
-			}
-
-			// 检查插入是否与两边碱基相同
-			if readPos > 0 && readPos+length < len(seq) && len(insertion.Bases) > 0 {
-				leftBase := seq[readPos-1]
-				rightBase := seq[readPos+length]
-
-				// 检查插入序列是否都与左边或右边碱基相同
-				allSameAsLeft := true
-				allSameAsRight := true
-				for i := 0; i < len(insertion.Bases); i++ {
-					if insertion.Bases[i] != leftBase {
-						allSameAsLeft = false
-					}
-					if insertion.Bases[i] != rightBase {
-						allSameAsRight = false
-					}
-				}
-
-				insertion.IsSameAsFlanking = allSameAsLeft || allSameAsRight
-			}
-			subtype.Insertions = append(subtype.Insertions, insertion)
 		}
 
 		// 更新位置
@@ -411,7 +375,15 @@ func analyzeInsertSubtype(read *sam.Record, refSeq string) *InsertSubtype {
 		case sam.CigarMatch, sam.CigarEqual, sam.CigarMismatch: // M, =, X
 			refPos += length
 			readPos += length
-		case sam.CigarInsertion, sam.CigarSoftClipped: // I, S
+		case sam.CigarInsertion: // I
+			insertion := InsertionInfo{
+				Bases:   string(seq[readPos:min(readPos+length, len(seq))]),
+				Length:  length,
+				Subtype: classifyInsertion(seq, readPos, length, refSeq, refPos),
+			}
+			subtype.Insertions = append(subtype.Insertions, insertion)
+			readPos += length
+		case sam.CigarSoftClipped: // I, S
 			readPos += length
 		case sam.CigarDeletion, sam.CigarSkipped: // D, N
 			refPos += length
@@ -465,16 +437,15 @@ func analyzeDeleteSubtype(read *sam.Record, mdStr string, refStart int) *DeleteS
 	return subtype
 }
 
-// ========== 3. 修改 analyzeSubstitutions，传入 mdMap ==========
-func analyzeSubstitutions(mutations []Mutation, mdMap map[int]string) []SubstitutionInfo {
+// analyzeSubstitutions 分析替换细分类，使用参考序列
+func analyzeSubstitutions(mutations []Mutation, refSeq string) []SubstitutionInfo {
 	var subs []SubstitutionInfo
 	for _, mut := range mutations {
-		subtype := classifySubstitution(mut.Position, mut.Ref, mut.Alt, mdMap)
 		subs = append(subs, SubstitutionInfo{
 			Position: mut.Position,
 			Ref:      mut.Ref,
 			Alt:      mut.Alt,
-			Subtype:  subtype,
+			Subtype:  classifySubstitution(mut.Position, refSeq, mut.Ref, mut.Alt),
 		})
 	}
 	return subs
@@ -580,37 +551,31 @@ func isDigit(c byte) bool {
 }
 
 // classifyInsertion 判定插入细分类
-// 依赖 read 序列上下文（-1/+1位置），参考序列信息无需传入
-func classifyInsertion(seq []byte, readPos int, length int) InsertionSubtype {
-	if length == 1 {
+// 依赖 参考序列上下文（-1/+1位置）
+func classifyInsertion(seq []byte, readPos int, length int, refSeq string, refPos int) InsertionSubtype {
+	// refPos 是插入前的参考位置（0-based）
+	// 获取-1和+1位置的碱基（如果存在）
+	leftBase := byte('N')
+	if refPos >= 0 && refPos < len(refSeq) {
+		leftBase = refSeq[refPos]
+	}
+	rightBase := byte('N')
+	if refPos+1 >= 0 && refPos+1 < len(refSeq) {
+		rightBase = refSeq[refPos+1]
+	}
+
+	switch length {
+	case 1:
 		// 长度1
 		base := seq[readPos]
-		// 获取-1和+1位置的碱基（如果存在）
-		leftBase := byte('N')
-		if readPos > 0 {
-			leftBase = seq[readPos-1]
-		}
-		rightBase := byte('N')
-		if readPos+1 < len(seq) {
-			rightBase = seq[readPos+1]
-		}
 		if base == leftBase || base == rightBase {
 			return Dup1
 		}
 		return Ins1
-	} else if length == 2 {
+	case 2:
 		// 长度2
 		b1 := seq[readPos]
 		b2 := seq[readPos+1]
-		// 获取-1和+1位置的碱基
-		leftBase := byte('N')
-		if readPos > 0 {
-			leftBase = seq[readPos-1]
-		}
-		rightBase := byte('N')
-		if readPos+2 < len(seq) {
-			rightBase = seq[readPos+2]
-		}
 		// 插入序列是否一致
 		if b1 == b2 {
 			// 一致序列，检查是否与-1或+1相同
@@ -624,9 +589,10 @@ func classifyInsertion(seq []byte, readPos int, length int) InsertionSubtype {
 			}
 		}
 		return Ins2
+	default:
+		// 长度 >2
+		return Ins3
 	}
-	// 长度 >2
-	return Ins3
 }
 
 // 新增：缺失细分类判定
@@ -641,20 +607,16 @@ func classifyDeletion(length int) DeletionSubtype {
 	}
 }
 
-// classifySubstitution 判定替换细分类
-// 需要参考序列上相邻位置的碱基，通过 mdMap（位置->参考碱基）查询
-func classifySubstitution(pos int, refBase, altBase string, mdMap map[int]string) SubstitutionSubtype {
-	// 查询 -1 位置参考碱基
-	refMinus1, okMinus := mdMap[pos-1]
-	if !okMinus {
-		// 若 -1 位置不在 mdMap 中（匹配区域），则参考碱基与 read 对应位置相同，
-		// 但这里我们没有 read 对应位置的碱基，保守处理为不相等
-		refMinus1 = "N"
+// classifySubstitution 使用参考序列判定替换细分类
+func classifySubstitution(pos int, refSeq, refBase, altBase string) SubstitutionSubtype {
+	// pos 是 1-based 位置
+	refMinus1 := "N"
+	refPlus1 := "N"
+	if pos-2 >= 0 && pos-2 < len(refSeq) {
+		refMinus1 = refSeq[pos-2 : pos-1]
 	}
-	// 查询 +1 位置参考碱基
-	refPlus1, okPlus := mdMap[pos+1]
-	if !okPlus {
-		refPlus1 = "N"
+	if pos < len(refSeq) {
+		refPlus1 = refSeq[pos : pos+1]
 	}
 
 	if altBase == refMinus1 {
