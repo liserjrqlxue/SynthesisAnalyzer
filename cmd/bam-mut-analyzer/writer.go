@@ -1508,10 +1508,7 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 	writer.WriteString("Total,,,,,\n")
 	// 缺失汇总
 	for st, cnt := range stats.TotalDeleteSubtypeReads {
-		subtypeName := "Del1"
-		if st == Del2 {
-			subtypeName = "Del2"
-		}
+		var subtypeName = DeleteNames[st]
 		fmt.Fprintf(writer, "Total,Deletion,%s,%d,%d,%d,%d,%d\n",
 			subtypeName, cnt,
 			stats.TotalDeleteSubtypeEvents[st],
