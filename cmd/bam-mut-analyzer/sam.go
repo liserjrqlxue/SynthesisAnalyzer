@@ -9,11 +9,10 @@ import (
 	"github.com/biogo/hts/sam"
 )
 
-// parseMutationsWithMD 使用MD标签获取所有突变（包括CIGAR X和MD中的错配）
-func parseMutationsWithMD(read *sam.Record) (mutations []Mutation, mdMap map[int]string) {
+// parseMutationsWithMD 使用参考序列和MD标签解析突变
+func parseMutationsWithMD(read *sam.Record, refSeq string, mdMap map[int]string) (mutations []Mutation) {
 	refStart := int(read.Pos) // 0-based起始位置
 	seq := read.Seq.Expand()
-
 	if len(seq) == 0 {
 		return
 	}
@@ -26,9 +25,6 @@ func parseMutationsWithMD(read *sam.Record) (mutations []Mutation, mdMap map[int
 		mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
 	}
 
-	// 解析MD字符串，建立位置到参考碱基的映射
-	mdMap = parseMDToMap(mdStr, refStart)
-
 	// 遍历CIGAR操作
 	refPos := refStart // 0-based
 	readPos := 0
@@ -38,59 +34,38 @@ func parseMutationsWithMD(read *sam.Record) (mutations []Mutation, mdMap map[int
 		length := cigarOp.Len()
 
 		switch op {
-		case sam.CigarMismatch:
-			// X操作 - 直接作为替换
+		case sam.CigarMatch, sam.CigarEqual, sam.CigarMismatch: // M, =, X
 			for i := range length {
-				position := refPos + i + 1 // 转换为1-based输出
-
-				// 从MD映射获取参考碱基
-				refBase, ok := mdMap[refPos+i] // 使用0-based位置查询
-				if !ok {
-					// 如果MD映射中没有，尝试从上下文推断
-					refBase = inferRefBaseFromMD(mdStr, (refPos+i)-refStart)
+				// 获取参考碱基
+				refBase := "N"
+				// 优先使用参考序列
+				if refSeq != "" && refPos+i >= 0 && refPos+i < len(refSeq) {
+					refBase = string(refSeq[refPos+i])
+				} else if mdMap != nil {
+					// 否则使用 MD 映射
+					if base, ok := mdMap[refPos+i]; ok {
+						refBase = base
+					}
 				}
 
-				// 获取read碱基作为替代碱基
+				// 获取 read 碱基
 				altBase := "N"
 				if readPos+i < len(seq) {
 					altBase = string(seq[readPos+i])
 				}
 
-				mutations = append(mutations, Mutation{
-					Position: position,
-					Ref:      refBase,
-					Alt:      altBase,
-				})
-			}
-		// case sam.CigarMatch, sam.CigarEqual: // M或=操作 - 需要从MD中检查错配
-		case sam.CigarMatch: // M操作 - 需要从MD中检查错配
-			// 对于M操作，我们需要检查MD中是否有错配
-			for i := range length {
-				position := refPos + i + 1 // 转换为1-based输出
-
-				// 检查这个位置在MD中是否标记为错配
-				if refBase, ok := mdMap[refPos+i]; ok {
-					// MD中有这个位置，说明是错配
-					// 获取read碱基作为替代碱基
-					altBase := "N"
-					if readPos+i < len(seq) {
-						altBase = string(seq[readPos+i])
+				if op == sam.CigarMismatch || refBase != altBase {
+					mutation := Mutation{
+						Position: refPos + i + 1, // 转换为1-based输出
+						Ref:      refBase,
+						Alt:      altBase,
 					}
-
-					if refBase != altBase {
-						mutations = append(mutations, Mutation{
-							Position: position,
-							Ref:      refBase,
-							Alt:      altBase,
-						})
-					}
+					mutation.Subtype = mutation.ClassifySubstitution(refSeq)
+					mutations = append(mutations, mutation)
 				}
 			}
-		}
 
-		// 更新位置
-		switch op {
-		case sam.CigarMatch, sam.CigarEqual, sam.CigarMismatch: // M, =, X
+			// 更新位置
 			refPos += length
 			readPos += length
 		case sam.CigarInsertion, sam.CigarSoftClipped: // I, S
@@ -161,55 +136,6 @@ func parseMDToMap(mdStr string, refStart int) map[int]string {
 	}
 
 	return result
-}
-
-// inferRefBaseFromMD 从MD字符串推断参考碱基
-func inferRefBaseFromMD(mdStr string, relPos int) string {
-	// 简化实现：遍历MD字符串
-	pos := 0
-	i := 0
-
-	for i < len(mdStr) {
-		if isDigit(mdStr[i]) {
-			j := i
-			for j < len(mdStr) && isDigit(mdStr[j]) {
-				j++
-			}
-			numStr := mdStr[i:j]
-			num, err := strconv.Atoi(numStr)
-			if err != nil {
-				i = j
-				continue
-			}
-
-			if relPos >= pos && relPos < pos+num {
-				// 在匹配区域，参考碱基未知
-				return "N"
-			}
-
-			pos += num
-			i = j
-		} else if isBase(mdStr[i]) {
-			if pos == relPos {
-				return string(mdStr[i])
-			}
-			pos++
-			i++
-		} else if mdStr[i] == '^' {
-			i++
-			for i < len(mdStr) && isBase(mdStr[i]) {
-				if pos == relPos {
-					return string(mdStr[i])
-				}
-				pos++
-				i++
-			}
-		} else {
-			i++
-		}
-	}
-
-	return "N"
 }
 
 // isBase 判断字符是否为有效碱基
@@ -308,12 +234,8 @@ func analyzeReadType(read *sam.Record) ReadType {
 }
 
 // analyzeReadDetailedInfo 分析详细的read信息
-func analyzeReadDetailedInfo(read *sam.Record, mdStr, refSeq string) ReadDetailedInfo {
-	var (
-		info ReadDetailedInfo
-		// 获取参考起始位置
-		refStart = int(read.Pos) // 0-based
-	)
+func analyzeReadDetailedInfo(read *sam.Record, mdMap map[int]string, mdStr, refSeq string) ReadDetailedInfo {
+	var info ReadDetailedInfo
 
 	// 基本类型分析
 	info.MainType = analyzeReadType(read)
@@ -325,14 +247,11 @@ func analyzeReadDetailedInfo(read *sam.Record, mdStr, refSeq string) ReadDetaile
 
 	// 分析缺失子类型
 	if hasDeleteInCigar(read) {
-		info.DeleteSub = analyzeDeleteSubtype(read, mdStr, refStart)
+		info.DeleteSub = analyzeDeleteSubtype(read, mdStr)
 	}
 
 	// 解析突变
-	info.Mutations, _ = parseMutationsWithMD(read)
-	// 分析替换细分类
-	info.Substitutions = analyzeSubstitutions(info.Mutations, refSeq)
-
+	info.Mutations = parseMutationsWithMD(read, refSeq, mdMap)
 	return info
 }
 
@@ -410,7 +329,8 @@ func analyzeInsertSubtype(read *sam.Record, refSeq string) *InsertSubtype {
 }
 
 // analyzeDeleteSubtype 分析缺失子类型 - 添加细分类
-func analyzeDeleteSubtype(read *sam.Record, mdStr string, refStart int) *DeleteSubtype {
+func analyzeDeleteSubtype(read *sam.Record, mdStr string) *DeleteSubtype {
+	refStart := int(read.Pos) // 0-based
 	subtype := &DeleteSubtype{}
 
 	// 从MD字符串解析缺失的碱基和位置
@@ -453,48 +373,16 @@ func analyzeDeleteSubtype(read *sam.Record, mdStr string, refStart int) *DeleteS
 	return subtype
 }
 
-// analyzeSubstitutions 分析替换细分类，使用参考序列
-func analyzeSubstitutions(mutations []Mutation, refSeq string) []SubstitutionInfo {
-	var subs []SubstitutionInfo
-	for _, mut := range mutations {
-		subs = append(subs, SubstitutionInfo{
-			Position: mut.Position,
-			Ref:      mut.Ref,
-			Alt:      mut.Alt,
-			Subtype:  classifySubstitution(mut.Position, refSeq, mut.Ref, mut.Alt),
-		})
-	}
-	return subs
-}
-
 // 新增：生成read的细分类组合键
 func buildSubtypeCombinationKey(insertSubtypes map[InsertionSubtype]bool, deleteSubtypes map[DeletionSubtype]bool, substSubtypes map[SubstitutionSubtype]bool) string {
 	var tags []string
 	// 插入
 	for st := range insertSubtypes {
-		switch st {
-		case Dup1:
-			tags = append(tags, "Dup1")
-		case Dup2:
-			tags = append(tags, "Dup2")
-		case DupDup:
-			tags = append(tags, "DupDup")
-		case Ins1:
-			tags = append(tags, "Ins1")
-		case Ins2:
-			tags = append(tags, "Ins2")
-		case Ins3:
-			tags = append(tags, "Ins3")
-		}
+		tags = append(tags, InsertNames[st])
 	}
 	// 缺失
 	for st := range deleteSubtypes {
-		switch st {
-		case Del1:
-			tags = append(tags, "Del1")
-		case Del2:
-			tags = append(tags, "Del2")
-		}
+		tags = append(tags, DeleteNames[st])
 	}
 	// 替换
 	for st := range substSubtypes {
@@ -621,31 +509,4 @@ func classifyDeletion(length int) DeletionSubtype {
 	default: // >2
 		return Del3
 	}
-}
-
-// classifySubstitution 使用参考序列判定替换细分类
-func classifySubstitution(pos int, refSeq, refBase, altBase string) SubstitutionSubtype {
-	// pos 是 1-based 位置
-	refMinus1 := "N"
-	refPlus1 := "N"
-	if pos-2 >= 0 && pos-2 < len(refSeq) {
-		refMinus1 = refSeq[pos-2 : pos-1]
-	}
-	if pos < len(refSeq) {
-		refPlus1 = refSeq[pos : pos+1]
-	}
-
-	if altBase == refMinus1 {
-		return DupDel
-	}
-	if altBase == refPlus1 {
-		return DelDup
-	}
-	if refBase == "A" && altBase == "G" {
-		return MismatchA_G
-	}
-	if refBase == "C" && altBase == "T" {
-		return MismatchC_T
-	}
-	return OtherMismatch
 }

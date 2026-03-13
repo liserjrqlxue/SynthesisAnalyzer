@@ -112,3 +112,36 @@ func (stats *MutationStats) WriteSubtype(writer io.Writer) {
 	}
 
 }
+
+// ClassifySubstitution 使用参考序列判定替换细分类
+func (mutation Mutation) ClassifySubstitution(refSeq string) SubstitutionSubtype {
+	var (
+		// pos 是 1-based 位置
+		pos       = mutation.Position
+		refBase   = mutation.Ref
+		altBase   = mutation.Alt
+		refMinus1 = "N"
+		refPlus1  = "N"
+	)
+
+	if pos-2 >= 0 && pos-2 < len(refSeq) {
+		refMinus1 = refSeq[pos-2 : pos-1]
+	}
+	if pos < len(refSeq) {
+		refPlus1 = refSeq[pos : pos+1]
+	}
+
+	if altBase == refMinus1 {
+		return DupDel
+	}
+	if altBase == refPlus1 {
+		return DelDup
+	}
+	if refBase == "A" && altBase == "G" {
+		return MismatchA_G
+	}
+	if refBase == "C" && altBase == "T" {
+		return MismatchC_T
+	}
+	return OtherMismatch
+}
