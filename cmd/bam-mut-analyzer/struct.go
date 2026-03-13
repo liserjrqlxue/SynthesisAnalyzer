@@ -49,10 +49,9 @@ type ReadDetailedInfo struct {
 	MainType       ReadType
 	InsertSub      *InsertSubtype
 	DeleteSub      *DeleteSubtype
-	Mutations      []Mutation         // 该read中的所有突变
-	Substitutions  []SubstitutionInfo // 替换细分类列表
-	SubtypeTags    []string           // 该read的所有细分类标签（去重后排序用）
-	CombinationKey string             // 细分类组合唯一键（排序后拼接）
+	Mutations      []Mutation // 该read中的所有突变，兼容替换细分类列表
+	SubtypeTags    []string   // 该read的所有细分类标签（去重后排序用）
+	CombinationKey string     // 细分类组合唯一键（排序后拼接）
 }
 
 type PositionNMerStats struct {
@@ -382,6 +381,7 @@ type Mutation struct {
 	Position int
 	Ref      string
 	Alt      string
+	Subtype  SubstitutionSubtype
 }
 
 // 新增：替换信息结构（用于记录替换细分类）

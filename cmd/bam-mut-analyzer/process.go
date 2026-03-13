@@ -292,7 +292,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 		}
 
 		// 分析详细的read类型
-		readInfo := analyzeReadDetailedInfo(read, mdStr, fullSeqFromExcel)
+		readInfo := analyzeReadDetailedInfo(read, mdMap, mdStr, fullSeqFromExcel)
 
 		// 统计突变信息
 		mutationCount := len(readInfo.Mutations)
@@ -466,8 +466,8 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 		}
 
 		// 替换细分类
-		if len(readInfo.Substitutions) > 0 {
-			for _, sub := range readInfo.Substitutions {
+		if len(readInfo.Mutations) > 0 {
+			for _, sub := range readInfo.Mutations {
 				st := sub.Subtype
 				sampleStats.SubstitutionSubtypeEvents[st]++
 				sampleStats.SubstitutionSubtypeBases[st]++ // 替换碱基数为1
