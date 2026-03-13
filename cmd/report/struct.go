@@ -8,18 +8,17 @@ package main
 // 数据结构（以孔为中心）
 // ------------------------------------------------------------
 type Well struct {
-	Row               int     `json:"row"`                          // 1-12
-	ColLetter         string  `json:"col_letter"`                   // H,G,F,E,D,C,B,A
-	Name              string  `json:"name"`                         // 引物名称
-	IsOverlap         bool    `json:"is_overlap"`                   // 是否重合序列
-	PredictedYield    float64 `json:"predicted_yield"`              // 预测收率 (%)
-	Yield             float64 `json:"yield"`                        // 实际收率 (%)
-	Deletion          float64 `json:"deletion"`                     // 缺失 (%)
-	Mutation          float64 `json:"mutation"`                     // 突变 (%)
-	Insertion         float64 `json:"insertion"`                    // 插入 (%)
-	InsertionDeletion float64 `json:"insertion_deletion,omitempty"` // 插入+缺失 (%)
-	DeletionGt2       float64 `json:"deletion_gt2,omitempty"`       // 缺失≥2nt (%)
-	OtherMutation     float64 `json:"other_mutation,omitempty"`     // 其他突变 (%)
+	Row            int     `json:"row"`                // 1-12
+	ColLetter      string  `json:"col_letter"`         // H,G,F,E,D,C,B,A
+	Name           string  `json:"name"`               // 引物名称
+	IsOverlap      bool    `json:"is_overlap"`         // 是否重合序列
+	PredictedYield float64 `json:"predicted_yield"`    // 预测收率 (%)
+	Yield          float64 `json:"yield"`              // 实际收率 (%)
+	Deletion       float64 `json:"deletion"`           // 缺失 (%)
+	Mutation       float64 `json:"mutation"`           // 突变 (%)
+	Insertion      float64 `json:"insertion"`          // 插入 (%)
+	Sequence       string  `json:"sequence,omitempty"` // 序列
+	Position       string  `json:"position,omitempty"` // 位置
 }
 
 // 96孔板数据：12行 x 8列，列顺序固定为 H,G,F,E,D,C,B,A

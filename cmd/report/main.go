@@ -102,246 +102,13 @@ func printErrorStats(w io.Writer, stats []ErrorStat) {
 }
 
 // ------------------------------------------------------------
-// 生成完整报告
-// ------------------------------------------------------------
-func GenerateReport(data *ReportData) string {
-	b := &strings.Builder{}
-
-	// 标题
-	fmt.Fprintf(b, "%s\n", data.ReportTitle)
-	fmt.Fprintln(b, strings.Repeat("=", len(data.ReportTitle)))
-
-	// 构建二维孔索引
-	plate := buildWellPlate(data.Wells)
-
-	// 生成批次标识（合成日期+仪器号）
-	batchID := fmt.Sprintf("%s%s", strings.ReplaceAll(data.Summary.BasicInfo.SynthesisDate, ".", ""), data.Summary.BasicInfo.InstrumentID)
-
-	// 移除可能的中文字符，保留数字字母
-	batchID = strings.Map(func(r rune) rune {
-		if (r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-			return r
-		}
-		return -1
-	}, batchID)
-
-	// 统计概要（从孔数据计算）
-	var stats = data.Summary.Statistics
-
-	yieldVals := extractValues(plate, "yield")
-	stats.AvgYield, stats.YieldStddev = meanStdDev(yieldVals)
-	stats.YieldMedian = median(yieldVals)
-	stats.YieldQuartile = quartile(yieldVals)
-	for _, w := range data.Wells {
-		if w.Yield < 1 {
-			stats.YieldLt1Count++
-		}
-		if w.Yield < 5 {
-			stats.YieldLt5Count++
-		}
-	}
-	stats.PredictedDifficultSeq = 0 // 需要单独字段或逻辑，暂时设为0或从JSON其他位置读取
-	for _, w := range data.Wells {
-		if w.IsOverlap {
-			stats.OverlapSequences++
-		}
-	}
-
-	// ------------------------------------------------------------
-	// 1. Summary
-	// ------------------------------------------------------------
-	fmt.Fprintln(b, "\n1.\tSummary")
-	printBasicInfo(b, data.Summary.BasicInfo)
-	printSummaryStats(b, data.Summary.Statistics)
-	// printErrorStats(b, data.Summary.ErrorStats)
-
-	// 合成错误统计（动态计算并输出）
-	fmt.Fprintln(b, "\n合成错误统计")
-	fmt.Fprintln(b, "错误类型\t参考值\t数据")
-
-	// 预定义错误类型列表及其计算方式
-	errorStats := []struct {
-		Name string
-		Calc func() *float64
-	}{
-		{"平均收率", func() *float64 { v := stats.AvgYield; return &v }},
-		{"收率标准差", func() *float64 { v := stats.YieldStddev; return &v }},
-		{"收率中位数", func() *float64 { v := stats.YieldMedian; return &v }},
-		{"收率四分位数", func() *float64 { v := stats.YieldQuartile; return &v }},
-		{"收率<1%片段个数", func() *float64 { v := float64(stats.YieldLt1Count); return &v }},
-		{"收率<5%片段个数", func() *float64 { v := float64(stats.YieldLt5Count); return &v }},
-		{"缺失", func() *float64 { v, _ := meanStdDev(extractValues(plate, "deletion")); return &v }},
-		{"突变", func() *float64 { v, _ := meanStdDev(extractValues(plate, "mutation")); return &v }},
-		{"插入", func() *float64 { v, _ := meanStdDev(extractValues(plate, "insertion")); return &v }},
-		{"插入+缺失", func() *float64 {
-			// 如果有单独字段则用，否则用缺失平均值+插入平均值
-			var sum float64
-			cnt := 0
-			for _, w := range data.Wells {
-				if w.InsertionDeletion > 0 {
-					sum += w.InsertionDeletion
-					cnt++
-				}
-			}
-			if cnt > 0 {
-				v := sum / float64(cnt)
-				return &v
-			}
-			delAvg, _ := meanStdDev(extractValues(plate, "deletion"))
-			insAvg, _ := meanStdDev(extractValues(plate, "insertion"))
-			v := delAvg + insAvg
-			return &v
-		}},
-		{"缺失≥2 nt", func() *float64 {
-			var sum float64
-			cnt := 0
-			for _, w := range data.Wells {
-				if w.DeletionGt2 > 0 {
-					sum += w.DeletionGt2
-					cnt++
-				}
-			}
-			if cnt > 0 {
-				v := sum / float64(cnt)
-				return &v
-			}
-			return nil
-		}},
-		{"其他突变", func() *float64 {
-			var sum float64
-			cnt := 0
-			for _, w := range data.Wells {
-				if w.OtherMutation > 0 {
-					sum += w.OtherMutation
-					cnt++
-				}
-			}
-			if cnt > 0 {
-				v := sum / float64(cnt)
-				return &v
-			}
-			return nil
-		}},
-	}
-	// 建立参考值映射
-	refMap := make(map[string]*float64)
-	for _, ref := range data.ErrorStatsRef {
-		refMap[ref.ErrorType] = ref.Reference
-	}
-
-	for _, es := range errorStats {
-		dataVal := es.Calc()
-		refVal := refMap[es.Name]
-		refStr := ""
-		if refVal != nil {
-			refStr = fmt.Sprintf("%.2f", *refVal)
-		}
-		dataStr := ""
-		if dataVal != nil {
-			dataStr = fmt.Sprintf("%.2f", *dataVal)
-		}
-		fmt.Fprintf(b, "%s\t%s\t%s\n", es.Name, refStr, dataStr)
-	}
-
-	// ------------------------------------------------------------
-	// 2. 合成板位分析
-	// ------------------------------------------------------------
-	fmt.Fprintln(b, "\n2.\t合成板位分析")
-
-	// 2.1 合成排板
-	layoutPlate := extractFieldPlate(plate, "name")
-	printPlateTable(b, "2.1 合成排板", "", "标黄引物为重合序列", layoutPlate)
-
-	// 2.2 预测合成收率
-	predVals := extractValues(plate, "predicted_yield")
-	meanPred, stdPred := meanStdDev(predVals)
-	predTitle := fmt.Sprintf("2.2 预测合成收率 (%.2f%%±%.2f%%)", meanPred, stdPred)
-	predPlate := extractFieldPlate(plate, "predicted_yield")
-	printPlateTable(b, predTitle, "", "", predPlate)
-
-	// 2.3 收率板位统计
-	meanYield, stdYield2 := meanStdDev(yieldVals) // 复用之前计算
-	yieldTitle := fmt.Sprintf("2.3 收率板位统计 (%.2f%%±%.2f%%)", meanYield, stdYield2)
-	yieldPlate := extractFieldPlate(plate, "yield")
-	printPlateTable(b, yieldTitle, "", "", yieldPlate)
-
-	// 2.4 缺失板位统计
-	delVals := extractValues(plate, "deletion")
-	meanDel, stdDel := meanStdDev(delVals)
-	delTitle := fmt.Sprintf("2.4 缺失板位统计 (%.2f%%±%.2f%%)", meanDel, stdDel)
-	delPlate := extractFieldPlate(plate, "deletion")
-	printPlateTable(b, delTitle, "", "", delPlate)
-
-	// 2.5 突变板位统计
-	mutVals := extractValues(plate, "mutation")
-	meanMut, stdMut := meanStdDev(mutVals)
-	mutTitle := fmt.Sprintf("2.5 突变板位统计 (%.2f%%±%.2f%%)", meanMut, stdMut)
-	mutPlate := extractFieldPlate(plate, "mutation")
-	printPlateTable(b, mutTitle, "", "", mutPlate)
-
-	// 2.6 插入板位统计
-	insVals := extractValues(plate, "insertion")
-	meanIns, stdIns := meanStdDev(insVals)
-	insTitle := fmt.Sprintf("2.6 插入板位统计 (%.2f%%±%.2f%%)", meanIns, stdIns)
-	insPlate := extractFieldPlate(plate, "insertion")
-	printPlateTable(b, insTitle, "", "", insPlate)
-
-	// 2.7 … 可根据需要扩展
-
-	// 3. 合成轮次分析1
-	// ------------------------------------------------------------
-	// 3. 合成轮次分析（保留框架，可扩展）
-	// ------------------------------------------------------------
-	fmt.Fprintln(b, "\n3.\t合成轮次分析")
-	// 折线图部分，按题目要求只输出标题，数据可后续扩展
-	fmt.Fprintln(b, "3.1 平均合成收率随轮次变化(折线图)")
-	// 这里可以打印数据表代替折线图，例如：
-	if len(data.CycleAnalysis.AvgYieldByCycle) > 0 {
-		fmt.Fprintln(b, "轮次\t平均收率(%)")
-		for i, v := range data.CycleAnalysis.AvgYieldByCycle {
-			fmt.Fprintf(b, "%d\t%.2f\n", i+1, v)
-		}
-	}
-	fmt.Fprintln(b, "3.2 平均缺失随轮次变化")
-	fmt.Fprintln(b, "3.3 平均突变随轮次变化")
-	fmt.Fprintln(b, "3.4 平均插入随轮次变化")
-	fmt.Fprintln(b, "3.5 …")
-
-	// 4. 附录
-	fmt.Fprintln(b, "\n4\t附录")
-	// 4.1 单孔单轮信息——收率
-	fmt.Fprintln(b, "4.1 单孔单轮信息——收率")
-	for _, cp := range data.Appendix.YieldByWellCycle {
-		title := fmt.Sprintf("%03d轮", cp.Cycle)
-		printPlateTable(b, title, "", "", cp.Plate)
-	}
-	// 4.2-4.5 类似，可循环处理
-	fmt.Fprintln(b, "4.2 单孔单轮信息——缺失")
-	for _, cp := range data.Appendix.DeletionByWellCycle {
-		title := fmt.Sprintf("%03d轮", cp.Cycle)
-		printPlateTable(b, title, "", "", cp.Plate)
-	}
-	fmt.Fprintln(b, "4.3 单孔单轮信息——插入")
-	for _, cp := range data.Appendix.InsertionByWellCycle {
-		title := fmt.Sprintf("%03d轮", cp.Cycle)
-		printPlateTable(b, title, "", "", cp.Plate)
-	}
-	fmt.Fprintln(b, "4.4 单孔单轮信息——突变")
-	for _, cp := range data.Appendix.MutationByWellCycle {
-		title := fmt.Sprintf("%03d轮", cp.Cycle)
-		printPlateTable(b, title, "", "", cp.Plate)
-	}
-	fmt.Fprintln(b, "4.5 …")
-
-	return b.String()
-}
-
-// ------------------------------------------------------------
 // 主函数：读取JSON并生成报告
 // ------------------------------------------------------------
 func main() {
 	inputFile := flag.String("i", "", "输入JSON文件路径")
 	outputFile := flag.String("o", "", "输出报告文件路径（默认输出到stdout）")
+	mutationStatsDir := flag.String("m", "", "mutation_stats目录路径（可选）")
+	bomFile := flag.String("b", "", "BOM.xlsx文件路径（可选）")
 	flag.Parse()
 
 	if *inputFile == "" {
@@ -359,8 +126,40 @@ func main() {
 		log.Fatalf("解析JSON失败: %v", err)
 	}
 
+	// 如果提供了BOM.xlsx文件，读取并更新孔位信息
+	if *bomFile != "" {
+		// 读取BOM文件，更新孔位信息
+		wellMap, err := ReadBOMFile(*bomFile)
+		if err != nil {
+			log.Printf("警告：读取BOM文件失败: %v", err)
+		} else {
+			// 更新孔位信息
+			updateWellInfo(&report, wellMap)
+		}
+	}
+
+	// 如果提供了mutation_stats目录，读取并更新数据
+	if *mutationStatsDir != "" {
+		// 读取子类型统计数据
+		subtypeStats, err := ReadSubtypeStats(*mutationStatsDir)
+		if err != nil {
+			log.Printf("警告：读取子类型统计数据失败: %v", err)
+		} else {
+			// 更新错误统计
+			updateErrorStats(&report, subtypeStats)
+		}
+
+		// 读取收率和错误统计数据
+		yieldStats, deletionStats, mutationStats, insertionStats, err := ReadYieldStats(*mutationStatsDir)
+		if err != nil {
+			log.Printf("警告：读取收率和错误统计数据失败: %v", err)
+		} else {
+			// 更新收率和错误数据
+			updateYieldData(&report, yieldStats, deletionStats, mutationStats, insertionStats)
+		}
+	}
+
 	// 生成报告文本
-	// reportText := GenerateReport(&report)
 	htmlReport := GenerateHTMLReport(&report)
 
 	// 输出
@@ -370,5 +169,58 @@ func main() {
 		}
 	} else {
 		fmt.Print(htmlReport)
+	}
+}
+
+// updateErrorStats 更新错误统计数据
+func updateErrorStats(report *ReportData, subtypeStats map[string]float64) {
+	// 清空现有的错误统计
+	report.Summary.ErrorStats = []ErrorStat{}
+
+	// 按照固定顺序添加子类型错误统计
+	for _, subtype := range errorTypes {
+		if value, ok := subtypeStats[subtype]; ok {
+			report.Summary.ErrorStats = append(report.Summary.ErrorStats, ErrorStat{
+				ErrorType: subtype,
+				Data:      &value,
+			})
+		} else {
+			// 如果没有值，添加一个空的错误统计条目
+			report.Summary.ErrorStats = append(report.Summary.ErrorStats, ErrorStat{
+				ErrorType: subtype,
+				Data:      nil,
+			})
+		}
+	}
+}
+
+// updateYieldData 更新收率数据
+func updateYieldData(report *ReportData, yieldStats map[string]float64, deletionStats map[string]float64, mutationStats map[string]float64, insertionStats map[string]float64) {
+	// 计算收率统计值
+	avgYield, stdYield, medYield, q1Yield, lt1Count, lt5Count := CalculateYieldStatistics(yieldStats)
+
+	// 更新概要统计
+	report.Summary.Statistics.AvgYield = avgYield
+	report.Summary.Statistics.YieldStddev = stdYield
+	report.Summary.Statistics.YieldMedian = medYield
+	report.Summary.Statistics.YieldQuartile = q1Yield
+	report.Summary.Statistics.YieldLt1Count = lt1Count
+	report.Summary.Statistics.YieldLt5Count = lt5Count
+	fmt.Printf("%+v\n", report.Summary.Statistics)
+
+	// 更新每个孔的收率和错误数据（如果能匹配到样本名称）
+	for _, well := range report.Wells {
+		if yield, ok := yieldStats[well.Name]; ok {
+			well.Yield = yield
+		}
+		if deletion, ok := deletionStats[well.Name]; ok {
+			well.Deletion = deletion
+		}
+		if mutation, ok := mutationStats[well.Name]; ok {
+			well.Mutation = mutation
+		}
+		if insertion, ok := insertionStats[well.Name]; ok {
+			well.Insertion = insertion
+		}
 	}
 }

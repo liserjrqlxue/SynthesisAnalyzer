@@ -1,11 +1,50 @@
 package main
 
 import (
+	"bufio"
+	"encoding/csv"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
+
+// 子类型分类映射
+var subtypeMapping = map[string]string{
+	"Del1":          "缺失1",
+	"Del2":          "连续两个缺失",
+	"Del3":          "连续三个及以上缺失",
+	"MismatchA>G":   "A-G突变",
+	"MismatchC>T":   "C-T突变",
+	"OtherMismatch": "其余突变",
+	"Dup1":          "重复插入1个",
+	"Dup2":          "重复插入2个",
+	"Ins1":          "插入1（与前后不同）",
+	"Ins2":          "插入2（与前后不同）",
+	"Ins3":          "插入3个及以上（与前后不同）",
+	"DelDup":        "缺失+重复",
+	"DupDel":        "重复+缺失",
+}
+
+// 错误类型顺序，按照subtypeMapping的key顺序
+var errorTypes = []string{
+	"Del1",
+	"Del2",
+	"Del3",
+	"MismatchA>G",
+	"MismatchC>T",
+	"OtherMismatch",
+	"Dup1",
+	"Dup2",
+	"Ins1",
+	"Ins2",
+	"Ins3",
+	"DelDup",
+	"DupDel",
+}
 
 // 格式化百分比（保留两位小数）
 func fmtPercent(v float64) string {
@@ -165,4 +204,396 @@ func makeBatchID(date, instrument string) string {
 		}
 	}
 	return out.String()
+}
+
+// ReadSubtypeStats 从read_type_summary.csv读取子类型统计数据
+func ReadSubtypeStats(inputDir string) (map[string]float64, error) {
+	csvPath := filepath.Join(inputDir, "mutation_stats", "read_type_summary.csv")
+	file, err := os.Open(csvPath)
+	if err != nil {
+		return nil, fmt.Errorf("打开read_type_summary.csv失败: %w", err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	reader.FieldsPerRecord = -1 // 允许不同行有不同数量的字段
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("读取read_type_summary.csv失败: %w", err)
+	}
+
+	subtypeStats := make(map[string]float64)
+
+	// 查找细分类统计部分
+	inSubtypeSection := false
+
+	for _, record := range records {
+		// 跳过空行
+		if len(record) == 0 || (len(record) == 1 && strings.TrimSpace(record[0]) == "") {
+			continue
+		}
+
+		// 查找细分类统计部分的开始
+		if strings.Contains(strings.TrimSpace(record[0]), "细分类统计") {
+			inSubtypeSection = true
+			continue
+		}
+
+		// 查找细分类统计部分的结束
+		if inSubtypeSection && strings.Contains(strings.TrimSpace(record[0]), "样品平均比例") {
+			break
+		}
+
+		// 处理细分类统计数据
+		if inSubtypeSection && len(record) >= 3 {
+			subtypeFull := strings.TrimSpace(record[0])
+			if subtypeFull == "" {
+				continue
+			}
+
+			// 提取子类型（去掉前缀如"D:"、"I:"、"X:"）
+			subtype := subtypeFull
+			if strings.Contains(subtype, ":") {
+				parts := strings.Split(subtype, ":")
+				if len(parts) > 1 {
+					subtype = parts[1]
+				}
+			}
+
+			// 检查子类型是否在映射中
+			if _, ok := subtypeMapping[subtype]; !ok {
+				continue
+			}
+
+			// 尝试解析百分比值
+			for j := 2; j < len(record); j++ {
+				valueStr := strings.TrimSpace(record[j])
+				if valueStr == "" || valueStr == "%" {
+					continue
+				}
+
+				// 移除百分号并转换为float64
+				valueStr = strings.TrimSuffix(valueStr, "%")
+				value, err := strconv.ParseFloat(valueStr, 64)
+				if err != nil {
+					continue
+				}
+
+				subtypeStats[subtype] = value
+				break // 只取第一个有效值
+			}
+		}
+	}
+
+	return subtypeStats, nil
+}
+
+// ReadYieldStats 从read_type_by_sample.csv读取收率和错误统计数据
+func ReadYieldStats(inputDir string) (map[string]float64, map[string]float64, map[string]float64, map[string]float64, error) {
+	csvPath := filepath.Join(inputDir, "mutation_stats", "read_type_by_sample.csv")
+	file, err := os.Open(csvPath)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("打开read_type_by_sample.csv失败: %w", err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	reader.FieldsPerRecord = -1 // 允许不同行有不同数量的字段
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("读取read_type_by_sample.csv失败: %w", err)
+	}
+
+	yieldStats := make(map[string]float64)
+	deletionStats := make(map[string]float64)
+	mutationStats := make(map[string]float64)
+	insertionStats := make(map[string]float64)
+	var matchIndex int = -1
+	var goodAlignedReadsIndex int = -1
+	var deleteReadsIndex int = -1
+	var substitutionReadsIndex int = -1
+	var insertReadsIndex int = -1
+
+	// 找到匹配列和GoodAlignedReads列的索引
+	if len(records) > 0 {
+		for i, header := range records[0] {
+			if header == "匹配" {
+				matchIndex = i
+			}
+			if header == "GoodAlignedReads" {
+				goodAlignedReadsIndex = i
+			}
+			if header == "DeleteReads" {
+				deleteReadsIndex = i
+			}
+			if header == "SubstitutionReads" {
+				substitutionReadsIndex = i
+			}
+			if header == "InsertReads" {
+				insertReadsIndex = i
+			}
+		}
+	}
+
+	// 检查是否找到必要的列
+	if matchIndex == -1 || goodAlignedReadsIndex == -1 || deleteReadsIndex == -1 || substitutionReadsIndex == -1 || insertReadsIndex == -1 {
+		return nil, nil, nil, nil, fmt.Errorf("在read_type_by_sample.csv中未找到必要的列")
+	}
+
+	// 读取每个样本的收率和错误数据
+	for i, record := range records {
+		// 跳过空行和表头
+		if i == 0 || len(record) == 0 || (len(record) > 0 && strings.TrimSpace(record[0]) == "") {
+			continue
+		}
+
+		sampleName := strings.TrimSpace(record[0])
+		if sampleName == "" {
+			continue
+		}
+
+		if len(record) > matchIndex && len(record) > goodAlignedReadsIndex && len(record) > deleteReadsIndex && len(record) > substitutionReadsIndex && len(record) > insertReadsIndex {
+			// 计算收率：匹配/GoodAlignedReads
+			matchStr := strings.TrimSpace(record[matchIndex])
+			goodAlignedReadsStr := strings.TrimSpace(record[goodAlignedReadsIndex])
+			deleteReadsStr := strings.TrimSpace(record[deleteReadsIndex])
+			substitutionReadsStr := strings.TrimSpace(record[substitutionReadsIndex])
+			insertReadsStr := strings.TrimSpace(record[insertReadsIndex])
+
+			if matchStr != "" && goodAlignedReadsStr != "" && deleteReadsStr != "" && substitutionReadsStr != "" && insertReadsStr != "" {
+				match, err1 := strconv.ParseFloat(matchStr, 64)
+				goodAlignedReads, err2 := strconv.ParseFloat(goodAlignedReadsStr, 64)
+				deleteReads, err3 := strconv.ParseFloat(deleteReadsStr, 64)
+				substitutionReads, err4 := strconv.ParseFloat(substitutionReadsStr, 64)
+				insertReads, err5 := strconv.ParseFloat(insertReadsStr, 64)
+
+				if err1 == nil && err2 == nil && goodAlignedReads > 0 {
+					yield := (match / goodAlignedReads) * 100 // 转换为百分比
+					yieldStats[sampleName] = yield
+
+					if err3 == nil {
+						deletion := (deleteReads / goodAlignedReads) * 100 // 转换为百分比
+						deletionStats[sampleName] = deletion
+					}
+
+					if err4 == nil {
+						mutation := (substitutionReads / goodAlignedReads) * 100 // 转换为百分比
+						mutationStats[sampleName] = mutation
+					}
+
+					if err5 == nil {
+						insertion := (insertReads / goodAlignedReads) * 100 // 转换为百分比
+						insertionStats[sampleName] = insertion
+					}
+				}
+			}
+		}
+	}
+
+	return yieldStats, deletionStats, mutationStats, insertionStats, nil
+}
+
+// CalculateYieldStatistics 计算收率统计值
+func CalculateYieldStatistics(yieldStats map[string]float64) (float64, float64, float64, float64, int, int) {
+	var yields []float64
+	for _, yield := range yieldStats {
+		yields = append(yields, yield)
+	}
+
+	if len(yields) == 0 {
+		return 0, 0, 0, 0, 0, 0
+	}
+
+	avgYield, stdYield := meanStdDev(yields)
+	medYield := median(yields)
+	q1Yield := quartile(yields)
+
+	lt1Count, lt5Count := 0, 0
+	for _, yield := range yields {
+		if yield < 1 {
+			lt1Count++
+		}
+		if yield < 5 {
+			lt5Count++
+		}
+	}
+
+	return avgYield, stdYield, medYield, q1Yield, lt1Count, lt5Count
+}
+
+// ReadBOMFile 从BOM.xlsx文件读取孔位信息
+func ReadBOMFile(bomFile string) (map[string]*Well, error) {
+	// 由于Go标准库不直接支持读取Excel文件，我们假设BOM.xlsx已经被转换为txt文件
+	// 实际项目中可能需要使用第三方库如github.com/360EntSecGroup-Skylar/excelize
+	txtFile := bomFile + ".引物订购单.txt"
+	file, err := os.Open(txtFile)
+	if err != nil {
+		return nil, fmt.Errorf("打开BOM文件失败: %w", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	wellMap := make(map[string]*Well) // key: 位置, value: 孔位信息
+
+	// 读取表头，确定各列的索引
+	var positionIndex, primerNameIndex, isOverlapIndex, predictedYieldIndex, sequenceIndex int
+	positionIndex = -1
+	primerNameIndex = -1
+	isOverlapIndex = -1
+	predictedYieldIndex = -1
+	sequenceIndex = -1
+
+	if scanner.Scan() {
+		headerLine := scanner.Text()
+		headers := strings.Split(headerLine, "\t")
+		for i, header := range headers {
+			switch strings.TrimSpace(header) {
+			case "位置":
+				positionIndex = i
+			case "引物名称":
+				primerNameIndex = i
+			case "是否重合":
+				isOverlapIndex = i
+			case "预测收率":
+				predictedYieldIndex = i
+			case "序列":
+				sequenceIndex = i
+			}
+		}
+	}
+
+	// 检查是否找到必要的列
+	if positionIndex == -1 || primerNameIndex == -1 {
+		return nil, fmt.Errorf("在BOM文件中未找到'位置'或'引物名称'列")
+	}
+
+	// 读取数据行
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Split(line, "\t")
+
+		// 确保字段数量足够
+		if len(fields) <= positionIndex || len(fields) <= primerNameIndex {
+			continue
+		}
+
+		position := strings.TrimSpace(fields[positionIndex])
+		primerName := strings.TrimSpace(fields[primerNameIndex])
+
+		// 跳过引物名称为"0"的行
+		if primerName == "0" {
+			continue
+		}
+
+		if position != "" && primerName != "" {
+			well := &Well{
+				Position:  position,
+				Name:      primerName,
+				IsOverlap: false, // 默认值
+			}
+
+			// 读取是否重合列
+			if isOverlapIndex != -1 && len(fields) > isOverlapIndex {
+				isOverlapStr := strings.TrimSpace(fields[isOverlapIndex])
+				if isOverlapStr == "是" || isOverlapStr == "1" || isOverlapStr == "true" {
+					well.IsOverlap = true
+				}
+			}
+
+			// 读取预测收率列
+			if predictedYieldIndex != -1 && len(fields) > predictedYieldIndex {
+				predictedYieldStr := strings.TrimSpace(fields[predictedYieldIndex])
+				if predictedYieldStr != "" {
+					predictedYield, err := strconv.ParseFloat(predictedYieldStr, 64)
+					if err == nil {
+						well.PredictedYield = predictedYield
+					}
+				}
+			}
+
+			// 读取序列列
+			if sequenceIndex != -1 && len(fields) > sequenceIndex {
+				well.Sequence = strings.TrimSpace(fields[sequenceIndex])
+			}
+
+			wellMap[position] = well
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("读取BOM文件失败: %w", err)
+	}
+
+	return wellMap, nil
+}
+
+// updateWellInfo 根据BOM文件更新孔位信息
+func updateWellInfo(report *ReportData, wellMap map[string]*Well) {
+	// 清空现有的孔位信息
+	report.Wells = []*Well{}
+
+	// 计算序列长度的最大值
+	maxSequenceLength := 0
+
+	// 根据BOM文件创建新的孔位信息
+	for _, well := range wellMap {
+		// 解析位置信息，如 "A1" -> 行1，列字母A
+		row, colLetter, err := parseWellPosition(well.Position)
+		if err != nil {
+			continue
+		}
+
+		// 计算序列长度
+		sequenceLength := len(well.Sequence)
+		if sequenceLength > maxSequenceLength {
+			maxSequenceLength = sequenceLength
+		}
+
+		// 设置行和列信息
+		well.Row = row
+		well.ColLetter = colLetter
+
+		// 初始化收率和错误数据
+		well.Yield = 0     // 默认收率为0
+		well.Deletion = 0  // 默认缺失为0
+		well.Mutation = 0  // 默认突变为0
+		well.Insertion = 0 // 默认插入为0
+
+		report.Wells = append(report.Wells, well)
+	}
+
+	// 更新well_count为实际well个数
+	report.WellCount = len(report.Wells)
+
+	// 更新synthesis_length为序列长度的最大值
+	report.SynthesisLength = maxSequenceLength
+}
+
+// parseWellPosition 解析孔位位置，如 "A1" -> 行1，列字母A
+func parseWellPosition(position string) (int, string, error) {
+	// 提取列字母和行号
+	var colLetter string
+	var rowStr string
+
+	for i, r := range position {
+		if (r >= 'A' && r <= 'H') || (r >= 'a' && r <= 'h') {
+			colLetter = string(r)
+			rowStr = position[i+1:]
+			break
+		}
+	}
+
+	if colLetter == "" || rowStr == "" {
+		return 0, "", fmt.Errorf("无效的孔位位置: %s", position)
+	}
+
+	row, err := strconv.Atoi(rowStr)
+	if err != nil {
+		return 0, "", fmt.Errorf("无效的行号: %s", rowStr)
+	}
+
+	// 转换为大写字母
+	colLetter = strings.ToUpper(colLetter)
+
+	return row, colLetter, nil
 }

@@ -112,41 +112,36 @@ th { background-color: #f2f2f2; }
 	fmt.Fprintf(b, "<tr><td>测序日期</td><td>%s</td></tr>\n", data.SequencingDate)
 	fmt.Fprint(b, "</table>\n")
 
-	// 统计概要
+	// 统计概要 - 使用从mutation_stats获取的更新后数据
+	stats := data.Summary.Statistics
+	// 提取收率值，用于板位统计
 	yieldVals := extractValues(plate, "yield")
-	avgYield, stdYield := meanStdDev(yieldVals)
-	medYield := median(yieldVals)
-	q1Yield := quartile(yieldVals)
-	lt1Count, lt5Count := 0, 0
-	for _, w := range data.Wells {
-		if w.Yield < 1 {
-			lt1Count++
-		}
-		if w.Yield < 5 {
-			lt5Count++
-		}
+
+	// 建立参考值映射
+	refMap := make(map[string]*float64)
+	for _, ref := range data.ErrorStatsRef {
+		refMap[ref.ErrorType] = ref.Reference
 	}
-	overlapCnt := 0
-	for _, w := range data.Wells {
-		if w.IsOverlap {
-			overlapCnt++
-		}
-	}
-	// 预测难度序列（需额外字段，此处占位0）
-	predDiff := 0
 
 	fmt.Fprint(b, "<h3>统计信息</h3>\n")
 	fmt.Fprint(b, `<table border='1' cellpadding='4' style="table-layout: fixed; width: auto;">`+"\n")
 	fmt.Fprint(b, `<colgroup><col style="width: 240px;"></colgroup>`) // 行号列宽度
 	fmt.Fprint(b, `<colgroup><col style="width: 240px;"></colgroup>`) // 行号列宽度
-	fmt.Fprintf(b, "<tr><td>平均收率</td><td>%.2f%% (参考值)</td></tr>\n", avgYield)
-	fmt.Fprintf(b, "<tr><td>收率标准差</td><td>%.2f%%</td></tr>\n", stdYield)
-	fmt.Fprintf(b, "<tr><td>收率中位数</td><td>%.2f%%</td></tr>\n", medYield)
-	fmt.Fprintf(b, "<tr><td>收率四分位数</td><td>%.2f%%</td></tr>\n", q1Yield)
-	fmt.Fprintf(b, "<tr><td>收率&lt;1%%片段个数</td><td>%d</td></tr>\n", lt1Count)
-	fmt.Fprintf(b, "<tr><td>收率&lt;5%%片段个数</td><td>%d</td></tr>\n", lt5Count)
-	fmt.Fprintf(b, "<tr><td>预测难度序列</td><td>%d</td></tr>\n", predDiff)
-	fmt.Fprintf(b, "<tr><td>重合序列</td><td>%d</td></tr>\n", overlapCnt)
+
+	// 平均收率 - 根据参考值是否存在来决定输出格式
+	if refVal, ok := refMap["平均收率"]; ok && refVal != nil && *refVal > 0 {
+		fmt.Fprintf(b, "<tr><td>平均收率</td><td>%.2f%% (参考值%.2f%%)</td></tr>\n", stats.AvgYield, *refVal)
+	} else {
+		fmt.Fprintf(b, "<tr><td>平均收率</td><td>%.2f%%</td></tr>\n", stats.AvgYield)
+	}
+
+	fmt.Fprintf(b, "<tr><td>收率标准差</td><td>%.2f%%</td></tr>\n", stats.YieldStddev)
+	fmt.Fprintf(b, "<tr><td>收率中位数</td><td>%.2f%%</td></tr>\n", stats.YieldMedian)
+	fmt.Fprintf(b, "<tr><td>收率四分位数</td><td>%.2f%%</td></tr>\n", stats.YieldQuartile)
+	fmt.Fprintf(b, "<tr><td>收率&lt;1%%片段个数</td><td>%d</td></tr>\n", stats.YieldLt1Count)
+	fmt.Fprintf(b, "<tr><td>收率&lt;5%%片段个数</td><td>%d</td></tr>\n", stats.YieldLt5Count)
+	fmt.Fprintf(b, "<tr><td>预测难度序列</td><td>%d</td></tr>\n", stats.PredictedDifficultSeq)
+	fmt.Fprintf(b, "<tr><td>重合序列</td><td>%d</td></tr>\n", stats.OverlapSequences)
 	fmt.Fprint(b, "</table>\n")
 	fmt.Fprint(b, "<p><small>*注：预测难度序列需确定阈值</small></p>\n")
 
@@ -158,88 +153,24 @@ th { background-color: #f2f2f2; }
 	fmt.Fprint(b, `<colgroup><col style="width: 120px;"></colgroup>`) // 行号列宽度
 	fmt.Fprint(b, "<tr><th>错误类型</th><th>参考值</th><th>数据</th></tr>\n")
 
-	// 预定义错误类型
-	errorStats := []struct {
-		Name string
-		Calc func() *float64
-	}{
-		{"平均收率", func() *float64 { v := avgYield; return &v }},
-		{"收率标准差", func() *float64 { v := stdYield; return &v }},
-		{"收率中位数", func() *float64 { v := medYield; return &v }},
-		{"收率四分位数", func() *float64 { v := q1Yield; return &v }},
-		{"收率<1%片段个数", func() *float64 { v := float64(lt1Count); return &v }},
-		{"收率<5%片段个数", func() *float64 { v := float64(lt5Count); return &v }},
-		{"缺失", func() *float64 { v, _ := meanStdDev(extractValues(plate, "deletion")); return &v }},
-		{"突变", func() *float64 { v, _ := meanStdDev(extractValues(plate, "mutation")); return &v }},
-		{"插入", func() *float64 { v, _ := meanStdDev(extractValues(plate, "insertion")); return &v }},
-		{"插入+缺失", func() *float64 {
-			var sum float64
-			cnt := 0
-			for _, w := range data.Wells {
-				if w.InsertionDeletion > 0 {
-					sum += w.InsertionDeletion
-					cnt++
-				}
-			}
-			if cnt > 0 {
-				v := sum / float64(cnt)
-				return &v
-			}
-			delAvg, _ := meanStdDev(extractValues(plate, "deletion"))
-			insAvg, _ := meanStdDev(extractValues(plate, "insertion"))
-			v := delAvg + insAvg
-			return &v
-		}},
-		{"缺失≥2 nt", func() *float64 {
-			var sum float64
-			cnt := 0
-			for _, w := range data.Wells {
-				if w.DeletionGt2 > 0 {
-					sum += w.DeletionGt2
-					cnt++
-				}
-			}
-			if cnt > 0 {
-				v := sum / float64(cnt)
-				return &v
-			}
-			return nil
-		}},
-		{"其他突变", func() *float64 {
-			var sum float64
-			cnt := 0
-			for _, w := range data.Wells {
-				if w.OtherMutation > 0 {
-					sum += w.OtherMutation
-					cnt++
-				}
-			}
-			if cnt > 0 {
-				v := sum / float64(cnt)
-				return &v
-			}
-			return nil
-		}},
-	}
+	for _, es := range data.Summary.ErrorStats {
+		// 获取错误类型的显示名称
+		errorTypeName := es.ErrorType
+		if mappedName, ok := subtypeMapping[es.ErrorType]; ok {
+			errorTypeName = mappedName
+		}
 
-	refMap := make(map[string]*float64)
-	for _, ref := range data.ErrorStatsRef {
-		refMap[ref.ErrorType] = ref.Reference
-	}
-
-	for _, es := range errorStats {
-		dataVal := es.Calc()
-		refVal := refMap[es.Name]
+		refVal := refMap[es.ErrorType]
 		refStr := ""
 		if refVal != nil {
 			refStr = fmt.Sprintf("%.2f", *refVal)
 		}
 		dataStr := ""
-		if dataVal != nil {
-			dataStr = fmt.Sprintf("%.2f", *dataVal)
+		if es.Data != nil {
+			dataStr = fmt.Sprintf("%.2f", *es.Data)
 		}
 		fmt.Fprintf(b, "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n",
-			es.Name, refStr, dataStr)
+			errorTypeName, refStr, dataStr)
 	}
 	fmt.Fprint(b, "</table>\n")
 

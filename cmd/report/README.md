@@ -11,10 +11,6 @@ report 是一个用于生成分析报告的工具，能够汇总 fastq_splitter 
 - **数据可视化**：生成可视化图表数据
 - **自定义报告**：支持自定义报告内容和格式
 
-### 注意事项
-
-**当前状态**：report 工具目前是未完成品，正在开发中。
-
 ## 2. 安装方法
 
 ### 前提条件
@@ -28,7 +24,7 @@ report 是一个用于生成分析报告的工具，能够汇总 fastq_splitter 
 cd /path/to/SynthesisAnalyzer
 
 # 编译report
-go build -o bin/report cmd/report/main.go
+go build -o bin/report cmd/report/main.go cmd/report/struct.go cmd/report/tools.go cmd/report/print.go
 
 # 或直接运行
 go run cmd/report/main.go [参数]
@@ -40,89 +36,127 @@ go run cmd/report/main.go [参数]
 
 ```bash
 # 基本用法
-report -i <输入目录> -o <输出目录>
+report -i <输入JSON文件> -o <输出报告文件> -m <mutation_stats目录> -b <BOM.xlsx文件>
 
-# 输入目录应该包含fastq_splitter和bam-mut-analyzer的结果
 # 示例
-report -i ./output -o ./reports
+report -i test/input.json -o test/output.html -m test/output -b test/BOM.xlsx
 ```
 
 ### 参数说明
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `-i` | 输入目录，包含fastq_splitter和bam-mut-analyzer的结果 | 必需 |
-| `-o` | 输出目录 | 必需 |
-| `-t` | 报告类型（summary/detail） | summary |
-| `-f` | 输出格式（html/csv/pdf） | html |
-| `-n` | 报告名称 | report |
-| `-c` | 配置文件 | 可选 |
+| `-i` | 输入JSON文件路径 | 必需 |
+| `-o` | 输出报告文件路径（默认输出到stdout） | 可选 |
+| `-m` | mutation_stats目录路径（可选） | 可选 |
+| `-b` | BOM.xlsx文件路径（可选） | 可选 |
 
 ## 4. 输入文件格式
 
-### 输入目录结构
-
-输入目录应该包含 fastq_splitter 和 bam-mut-analyzer 生成的结果文件：
-
-```
-input_dir/
-├── fastq_splitter_results/  # fastq_splitter的结果
-│   ├── split_report.csv
-│   └── ...
-├── mutation_stats/          # bam-mut-analyzer的结果
-│   ├── total_mutation_stats.csv
-│   ├── read_type_summary.csv
-│   └── ...
-└── ...
-```
-
 ### 支持的输入文件
 
-- **fastq_splitter**：split_report.csv等
-- **bam-mut-analyzer**：
-  - total_mutation_stats.csv
-  - read_type_summary.csv（用于子类型分类）
-  - read_type_by_sample.csv（用于收率统计）
-  - 其他相关统计文件
+- **JSON文件**：包含基本信息和孔位数据
+- **BOM.xlsx文件**：包含孔位和引物名称对应关系（转换为txt文件后使用）
+- **bam-mut-analyzer结果**：
+  - `mutation_stats/read_type_summary.csv`：用于子类型分类
+  - `mutation_stats/read_type_by_sample.csv`：用于收率和错误统计
 
-## 5. 输出文件说明
+### BOM.xlsx文件格式
 
-### 主要输出文件
+BOM.xlsx文件应包含"引物订购单"工作表，格式如下：
 
-1. **综合报告**：
-   - `report.html`：HTML格式的综合报告
-   - `report.csv`：CSV格式的报告数据
-   - `report.pdf`：PDF格式的报告（如果支持）
+| 序号 | 位置 | 引物名称 | 是否重合 | 预测收率 | 序列 |
+|------|------|----------|----------|----------|------|
+| 1 | A1 | EGG281A0P1 | 是/否 | 30.5 | ATCG... |
+| 2 | A2 | EGG281A0P2 | 否 | 45.2 | GCTA... |
+| ... | ... | ... | ... | ... | ... |
 
-2. **可视化数据**：
-   - `charts/`：包含各种图表的目录
-   - `tables/`：包含各种表格的目录
+其中，"是否重合"、"预测收率"和"序列"为可选列。
 
-3. **汇总数据**：
-   - `summary.csv`：汇总统计数据
-   - `details.csv`：详细统计数据
+## 5. 数据字段来源和计算
 
-## 6. 报告内容
+### 收率统计
 
-### 摘要报告（summary）
+- **收率**：从`read_type_by_sample.csv`的"匹配"和"GoodAlignedReads"列计算，公式为：`收率 = (匹配 / GoodAlignedReads) * 100%`
+- **收率统计值**：基于所有样本的收率计算平均值、标准差、中位数、四分位数等
 
-- **总体统计**：总读取数、突变率等
-- **主要发现**：关键突变类型和频率
-- **质量评估**：数据质量评估
-- **收率统计**：基于匹配/GoodAlignedReads的收率信息
-- **建议**：基于分析结果的建议
+### 错误统计
 
-### 详细报告（detail）
+- **缺失**：从`read_type_by_sample.csv`的"DeleteReads"和"GoodAlignedReads"列计算，公式为：`缺失 = (DeleteReads / GoodAlignedReads) * 100%`
+- **突变**：从`read_type_by_sample.csv`的"SubstitutionReads"和"GoodAlignedReads"列计算，公式为：`突变 = (SubstitutionReads / GoodAlignedReads) * 100%`
+- **插入**：从`read_type_by_sample.csv`的"InsertReads"和"GoodAlignedReads"列计算，公式为：`插入 = (InsertReads / GoodAlignedReads) * 100%`
+- **错误子类型**：从`read_type_summary.csv`的细分类统计部分获取，直接使用子类型代码作为键，在生成报告时通过映射转换为用户友好的错误类型名称
 
-- **样本统计**：每个样本的详细统计，包括收率信息
-- **突变分析**：详细的突变类型分析，使用子类型分类
-- **长度分布**：插入和缺失的长度分布
-- **位置分布**：突变的位置分布
-- **质量控制**：质量控制指标
+### 参考值处理
 
-### 错误类型分类
+- **平均收率参考值**：从输入JSON文件的`error_stats_ref`字段获取，如果存在且大于0，则在报告中显示为"平均收率: X.XX% (参考值Y.YY%)"，否则显示为"平均收率: X.XX%"
+- **其他错误类型参考值**：从输入JSON文件的`error_stats_ref`字段获取，在合成错误统计表格中显示
 
-report工具现在使用子类型分类来统计合成错误，从bam-mut-analyzer生成的`mutation_stats/read_type_summary.csv`的细分类统计第三列获取：
+## 6. 数据结构
+
+### 主要数据结构
+
+#### Well（孔位数据）
+
+| 字段 | 类型 | 说明 | 来源 |
+|------|------|------|------|
+| Row | int | 行号（1-12） | BOM.xlsx |
+| ColLetter | string | 列字母（H,G,F,E,D,C,B,A） | BOM.xlsx |
+| Name | string | 引物名称 | BOM.xlsx |
+| IsOverlap | bool | 是否重合序列 | BOM.xlsx（可选） |
+| PredictedYield | float64 | 预测收率 (%) | BOM.xlsx（可选） |
+| Yield | float64 | 实际收率 (%) | read_type_by_sample.csv |
+| Deletion | float64 | 缺失 (%) | read_type_by_sample.csv |
+| Mutation | float64 | 突变 (%) | read_type_by_sample.csv |
+| Insertion | float64 | 插入 (%) | read_type_by_sample.csv |
+| Sequence | string | 序列 | BOM.xlsx（可选） |
+| Position | string | 位置 | BOM.xlsx |
+
+#### SummaryStats（概要统计）
+
+| 字段 | 类型 | 说明 | 计算方法 |
+|------|------|------|----------|
+| AvgYield | float64 | 平均收率 | 所有样本收率的平均值 |
+| YieldStddev | float64 | 收率标准差 | 所有样本收率的标准差 |
+| YieldMedian | float64 | 收率中位数 | 所有样本收率的中位数 |
+| YieldQuartile | float64 | 收率四分位数 | 所有样本收率的四分位数 |
+| YieldLt1Count | int | 收率<1%片段个数 | 统计收率<1%的样本数 |
+| YieldLt5Count | int | 收率<5%片段个数 | 统计收率<5%的样本数 |
+| PredictedDifficultSeq | int | 预测难度序列 | 占位值 |
+| OverlapSequences | int | 重合序列 | 统计IsOverlap为true的样本数 |
+
+#### ErrorStat（错误统计）
+
+| 字段 | 类型 | 说明 | 来源 |
+|------|------|------|------|
+| ErrorType | string | 错误类型 | 固定顺序 |
+| Reference | *float64 | 参考值 | JSON文件 |
+| Data | *float64 | 实际数据 | read_type_summary.csv |
+
+## 7. 报告结构和格式
+
+### 报告结构
+
+1. **Summary**
+   - 基本信息：合成日期、仪器号、合成孔数、合成长度、合成工艺版本、SEC1工艺版本、测序日期
+   - 统计信息：平均收率、收率标准差、收率中位数、收率四分位数、收率<1%片段个数、收率<5%片段个数、预测难度序列、重合序列
+   - 合成错误统计：按照固定顺序输出13种错误子类型的统计数据
+
+2. **合成板位分析**
+   - 合成排板：显示每个孔位的引物名称
+   - 预测合成收率：显示每个孔位的预测收率
+   - 收率板位统计：显示每个孔位的实际收率
+   - 缺失板位统计：显示每个孔位的缺失率
+   - 突变板位统计：显示每个孔位的突变率
+   - 插入板位统计：显示每个孔位的插入率
+
+3. **合成轮次分析**（占位）
+
+4. **附录**（占位）
+
+### 错误类型固定顺序
+
+报告中的错误类型按照以下顺序固定输出，如果没有值则留空：
 
 | 错误类型 | 子类型 |
 |---------|--------|
@@ -140,59 +174,32 @@ report工具现在使用子类型分类来统计合成错误，从bam-mut-analyz
 | 缺失+重复 | DELDUP |
 | 重复+缺失 | DUPDEL |
 
-### 收率统计
+## 8. 输出文件说明
 
-收率信息从bam-mut-analyzer生成的`mutation_stats/read_type_by_sample.csv`的匹配/GoodAlignedReads获取每个样品的，然后计算各种统计值。
+### 主要输出文件
 
-## 7. 可视化功能
+- **HTML报告**：`report.html`，包含完整的分析结果和板位统计
 
-### 支持的图表类型
+## 9. 核心流程
 
-- **柱状图**：显示不同类型的分布
-- **折线图**：显示趋势变化
-- **热力图**：显示位置分布
-- **饼图**：显示比例分布
-- **散点图**：显示相关性
-
-### 可视化数据格式
-
-- **CSV**：用于生成图表的数据
-- **JSON**：用于交互式图表
-- **SVG**：静态图表
-
-## 8. 性能优化
-
-### 已实现的优化
-
-1. **并行处理**：使用goroutine并发处理数据
-2. **内存优化**：流式处理数据，减少内存使用
-3. **I/O优化**：批量读取和写入数据
-
-### 性能建议
-
-- 对于大量数据，建议使用摘要报告
-- 确保有足够的磁盘空间用于输出文件
-- 对于复杂报告，可能需要较长的处理时间
-
-## 9. 故障排除
-
-### 常见错误及解决方法
-
-1. **输入文件格式错误**
-   - 错误信息：`Invalid input file format`
-   - 解决方法：确保输入文件格式正确，符合工具要求
-
-2. **数据读取失败**
-   - 错误信息：`Failed to read input data`
-   - 解决方法：确保输入目录存在，包含必要的文件
-
-3. **内存不足**
-   - 错误信息：`out of memory`
-   - 解决方法：减少报告类型的复杂度，或增加系统内存
-
-4. **报告生成失败**
-   - 错误信息：`Failed to generate report`
-   - 解决方法：检查输出目录权限，确保有足够的空间
+1. 读取命令行参数
+2. 读取输入JSON文件
+3. 如果提供了BOM.xlsx文件，读取并更新孔位信息：
+   - 解析位置、引物名称、是否重合、预测收率和序列信息
+   - 跳过引物名称为"0"的行
+   - 计算序列长度的最大值，作为合成长度
+   - 更新孔数为实际孔位数量
+4. 如果提供了mutation_stats目录，读取并更新数据：
+   - 从`read_type_summary.csv`读取子类型统计数据
+   - 从`read_type_by_sample.csv`读取收率和错误统计数据
+   - 更新每个孔的收率、缺失、突变和插入数据
+   - 计算收率统计值（平均值、标准差、中位数、四分位数等）
+5. 生成HTML报告：
+   - 基本信息部分
+   - 统计信息部分（根据参考值是否存在调整平均收率的显示格式）
+   - 合成错误统计部分（按照固定顺序输出错误子类型，使用映射转换为用户友好的错误类型名称）
+   - 合成板位分析部分
+6. 输出结果
 
 ## 10. 示例分析流程
 
@@ -200,117 +207,36 @@ report工具现在使用子类型分类来统计合成错误，从bam-mut-analyz
 
 1. 运行 fastq_splitter 拆分FASTQ文件
 2. 运行 bam-mut-analyzer 分析BAM文件
-3. 组织输入目录结构
+3. 准备BOM.xlsx文件
+4. 准备输入JSON文件
 
 ### 步骤2：运行报告生成
 
 ```bash
 # 运行report
-report -i ./output -o ./reports -t detail -f html
+report -i test/input.json -o test/output.html -m test/output -b test/BOM.xlsx
 
-# 查看报告生成进度
-# 生成完成后会显示报告路径
+# 查看报告
+open test/output.html
 ```
 
-### 步骤3：查看报告
-
-```bash
-# 查看输出目录
-ls ./reports/
-
-# 打开HTML报告
-open ./reports/report.html
-
-# 查看CSV数据
-cat ./reports/summary.csv
-```
-
-### 步骤4：分析报告
-
-1. **摘要部分**：了解总体情况
-2. **详细部分**：深入分析具体数据
-3. **可视化部分**：通过图表直观了解数据
-4. **建议部分**：根据分析结果采取相应措施
-
-## 11. 高级功能
-
-### 自定义报告
-
-可以通过配置文件自定义报告内容和格式：
-
-```yaml
-# 配置文件示例
-report:
-  title: "Synthesis Analysis Report"
-  sections:
-    - name: "Summary"
-      enabled: true
-    - name: "Mutation Analysis"
-      enabled: true
-    - name: "Quality Control"
-      enabled: true
-  charts:
-    - type: "bar"
-      data: "mutation_types"
-      title: "Mutation Types"
-```
-
-### 批量报告
-
-支持批量生成多个报告，例如按样本生成报告：
-
-```bash
-report -i ./output -o ./reports -t detail -f html --batch sample
-```
-
-### 集成其他工具
-
-可以集成其他分析工具的结果，只需按照规定的格式组织输入文件。
-
-## 12. 代码结构
+## 11. 代码结构
 
 ### 主要文件
 
-- **main.go**：主入口，处理命令行参数
-- **print.go**：报告生成逻辑
+- **main.go**：主入口，处理命令行参数，读取输入数据，更新收率和错误统计
+- **print.go**：报告生成逻辑，生成HTML格式的报告
 - **struct.go**：数据结构定义
-- **tools.go**：工具函数
+- **tools.go**：工具函数，包括CSV文件读取、BOM文件读取、统计计算等
 
-### 核心流程
-
-1. 读取命令行参数
-2. 读取输入数据（fastq_splitter和bam-mut-analyzer的结果）
-3. 从read_type_summary.csv获取子类型分类数据
-4. 从read_type_by_sample.csv获取收率统计数据
-5. 处理和汇总数据
-6. 生成报告
-7. 输出结果
-
-## 13. 注意事项
+## 12. 注意事项
 
 1. **输入数据质量**：确保输入数据完整且格式正确
 2. **输出目录权限**：确保输出目录有写入权限
-3. **参数设置**：根据实际情况调整报告类型和格式
+3. **参数设置**：根据实际情况提供必要的参数
 4. **性能考虑**：处理大量数据时，注意系统资源使用
-5. **开发状态**：report工具目前是未完成品，功能可能不完整
 
-## 14. 版本历史
-
-### v1.0.0
-- 初始版本
-- 支持基本的报告生成功能
-
-### v1.1.0
-- 增加可视化功能
-- 优化报告格式
-- 修复bug
-
-### v1.2.0
-- 增加自定义报告功能
-- 改进数据处理
-- 增加批量报告支持
-
-## 15. 联系方式
+## 13. 联系方式
 
 如有问题或建议，请联系：
 
@@ -319,5 +245,5 @@ report -i ./output -o ./reports -t detail -f html --batch sample
 
 ---
 
-**版本**：1.2.0
+**版本**：1.3.0
 **最后更新**：2026-03-13
