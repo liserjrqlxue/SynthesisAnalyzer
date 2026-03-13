@@ -191,7 +191,7 @@ func (s *SampleStats) NormalizeDeletionsByContinuousBases() {
 		// 计算平均缺失率
 		var sumRate float64
 		var sumRate1 float64
-		for i := 0; i < validPositions; i++ {
+		for i := range validPositions {
 			rate1 := float64(deletions[i]) / float64(depths[i])
 			sumRate += rate1
 			sumRate1 += float64(del1s[i]) / float64(depths[i])

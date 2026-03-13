@@ -11,66 +11,65 @@ import (
 
 // parseMutationsWithMD 使用参考序列和MD标签解析突变
 func parseMutationsWithMD(read *sam.Record, refSeq string, mdMap map[int]string) (mutations []Mutation) {
-	refStart := int(read.Pos) // 0-based起始位置
+	refStart := int(read.Pos)
 	seq := read.Seq.Expand()
 	if len(seq) == 0 {
 		return
 	}
 
-	// 获取MD标签
 	mdTag, hasMD := read.Tag([]byte{'M', 'D'})
-	mdStr := ""
+	var mdStr string
 	if hasMD {
 		mdStr = mdTag.String()
-		mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
+		if len(mdStr) > 5 && mdStr[4] == ':' {
+			mdStr = mdStr[5:]
+		}
 	}
 
-	// 遍历CIGAR操作
-	refPos := refStart // 0-based
+	refPos := refStart
 	readPos := 0
+	refSeqLen := len(refSeq)
 
 	for _, cigarOp := range read.Cigar {
 		op := cigarOp.Type()
 		length := cigarOp.Len()
 
 		switch op {
-		case sam.CigarMatch, sam.CigarEqual, sam.CigarMismatch: // M, =, X
+		case sam.CigarMatch, sam.CigarEqual, sam.CigarMismatch:
 			for i := range length {
-				// 获取参考碱基
-				refBase := "N"
-				// 优先使用参考序列
-				if refSeq != "" && refPos+i >= 0 && refPos+i < len(refSeq) {
-					refBase = string(refSeq[refPos+i])
+				refBase := byte('N')
+				currentRefPos := refPos + i
+
+				if refSeq != "" && currentRefPos >= 0 && currentRefPos < refSeqLen {
+					refBase = refSeq[currentRefPos]
 				} else if mdMap != nil {
-					// 否则使用 MD 映射
-					if base, ok := mdMap[refPos+i]; ok {
-						refBase = base
+					if base, ok := mdMap[currentRefPos]; ok {
+						refBase = base[0]
 					}
 				}
 
-				// 获取 read 碱基
-				altBase := "N"
-				if readPos+i < len(seq) {
-					altBase = string(seq[readPos+i])
+				altBase := byte('N')
+				currentReadPos := readPos + i
+				if currentReadPos < len(seq) {
+					altBase = seq[currentReadPos]
 				}
 
 				if op == sam.CigarMismatch || refBase != altBase {
 					mutation := Mutation{
-						Position: refPos + i + 1, // 转换为1-based输出
-						Ref:      refBase,
-						Alt:      altBase,
+						Position: currentRefPos + 1,
+						Ref:      string(refBase),
+						Alt:      string(altBase),
 					}
 					mutation.Subtype = mutation.ClassifySubstitution(refSeq)
 					mutations = append(mutations, mutation)
 				}
 			}
 
-			// 更新位置
 			refPos += length
 			readPos += length
-		case sam.CigarInsertion, sam.CigarSoftClipped: // I, S
+		case sam.CigarInsertion, sam.CigarSoftClipped:
 			readPos += length
-		case sam.CigarDeletion, sam.CigarSkipped: // D, N
+		case sam.CigarDeletion, sam.CigarSkipped:
 			refPos += length
 		}
 	}
@@ -199,7 +198,11 @@ func analyzeReadType(read *sam.Record) ReadType {
 	mdTag, hasMD := read.Tag([]byte{'M', 'D'})
 	if hasMD {
 		mdStr := mdTag.String()
-		mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
+		if len(mdStr) > 5 && mdStr[4] == ':' {
+			mdStr = mdStr[5:]
+		} else {
+			mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
+		}
 
 		// 解析MD字符串检查错配
 		mdHasDelete, mdHasSubstitution := checkMismatchInMD(mdStr)

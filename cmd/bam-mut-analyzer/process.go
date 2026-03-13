@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -13,9 +14,8 @@ import (
 	"github.com/biogo/hts/sam"
 )
 
-// processBAMFile 处理单个BAM文件 - 添加细分类统计
+// processBAMFile 处理单个BAM文件 - 优化版本
 func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFromExcel, headCutFromExcel, tailCutFromExcel int, fullSeqFromExcel string) error {
-	// 打开BAM文件
 	f, err := os.Open(bamPath)
 	if err != nil {
 		return fmt.Errorf("打开BAM文件失败: %v", err)
@@ -28,17 +28,13 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	}
 	defer br.Close()
 
-	// fmt.Printf("处理样本: %s\n", sampleName)
-
-	// 获取或创建样本统计
 	sampleStats := stats.getOrCreateSampleStats(sampleName)
 
-	// 计算切除头尾后的参考序列ACGT计数
+	// 预计算参考序列信息
 	if fullSeqFromExcel != "" {
 		sampleStats.Lock()
-
 		sampleStats.RefSeqFull = fullSeqFromExcel
-		// 确定切除长度（优先Excel，否则全局）
+
 		sampleHeadCut := headCut
 		sampleTailCut := tailCut
 		if headCutFromExcel > 0 {
@@ -50,24 +46,22 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 		totalLen := len(fullSeqFromExcel)
 		if sampleHeadCut+sampleTailCut < totalLen {
 			trimmedSeq := fullSeqFromExcel[sampleHeadCut : totalLen-sampleTailCut]
-			acgtCounts := make(map[byte]int)
-			for i := 0; i < len(trimmedSeq); i++ {
+			acgtCounts := make(map[byte]int, 4)
+			for i := range trimmedSeq {
 				b := trimmedSeq[i]
 				if b == 'A' || b == 'C' || b == 'G' || b == 'T' {
 					acgtCounts[b]++
 				}
-				// 根据需要也可统计N
 			}
 			sampleStats.RefACGTCounts = acgtCounts
 			sampleStats.RefLengthAfterTrim = len(trimmedSeq)
 		} else {
 			fmt.Printf("  警告: 样本 %s 的切除长度超过序列全长\n", sampleName)
 		}
-
 		sampleStats.Unlock()
 	}
 
-	// 获取参考序列长度（优先从BAM header获取）
+	// 获取参考序列长度
 	refSeqLen := 0
 	for _, ref := range br.Header().Refs() {
 		if ref.Name() == sampleName {
@@ -75,17 +69,16 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 			break
 		}
 	}
-	// 如果BAM中没有，使用Excel提供的长度
 	if refSeqLen == 0 && refLenFromExcel > 0 {
 		refSeqLen = refLenFromExcel
 	}
 	if refSeqLen == 0 {
-		fmt.Printf("  警告: 无法获取样本 %s 的参考序列长度，头尾切除将不会应用\n", sampleName)
-	} else if refSeqLen != refLenFromExcel {
+		fmt.Printf("  警告: 无法获取样本 %s 的参考序列长度\n", sampleName)
+	} else if refSeqLen != refLenFromExcel && refLenFromExcel > 0 {
 		fmt.Printf("  警告: 样本 %s 的参考序列长度冲突：[%d vs. %d]\n", sampleName, refSeqLen, refLenFromExcel)
 	}
 
-	// 设置头尾切除长度：优先使用Excel提供的，否则用全局默认
+	// 预计算头尾切除参数
 	sampleHeadCut := headCut
 	sampleTailCut := tailCut
 	if headCutFromExcel > 0 {
@@ -95,124 +88,159 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 		sampleTailCut = tailCutFromExcel
 	}
 
+	// 使用局部变量收集统计，避免频繁锁操作
+	type localPosStats struct {
+		detail              PositionDetail
+		nMerStats           *PositionNMerStats
+		perfectCountUpdated bool
+	}
+
+	localPosMap := make(map[int]*localPosStats)
+	localReadStats := &SampleStats{}
+	localReadStats.SubstitutionCountDist = make(map[int]int)
+	localReadStats.InsertLengthDist = make(map[int]int)
+	localReadStats.DeleteLengthDist = make(map[int]int)
+	localReadStats.InsertBaseCounts = make(map[string]int)
+	localReadStats.DeletePositionCounts = make(map[string]int)
+	localReadStats.MutationBaseCounts = make(map[string]int)
+	localReadStats.Mutations = make(map[string]int)
+	localReadStats.PositionMutations = make(map[string]int)
+	localReadStats.PositionDetails = make(map[string]map[string]int)
+	localReadStats.ReadTypeCounts = make(map[ReadType]int)
+
+	// 细分类统计初始化
+	localReadStats.DeleteSubtypeReads = make(map[DeletionSubtype]int)
+	localReadStats.DeleteSubtypeEvents = make(map[DeletionSubtype]int)
+	localReadStats.DeleteSubtypeBases = make(map[DeletionSubtype]int)
+	localReadStats.InsertSubtypeReads = make(map[InsertionSubtype]int)
+	localReadStats.InsertSubtypeEvents = make(map[InsertionSubtype]int)
+	localReadStats.InsertSubtypeBases = make(map[InsertionSubtype]int)
+	localReadStats.SubstitutionSubtypeReads = make(map[SubstitutionSubtype]int)
+	localReadStats.SubstitutionSubtypeEvents = make(map[SubstitutionSubtype]int)
+	localReadStats.SubstitutionSubtypeBases = make(map[SubstitutionSubtype]int)
+	localReadStats.SubtypeCombinationCounts = make(map[string]int)
+	localReadStats.Del1BaseCounts = make(map[byte]int)
+	localReadStats.Del3PrevBaseCounts = make(map[byte]int)
+	localReadStats.Del3FirstBaseCounts = make(map[byte]int)
+	localReadStats.Del3PrevFirstCombCounts = make(map[string]int)
+	localReadStats.MutationList = make([]Mutation, 0, 64)
+
+	// 预分配buffer减少GC
 	var totalReads, alignedReads int
 	var readsWithMutations, totalMutations int
+	alignedBasesThisRead := 0
 
 	// 遍历所有记录
 	for {
 		read, err := br.Read()
 		if err != nil {
-			break // 可能到达文件末尾
+			break
 		}
 
 		totalReads++
 
-		// 跳过未比对或质量太低的记录
+		// 跳过未比对记录
 		if read.Flags&sam.Unmapped != 0 {
 			continue
 		}
 		alignedReads++
+		alignedBasesThisRead = 0
 
-		// 获取MD字符串
+		// 获取MD字符串并缓存解析结果
 		mdTag, hasMD := read.Tag([]byte{'M', 'D'})
-		mdStr := ""
+		var mdStr string
 		if hasMD {
 			mdStr = mdTag.String()
-			mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
+			if len(mdStr) > 5 && mdStr[4] == ':' {
+				mdStr = mdStr[5:]
+			} else {
+				mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
+			}
 		}
-		// mdStr, _ := getMDString(read)
 
-		// ---------- 新增：位置详细统计 ----------
-		refStart := int(read.Pos) // 0-based
-		// 解析MD字符串，建立位置到参考碱基的映射
+		refStart := int(read.Pos)
 		mdMap := parseMDToMap(mdStr, refStart)
 
-		// 新增：N-mer 统计所需变量
-		consecutiveMatch := 0 // 当前位置之前连续正确的碱基数（不包括当前）
-
+		// 预计算位置范围，减少边界检查
+		consecutiveMatch := 0
 		refPos := refStart
 		readPos := 0
 		readIsPerfect := true
 		perfectUptoNow := true
 		cigarOps := read.Cigar
+		cigarLen := len(cigarOps)
 
-		alignedBasesThisRead := 0
-		// 消耗参考位置的操作：M, D, N, =, X
-		// alignedBasesThisRead += length
-		for ci, cigarOp := range cigarOps {
+		// 第一次遍历：收集位置统计和突变信息
+		var mutationList []Mutation
+		var insertSubtypes = make(map[InsertionSubtype]bool)
+		var deleteSubtypes = make(map[DeletionSubtype]bool)
+		var substSubtypes = make(map[SubstitutionSubtype]bool)
+		var deleteList []DeletionInfo
+
+		for ci := range cigarLen {
+			cigarOp := cigarOps[ci]
 			op := cigarOp.Type()
 			length := cigarOp.Len()
 
 			switch op {
 			case 0, 7, 8: // M, =, X
 				alignedBasesThisRead += length
+				isMismatchOp := (op == 8)
+
 				for j := range length {
-					currentPos := refPos + j + 1 // 1-based
-					isMismatch := false
-					if op == 8 {
-						isMismatch = true
-					} else if hasMD {
-						_, ok := mdMap[refPos+j]
-						if ok {
-							isMismatch = true
-						}
-					}
-					// 插入只影响 M 操作的最后一个位置
-					hasInsertAfter := false
-					if j == length-1 && ci+1 < len(cigarOps) && cigarOps[ci+1].Type() == 1 {
-						hasInsertAfter = true
+					currentPos := refPos + j + 1
+					isMismatch := isMismatchOp
+					if !isMismatch && hasMD {
+						_, isMismatch = mdMap[refPos+j]
 					}
 
-					sampleStats.Lock()
-					detail, exists := sampleStats.PositionStats[currentPos]
+					// 检查下一个操作是否为插入
+					hasInsertAfter := (j == length-1 && ci+1 < cigarLen && cigarOps[ci+1].Type() == 1)
+
+					// 获取或创建位置统计
+					posStats, exists := localPosMap[currentPos]
 					if !exists {
-						detail = &PositionDetail{}
-						sampleStats.PositionStats[currentPos] = detail
+						posStats = &localPosStats{}
+						localPosMap[currentPos] = posStats
 					}
-					detail.Depth++
+					posStats.detail.Depth++
 
 					if perfectUptoNow && !isMismatch && !hasInsertAfter {
-						detail.PerfectUptoPosCount++
+						posStats.detail.PerfectUptoPosCount++
 					}
 
 					if hasInsertAfter {
 						if isMismatch {
-							detail.MismatchWithIns++
+							posStats.detail.MismatchWithIns++
 						} else {
-							detail.MatchWithIns++
+							posStats.detail.MatchWithIns++
 						}
-						detail.Insertion++ // 该位置有一次插入事件
+						posStats.detail.Insertion++
 					} else {
 						if isMismatch {
-							detail.MismatchPure++
+							posStats.detail.MismatchPure++
 						} else {
-							detail.MatchPure++
+							posStats.detail.MatchPure++
 						}
 					}
 
-					// 根据之前连续正确数判断是否满足 N 条件
+					// N-mer统计
 					if consecutiveMatch >= nMerSize {
-						// 获取该位置的 N-mer 统计对象
-						posStats, ok := sampleStats.NMerStats[currentPos]
-						if !ok {
-							posStats = &PositionNMerStats{}
-							sampleStats.NMerStats[currentPos] = posStats
+						if posStats.nMerStats == nil {
+							posStats.nMerStats = &PositionNMerStats{}
 						}
-						posStats.NCorrect++ // 前 N 个碱基正确
+						posStats.nMerStats.NCorrect++
 						if !isMismatch {
-							posStats.N1Correct++ // 前 N+1 个碱基正确
+							posStats.nMerStats.N1Correct++
 						}
 					}
 
-					// 更新连续匹配计数器
 					if !isMismatch {
 						consecutiveMatch++
 					} else {
 						consecutiveMatch = 0
 					}
-					sampleStats.Unlock()
 
-					// 更新 read 完美状态：遇到错配、插入、缺失都不完美
 					if isMismatch || hasInsertAfter {
 						readIsPerfect = false
 						perfectUptoNow = false
@@ -225,120 +253,95 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 				alignedBasesThisRead += length
 				for j := range length {
 					pos := refPos + j + 1
-					sampleStats.Lock()
-					detail, exists := sampleStats.PositionStats[pos]
+					posStats, exists := localPosMap[pos]
 					if !exists {
-						detail = &PositionDetail{}
-						sampleStats.PositionStats[pos] = detail
+						posStats = &localPosStats{}
+						localPosMap[pos] = posStats
 					}
-					detail.Depth++
-					detail.Deletion++
+					posStats.detail.Depth++
+					posStats.detail.Deletion++
 					if length == 1 {
-						detail.Del1++
+						posStats.detail.Del1++
 					}
-					sampleStats.Unlock()
 				}
 				readIsPerfect = false
 				perfectUptoNow = false
-
-				// 缺失时不产生覆盖位置，但会打断连续性
 				consecutiveMatch = 0
-
 				refPos += length
 
 			case 1: // I
 				readPos += length
 				readIsPerfect = false
 				perfectUptoNow = false
-				// 插入本身不占用参考位置，但影响前一个位置的统计（已在 M 操作中处理）
-				// 插入打断连续性
 				consecutiveMatch = 0
 			case 4: // S
 				readPos += length
-				// 软剪接通常表示 read 开头或结尾，不影响连续匹配？但实际会打断，因为前面的碱基不参与参考序列
-				// 保守重置
 				consecutiveMatch = 0
 			}
 		}
 
-		// 整条read完美：为每个覆盖位置累加PerfectReadsCount
+		// 第二次遍历：如果是完美read，收集需要更新PerfectReadsCount的位置
 		if readIsPerfect {
 			refPos = refStart
-			readPos = 0
-			for _, cigarOp := range cigarOps {
+			for ci := range cigarLen {
+				cigarOp := cigarOps[ci]
 				op := cigarOp.Type()
 				length := cigarOp.Len()
+
 				switch op {
 				case 0, 7, 8:
-					for j := 0; j < length; j++ {
+					for j := range length {
 						pos := refPos + j + 1
-						sampleStats.Lock()
-						detail, exists := sampleStats.PositionStats[pos]
-						if !exists {
-							detail = &PositionDetail{}
-							sampleStats.PositionStats[pos] = detail
+						posStats, exists := localPosMap[pos]
+						if exists {
+							posStats.perfectCountUpdated = true
+							posStats.detail.PerfectReadsCount++
 						}
-						detail.PerfectReadsCount++
-						sampleStats.Unlock()
 					}
 					refPos += length
-					readPos += length
 				case 2, 3:
 					refPos += length
-				case 1, 4:
-					readPos += length
 				}
 			}
 		}
 
 		// 分析详细的read类型
 		readInfo := analyzeReadDetailedInfo(read, mdMap, mdStr, fullSeqFromExcel)
+		localReadStats.ReadTypeCounts[readInfo.MainType]++
 
-		// 统计突变信息
 		mutationCount := len(readInfo.Mutations)
-		sampleStats.Lock()
-		sampleStats.SubstitutionCountDist[mutationCount]++
-		sampleStats.AlignedBases += alignedBasesThisRead
+		localReadStats.SubstitutionCountDist[mutationCount]++
+		localReadStats.AlignedBases += alignedBasesThisRead
 
-		sampleStats.Unlock()
 		// 跳过非良好比对
 		if mutationCount > maxSubstitutions {
 			continue
 		}
-		sampleStats.GoodAlignedReads++
-
-		// 更新样本统计
-		sampleStats.Lock()
-
-		// 更新read类型统计
-		sampleStats.ReadTypeCounts[readInfo.MainType]++
+		localReadStats.GoodAlignedReads++
 
 		// 统计插入信息
 		if readInfo.InsertSub != nil && len(readInfo.InsertSub.Insertions) > 0 {
-			// reads维度：包含插入的reads数
-			sampleStats.InsertReads++
+			localReadStats.InsertReads++
 
 			for _, insertion := range readInfo.InsertSub.Insertions {
-				// 插入事件个数维度：每个插入事件计数
-				sampleStats.InsertEventCount++
+				localReadStats.InsertEventCount++
+				localReadStats.InsertBaseTotal += insertion.Length
+				localReadStats.MutationBaseCounts["insertion"] += insertion.Length
 
-				// 插入碱基个数维度：累加插入碱基数
-				sampleStats.InsertBaseTotal += insertion.Length
-				// 碱基维度：插入碱基数
-				sampleStats.MutationBaseCounts["insertion"] += insertion.Length
-
-				// 插入长度分布
 				length := insertion.Length
 				if length > 3 {
-					length = 4 // >3
+					length = 4
 				}
-				sampleStats.InsertLengthDist[length]++
+				localReadStats.InsertLengthDist[length]++
 
-				// 插入序列统计
 				if insertion.Bases != "" {
-					sampleStats.InsertBaseCounts[insertion.Bases]++
+					localReadStats.InsertBaseCounts[insertion.Bases]++
 				}
 
+				st := insertion.Subtype
+				localReadStats.InsertSubtypeEvents[st]++
+				localReadStats.InsertSubtypeBases[st] += insertion.Length
+				insertSubtypes[st] = true
 			}
 		}
 
@@ -346,148 +349,94 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 		if mutationCount > 0 {
 			readsWithMutations++
 			totalMutations += mutationCount
-
-			// reads维度：包含替换的reads数
-			sampleStats.SubstitutionReads++
-
-			// 替换事件个数维度：累加替换事件数
-			sampleStats.SubstitutionEventCount += mutationCount
-
-			// 替换碱基个数维度：累加替换碱基数（每个替换事件是一个碱基替换）
-			sampleStats.SubstitutionBaseTotal += mutationCount
-			// 碱基维度：替换计数
-			sampleStats.MutationBaseCounts["substitution"] += mutationCount
+			localReadStats.SubstitutionReads++
+			localReadStats.SubstitutionEventCount += mutationCount
+			localReadStats.SubstitutionBaseTotal += mutationCount
+			localReadStats.MutationBaseCounts["substitution"] += mutationCount
 
 			for _, mut := range readInfo.Mutations {
-				// 创建键
-				posKey := fmt.Sprintf("%d", mut.Position)
-				mutKey := fmt.Sprintf("%s>%s", mut.Ref, mut.Alt)
-				posMutKey := fmt.Sprintf("%s_%s", posKey, mutKey)
+				posKey := strconv.Itoa(mut.Position)
+				mutKey := mut.Ref + ">" + mut.Alt
+				posMutKey := posKey + "_" + mutKey
 
-				// 更新位置细节
-				if _, ok := sampleStats.PositionDetails[posKey]; !ok {
-					sampleStats.PositionDetails[posKey] = make(map[string]int)
+				if _, ok := localReadStats.PositionDetails[posKey]; !ok {
+					localReadStats.PositionDetails[posKey] = make(map[string]int)
 				}
-				sampleStats.PositionDetails[posKey][mutKey]++
-
-				// 更新样本突变统计
-				sampleStats.Mutations[mutKey]++
-
-				// 更新位置突变统计
-				sampleStats.PositionMutations[posMutKey]++
-
+				localReadStats.PositionDetails[posKey][mutKey]++
+				localReadStats.Mutations[mutKey]++
+				localReadStats.PositionMutations[posMutKey]++
+				mutationList = append(mutationList, mut)
 			}
 		}
 
-		// 保存突变到列表（可选）
-		sampleStats.MutationList = append(sampleStats.MutationList, readInfo.Mutations...)
+		localReadStats.MutationList = append(localReadStats.MutationList, mutationList...)
 
-		// ----- 新增：细分类统计 -----
-		// 记录该read出现的细分类（用于组合统计）
-		insertSubtypes := make(map[InsertionSubtype]bool)
-		deleteSubtypes := make(map[DeletionSubtype]bool)
-		substSubtypes := make(map[SubstitutionSubtype]bool)
-
-		// 插入细分类
-		if readInfo.InsertSub != nil {
-			for _, ins := range readInfo.InsertSub.Insertions {
-				st := ins.Subtype
-				// 事件数
-				sampleStats.InsertSubtypeEvents[st]++
-				// 碱基数
-				sampleStats.InsertSubtypeBases[st] += ins.Length
-				insertSubtypes[st] = true
-			}
-			// reads数（每个细分类单独计）
-			for st := range insertSubtypes {
-				sampleStats.InsertSubtypeReads[st]++
-			}
-		}
-
-		// 缺失细分类
+		// 缺失细分类统计
 		if readInfo.DeleteSub != nil {
 			if len(readInfo.DeleteSub.Deletions) > 0 {
-				// reads维度：包含缺失的reads数
-				sampleStats.DeleteReads++
+				localReadStats.DeleteReads++
 			}
 			for _, del := range readInfo.DeleteSub.Deletions {
-				// 缺失事件个数维度：每个缺失事件计数
-				sampleStats.DeleteEventCount++
+				localReadStats.DeleteEventCount++
+				localReadStats.DeleteBaseTotal += del.Length
+				localReadStats.MutationBaseCounts["deletion"] += del.Length
 
-				// 缺失碱基个数维度：累加缺失碱基数
-				sampleStats.DeleteBaseTotal += del.Length
-				sampleStats.MutationBaseCounts["deletion"] += del.Length
-
-				// 缺失长度分布
 				length := del.Length
 				if length > 3 {
-					length = 4 // >3
+					length = 4
 				}
-				sampleStats.DeleteLengthDist[length]++
+				localReadStats.DeleteLengthDist[length]++
 
 				st := del.Subtype
-				sampleStats.DeleteSubtypeEvents[st]++
-				sampleStats.DeleteSubtypeBases[st] += del.Length
+				localReadStats.DeleteSubtypeEvents[st]++
+				localReadStats.DeleteSubtypeBases[st] += del.Length
 				deleteSubtypes[st] = true
+				deleteList = append(deleteList, del)
 
-				// 单碱基缺失统计
 				if st == Del1 && len(del.Bases) == 1 {
 					base := del.Bases[0]
-					sampleStats.Del1BaseCounts[base]++
-
-					// 缺失位置统计
+					localReadStats.Del1BaseCounts[base]++
 					posKey := fmt.Sprintf("%d:%c", del.Position, base)
-					sampleStats.DeletePositionCounts[posKey]++
+					localReadStats.DeletePositionCounts[posKey]++
 				}
 
-				// 新增：对于 Del3，记录前一个碱基和第一个缺失碱基
+				// Del3 统计
 				if st == Del3 && fullSeqFromExcel != "" {
-					// 缺失位置（1-based）
 					pos := del.Position
 					var prevBase byte
 					var firstBase byte
-					// 前一个碱基位置（注意：pos-1 必须在有效范围内）
 					if pos-1 >= 1 && pos-1 <= len(fullSeqFromExcel) {
-						prevBase = fullSeqFromExcel[pos-2] // 字符串索引从0开始
-						sampleStats.Del3PrevBaseCounts[prevBase]++
+						prevBase = fullSeqFromExcel[pos-2]
+						localReadStats.Del3PrevBaseCounts[prevBase]++
 					}
-					// 第一个缺失碱基
 					if len(del.Bases) > 0 {
 						firstBase = del.Bases[0]
-						sampleStats.Del3FirstBaseCounts[firstBase]++
+						localReadStats.Del3FirstBaseCounts[firstBase]++
 					}
 					combKey := fmt.Sprintf("%c>%c", prevBase, firstBase)
-					sampleStats.Del3PrevFirstCombCounts[combKey]++
+					localReadStats.Del3PrevFirstCombCounts[combKey]++
 				}
-			}
-			for st := range deleteSubtypes {
-				sampleStats.DeleteSubtypeReads[st]++
 			}
 		}
 
-		// 替换细分类
+		// 替换细分类统计
 		if len(readInfo.Mutations) > 0 {
 			for _, sub := range readInfo.Mutations {
 				st := sub.Subtype
-				sampleStats.SubstitutionSubtypeEvents[st]++
-				sampleStats.SubstitutionSubtypeBases[st]++ // 替换碱基数为1
+				localReadStats.SubstitutionSubtypeEvents[st]++
+				localReadStats.SubstitutionSubtypeBases[st]++
 				substSubtypes[st] = true
-			}
-			for st := range substSubtypes {
-				sampleStats.SubstitutionSubtypeReads[st]++
 			}
 		}
 
 		// 细分类组合统计
 		if len(insertSubtypes) > 0 || len(deleteSubtypes) > 0 || len(substSubtypes) > 0 {
 			combKey := buildSubtypeCombinationKey(insertSubtypes, deleteSubtypes, substSubtypes)
-			sampleStats.SubtypeCombinationCounts[combKey]++
+			localReadStats.SubtypeCombinationCounts[combKey]++
 		}
-
-		sampleStats.Unlock()
 	}
 
-	// 更新样本统计
+	// 更新样本统计 - 一次性加锁合并
 	sampleStats.Lock()
 	sampleStats.ReadCounts = totalReads
 	sampleStats.AlignedReads = alignedReads
@@ -495,9 +444,44 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	sampleStats.RefLength = refSeqLen
 	sampleStats.HeadCut = sampleHeadCut
 	sampleStats.TailCut = sampleTailCut
-	// 合并突变统计
-	for _, count := range sampleStats.Mutations {
+	for _, count := range localReadStats.Mutations {
 		sampleStats.TotalMutations += count
+	}
+
+	// 合并位置统计
+	if sampleStats.PositionStats == nil {
+		sampleStats.PositionStats = make(map[int]*PositionDetail, len(localPosMap))
+	}
+	if sampleStats.NMerStats == nil {
+		sampleStats.NMerStats = make(map[int]*PositionNMerStats, len(localPosMap))
+	}
+
+	for pos, localStats := range localPosMap {
+		detail, exists := sampleStats.PositionStats[pos]
+		if !exists {
+			detail = &PositionDetail{}
+			sampleStats.PositionStats[pos] = detail
+		}
+		detail.Depth += localStats.detail.Depth
+		detail.MatchPure += localStats.detail.MatchPure
+		detail.MatchWithIns += localStats.detail.MatchWithIns
+		detail.MismatchPure += localStats.detail.MismatchPure
+		detail.MismatchWithIns += localStats.detail.MismatchWithIns
+		detail.Insertion += localStats.detail.Insertion
+		detail.Deletion += localStats.detail.Deletion
+		detail.Del1 += localStats.detail.Del1
+		detail.PerfectReadsCount += localStats.detail.PerfectReadsCount
+		detail.PerfectUptoPosCount += localStats.detail.PerfectUptoPosCount
+
+		if localStats.nMerStats != nil {
+			nMer, exists := sampleStats.NMerStats[pos]
+			if !exists {
+				nMer = &PositionNMerStats{}
+				sampleStats.NMerStats[pos] = nMer
+			}
+			nMer.NCorrect += localStats.nMerStats.NCorrect
+			nMer.N1Correct += localStats.nMerStats.N1Correct
+		}
 	}
 	sampleStats.Unlock()
 
@@ -510,7 +494,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	stats.TotalAlignedReads += alignedReads
 	stats.TotalReadsWithMuts += readsWithMutations
 
-	// 累加 ACGT 统计
+	// 合并 ACGT 统计
 	if fullSeqFromExcel != "" {
 		sampleStats.RLock()
 		stats.TotalRefACGTCounts['A'] += sampleStats.RefACGTCounts['A']
@@ -521,141 +505,117 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 		sampleStats.RUnlock()
 	}
 
-	// 合并样本统计到总统计
+	// 合并样本统计到总统计 - 使用批量操作
 	sampleStats.RLock()
 
-	// 新增：合并reads维度变异统计
-	stats.TotalInsertReads += sampleStats.InsertReads
-	stats.TotalDeleteReads += sampleStats.DeleteReads
-	stats.TotalSubstitutionReads += sampleStats.SubstitutionReads
-
-	// 新增：合并变异事件个数维度
-	stats.TotalInsertEventCount += sampleStats.InsertEventCount
-	stats.TotalDeleteEventCount += sampleStats.DeleteEventCount
-	stats.TotalSubstitutionEventCount += sampleStats.SubstitutionEventCount
-
-	// 新增：合并碱基个数维度
-	stats.TotalInsertBaseTotal += sampleStats.InsertBaseTotal
-	stats.TotalDeleteBaseTotal += sampleStats.DeleteBaseTotal
-	stats.TotalSubstitutionBaseTotal += sampleStats.SubstitutionBaseTotal
+	stats.TotalInsertReads += localReadStats.InsertReads
+	stats.TotalDeleteReads += localReadStats.DeleteReads
+	stats.TotalSubstitutionReads += localReadStats.SubstitutionReads
+	stats.TotalInsertEventCount += localReadStats.InsertEventCount
+	stats.TotalDeleteEventCount += localReadStats.DeleteEventCount
+	stats.TotalSubstitutionEventCount += localReadStats.SubstitutionEventCount
+	stats.TotalInsertBaseTotal += localReadStats.InsertBaseTotal
+	stats.TotalDeleteBaseTotal += localReadStats.DeleteBaseTotal
+	stats.TotalSubstitutionBaseTotal += localReadStats.SubstitutionBaseTotal
 
 	// 合并read类型统计
-	for rt, count := range sampleStats.ReadTypeCounts {
+	for rt, count := range localReadStats.ReadTypeCounts {
 		stats.TotalReadTypeCounts[rt] += count
 	}
 
 	// 合并插入长度分布
-	for length, count := range sampleStats.InsertLengthDist {
+	for length, count := range localReadStats.InsertLengthDist {
 		stats.TotalInsertLengthDist[length] += count
 	}
 
 	// 合并缺失长度分布
-	for length, count := range sampleStats.DeleteLengthDist {
+	for length, count := range localReadStats.DeleteLengthDist {
 		stats.TotalDeleteLengthDist[length] += count
 	}
 
 	// 合并缺失碱基统计
-	for base, count := range sampleStats.Del1BaseCounts {
+	for base, count := range localReadStats.Del1BaseCounts {
 		stats.TotalDeleteBaseCounts[base] += count
 	}
 
 	// 合并插入序列统计
-	for seq, count := range sampleStats.InsertBaseCounts {
+	for seq, count := range localReadStats.InsertBaseCounts {
 		stats.TotalInsertBaseCounts[seq] += count
 	}
 
 	// 合并缺失位置统计
-	for posKey, count := range sampleStats.DeletePositionCounts {
+	for posKey, count := range localReadStats.DeletePositionCounts {
 		stats.TotalDeletePositionCounts[posKey] += count
 	}
 
 	// 合并突变统计
-	for mutKey, count := range sampleStats.Mutations {
+	for mutKey, count := range localReadStats.Mutations {
 		stats.TotalMutations[mutKey] += count
 	}
 
-	for st, cnt := range sampleStats.DeleteSubtypeReads {
+	// 合并细分类统计
+	for st, cnt := range localReadStats.DeleteSubtypeReads {
 		stats.TotalDeleteSubtypeReads[st] += cnt
 	}
-	for st, cnt := range sampleStats.DeleteSubtypeEvents {
+	for st, cnt := range localReadStats.DeleteSubtypeEvents {
 		stats.TotalDeleteSubtypeEvents[st] += cnt
 	}
-	for st, cnt := range sampleStats.DeleteSubtypeBases {
+	for st, cnt := range localReadStats.DeleteSubtypeBases {
 		stats.TotalDeleteSubtypeBases[st] += cnt
 	}
 
-	for st, cnt := range sampleStats.InsertSubtypeReads {
+	for st, cnt := range localReadStats.InsertSubtypeReads {
 		stats.TotalInsertSubtypeReads[st] += cnt
 	}
-	for st, cnt := range sampleStats.InsertSubtypeEvents {
+	for st, cnt := range localReadStats.InsertSubtypeEvents {
 		stats.TotalInsertSubtypeEvents[st] += cnt
 	}
-	for st, cnt := range sampleStats.InsertSubtypeBases {
+	for st, cnt := range localReadStats.InsertSubtypeBases {
 		stats.TotalInsertSubtypeBases[st] += cnt
 	}
 
-	for st, cnt := range sampleStats.SubstitutionSubtypeReads {
+	for st, cnt := range localReadStats.SubstitutionSubtypeReads {
 		stats.TotalSubstitutionSubtypeReads[st] += cnt
 	}
-	for st, cnt := range sampleStats.SubstitutionSubtypeEvents {
+	for st, cnt := range localReadStats.SubstitutionSubtypeEvents {
 		stats.TotalSubstitutionSubtypeEvents[st] += cnt
 	}
-	for st, cnt := range sampleStats.SubstitutionSubtypeBases {
+	for st, cnt := range localReadStats.SubstitutionSubtypeBases {
 		stats.TotalSubstitutionSubtypeBases[st] += cnt
 	}
 
-	// ... 类似合并插入、替换细分类 ...
-	for comb, cnt := range sampleStats.SubtypeCombinationCounts {
+	for comb, cnt := range localReadStats.SubtypeCombinationCounts {
 		stats.TotalSubtypeCombinationCounts[comb] += cnt
 	}
 
-	for count, n := range sampleStats.SubstitutionCountDist {
+	for count, n := range localReadStats.SubstitutionCountDist {
 		stats.TotalSubstitutionCountDist[count] += n
 	}
 
-	// 合并 Del1 碱基分布
-	for base, cnt := range sampleStats.Del1BaseCounts {
+	for base, cnt := range localReadStats.Del1BaseCounts {
 		stats.TotalDel1BaseCounts[base] += cnt
 	}
 
-	// 合并 Del3 相邻碱基分布
-	for base, cnt := range sampleStats.Del3PrevBaseCounts {
+	for base, cnt := range localReadStats.Del3PrevBaseCounts {
 		stats.TotalDel3PrevBaseCounts[base] += cnt
 	}
-	for base, cnt := range sampleStats.Del3FirstBaseCounts {
+	for base, cnt := range localReadStats.Del3FirstBaseCounts {
 		stats.TotalDel3FirstBaseCounts[base] += cnt
 	}
-	for key, cnt := range sampleStats.Del3PrevFirstCombCounts {
+	for key, cnt := range localReadStats.Del3PrevFirstCombCounts {
 		stats.TotalDel3PrevFirstCombCounts[key] += cnt
 	}
 
-	stats.TotalGoodAlignedReads += sampleStats.GoodAlignedReads
-	// 累加 RefLength * GoodAlignedReads
-	stats.TotalRefLengthGoodAligned += (sampleStats.RefLength - sampleStats.HeadCut - sampleStats.TailCut) * sampleStats.GoodAlignedReads
-	stats.TotalAlignedBases += sampleStats.AlignedBases
+	stats.TotalGoodAlignedReads += localReadStats.GoodAlignedReads
+	trimmedLen := refSeqLen - sampleHeadCut - sampleTailCut
+	if trimmedLen > 0 {
+		stats.TotalRefLengthGoodAligned += trimmedLen * localReadStats.GoodAlignedReads
+	}
+	stats.TotalAlignedBases += localReadStats.AlignedBases
 
 	sampleStats.RUnlock()
 	stats.Unlock()
-	/*
-		// 计算比对率
-		alignmentRate := 0.0
-		if totalReads > 0 {
-			alignmentRate = float64(alignedReads) / float64(totalReads) * 100
-		}
 
-		fmt.Printf("  总reads数: %d\n", totalReads)
-		fmt.Printf("  比对reads数: %d (%.2f%%)\n", alignedReads, alignmentRate)
-		fmt.Printf("  包含突变的reads数: %d\n", readsWithMutations)
-		fmt.Printf("  总突变数: %d\n", totalMutations)
-		fmt.Printf("  Read类型统计:\n")
-		for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
-			count := sampleStats.ReadTypeCounts[rt]
-			if count > 0 {
-				percentage := float64(count) / float64(totalReads) * 100
-				fmt.Printf("    %s: %d (%.2f%%)\n", ReadTypeNames[rt], count, percentage)
-			}
-		}
-	*/
 	return nil
 }
 

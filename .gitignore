@@ -1,1 +1,4 @@
 *.exe
+cmd/bam-mut-analyzer/bam-mut-analyzer
+
+test/
