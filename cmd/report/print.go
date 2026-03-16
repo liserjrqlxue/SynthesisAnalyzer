@@ -80,40 +80,52 @@ func generateCycleAnalysisGoEcharts(title string, posData []int, dataSets map[st
 	Color string
 }) string {
 	// 计算数据范围
-	maxY := 0.0
-	minY := 100.0
-	for _, set := range dataSets {
-		for _, val := range set.Data {
-			if val > maxY {
-				maxY = val
-			}
-			if val < minY {
-				minY = val
-			}
-		}
-	}
+	// maxY := 0.0
+	// minY := 100.0
+	// for _, set := range dataSets {
+	// 	for _, val := range set.Data {
+	// 		if val > maxY {
+	// 			maxY = val
+	// 		}
+	// 		if val < minY {
+	// 			minY = val
+	// 		}
+	// 	}
+	// }
 
-	// 为了让图表更美观，在最大值和最小值上增加一些边距
-	padding := (maxY - minY) * 0.05
-	maxY += padding
-	minY -= padding
-	if minY < 0 {
-		minY = 0
-	}
+	// // 为了让图表更美观，在最大值和最小值上增加一些边距
+	// padding := (maxY - minY) * 0.05
+	// maxY += padding
+	// minY -= padding
+	// if minY < 1 {
+	// 	minY = 0
+	// }
 
-	// 对于平均合成收率，确保Y轴范围合理
-	if title == "平均合成收率随轮次变化" {
-		if maxY > 99 {
-			maxY = 100
-		}
-	}
+	// if maxY > 95 {
+	// 	maxY = 100
+	// }
+	// fmt.Printf("maxY: %.2f, minY: %.2f\n", maxY, minY)
 
 	// 创建折线图
 	line := charts.NewLine()
 	line.SetGlobalOptions(
 		charts.WithTitleOpts(opts.Title{Title: title}),
 		charts.WithXAxisOpts(opts.XAxis{Name: "位置 (pos)"}),
-		charts.WithYAxisOpts(opts.YAxis{Name: "百分比 (%)"}), // , Min: minY, Max: maxY}),
+		charts.WithYAxisOpts(
+			opts.YAxis{
+				Name:  "百分比 (%)",
+				Scale: opts.Bool(true), // 不强制包含 0
+				// MinInterval: 1,               // 最小间隔为1
+				// BoundaryGap: []string{"10%", "10%"}, // 数据点两侧留白 10%
+
+				// Min:  minY,
+				// Max:  maxY,
+				// AxisLabel: &opts.AxisLabel{
+				// ShowMinLabel: opts.Bool(false), // 隐藏最小值标签
+				// ShowMaxLabel: opts.Bool(false),
+				// },
+			},
+		),
 		charts.WithTooltipOpts(opts.Tooltip{Show: opts.Bool(true), Trigger: "axis"}),
 		charts.WithLegendOpts(opts.Legend{Show: opts.Bool(true), Top: "bottom"}),
 	)
@@ -170,24 +182,13 @@ func generateCycleAnalysisSVG(title string, posData []int, dataSets map[string]s
 
 	// 为了让图表更美观，在最大值和最小值上增加一些边距
 	padding := (maxY - minY) * 0.05
-	// if padding < 1 {
-	// padding = 1
-	// }
 	maxY += padding
 	minY -= padding
 	if minY < 0 {
 		minY = 0
 	}
-
-	// 对于平均合成收率，确保Y轴范围合理
-	if title == "平均合成收率随轮次变化" {
-		// minY = 90
-		if maxY < 95 {
-			maxY = 95
-		}
-		if maxY > 100 {
-			maxY = 100
-		}
+	if maxY > 99 {
+		maxY = 100
 	}
 
 	// 计算X轴范围
@@ -250,7 +251,7 @@ func generateCycleAnalysisSVG(title string, posData []int, dataSets map[string]s
 	}
 
 	// 绘制数据线条
-	for name, set := range dataSets {
+	for _, set := range dataSets {
 		if len(set.Data) >= 2 {
 			fmt.Fprintf(b, `<path d="`)
 			for j, val := range set.Data {
@@ -679,8 +680,8 @@ th { background-color: #f2f2f2; }
 			Data  []float64
 			Color string
 		}{
-			"批次总和 (batch_sum)":  {Data: yieldData, Color: "#4BC0C0"},
-			"批次均值 (batch_mean)": {Data: yieldDataMean, Color: "#FF6384"},
+			"批次总和 (batch_sum)":  {Data: yieldData, Color: "#FF6384"},
+			"批次均值 (batch_mean)": {Data: yieldDataMean, Color: "#4BC0C0"},
 		}
 		generateCycleAnalysisChart(b, "3.1 平均合成收率随轮次变化", "平均合成收率随轮次变化", "yield", posData, yieldDataSets, useGoEcharts, embedImage, outputDir)
 
@@ -699,8 +700,8 @@ th { background-color: #f2f2f2; }
 			Data  []float64
 			Color string
 		}{
-			"批次总和 (batch_sum)":  {Data: mutationData, Color: "#36A2EB"},
-			"批次均值 (batch_mean)": {Data: mutationDataMean, Color: "#FFCE56"},
+			"批次总和 (batch_sum)":  {Data: mutationData, Color: "#FF6384"},
+			"批次均值 (batch_mean)": {Data: mutationDataMean, Color: "#4BC0C0"},
 		}
 		generateCycleAnalysisChart(b, "3.3 平均突变随轮次变化", "平均突变随轮次变化", "mutation", posData, mutationDataSets, useGoEcharts, embedImage, outputDir)
 
@@ -709,8 +710,8 @@ th { background-color: #f2f2f2; }
 			Data  []float64
 			Color string
 		}{
-			"批次总和 (batch_sum)":  {Data: insertionData, Color: "#FFCE56"},
-			"批次均值 (batch_mean)": {Data: insertionDataMean, Color: "#36A2EB"},
+			"批次总和 (batch_sum)":  {Data: insertionData, Color: "#FF6384"},
+			"批次均值 (batch_mean)": {Data: insertionDataMean, Color: "#4BC0C0"},
 		}
 		generateCycleAnalysisChart(b, "3.4 平均插入随轮次变化", "平均插入随轮次变化", "insertion", posData, insertionDataSets, useGoEcharts, embedImage, outputDir)
 	} else {
