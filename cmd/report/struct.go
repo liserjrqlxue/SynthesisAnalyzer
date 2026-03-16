@@ -113,15 +113,17 @@ type Appendix struct {
 
 // 根结构
 type ReportData struct {
-	ReportTitle         string  `json:"report_title"`
-	SynthesisDate       string  `json:"synthesis_date"`
-	InstrumentID        string  `json:"instrument_id"`
-	WellCount           int     `json:"well_count"`
-	SynthesisLength     int     `json:"synthesis_length"`
-	SynthesisProcessVer string  `json:"synthesis_process_version"`
-	SEC1ProcessVer      string  `json:"sec1_process_version"`
-	SequencingDate      string  `json:"sequencing_date"`
-	Wells               []*Well `json:"wells"` // 所有孔的列表
+	ReportTitle         string `json:"report_title"`
+	SynthesisDate       string `json:"synthesis_date"`
+	InstrumentID        string `json:"instrument_id"`
+	WellCount           int    `json:"well_count"`
+	SynthesisLength     int    `json:"synthesis_length"`
+	SynthesisProcessVer string `json:"synthesis_process_version"`
+	SEC1ProcessVer      string `json:"sec1_process_version"`
+	SequencingDate      string `json:"sequencing_date"`
+	BarcodeReads        int    `json:"barcode_reads"` // 测序数据中的Barcode reads数量
+
+	Wells []*Well `json:"wells"` // 所有孔的列表
 	// 错误统计的参考值（仅用于输出参考列，数据由程序计算）
 	ErrorStatsRef []ErrorStatRef `json:"error_stats_ref"`
 

@@ -17,12 +17,14 @@ func printPlateTableHTML(w io.Writer, title, subtitle, note, batchID string, pla
 	}
 
 	// 表格样式：固定布局，单元格固定宽高，居中对齐
-	fmt.Fprint(w, `<table border="1" cellpadding="4" cellspacing="0" style="border-collapse: collapse; table-layout: fixed; width: auto;">`+"\n")
-	fmt.Fprint(w, `<colgroup><col style="width: 120px;"></colgroup>`) // 行号列宽度
-	for i := 0; i < Cols; i++ {
-		fmt.Fprintf(w, `<col style="width: 120px;">`) // 每列宽度80px
+	fmt.Fprint(w, `<table border="1" cellpadding="4" cellspacing="0" style="border-collapse: collapse; table-layout: fixed; width: auto;; min-width: 800px;">`+"\n")
+	fmt.Fprint(w, `<colgroup>`+"\n")
+	fmt.Fprint(w, `<col style="width: 120px;">`+"\n") // 行号列宽度
+	for range Cols {
+		fmt.Fprintf(w, `<col style="width: 120px;">`+"\n") // 每列宽度120px
 	}
 	fmt.Fprint(w, "\n")
+	fmt.Fprint(w, `</colgroup>`+"\n")
 
 	// 表头行：第一个单元格为 batchID，其余为列字母
 	fmt.Fprint(w, "<tr>")
@@ -100,7 +102,7 @@ th { background-color: #f2f2f2; }
 	fmt.Fprint(b, "<h3>基本信息</h3>\n")
 	// 表格样式：固定布局，单元格固定宽高，居中对齐
 
-	fmt.Fprint(b, `<table border='1' cellpadding='4' style="table-layout: fixed; width: auto;">`+"\n")
+	fmt.Fprint(b, `<table border='1' cellpadding='4' style="table-layout: fixed; width: auto;; min-width: 800px;">`+"\n")
 	fmt.Fprint(b, `<colgroup><col style="width: 240px;"></colgroup>`) // 行号列宽度
 	fmt.Fprint(b, `<colgroup><col style="width: 240px;"></colgroup>`) // 行号列宽度
 	fmt.Fprintf(b, "<tr><td>合成日期</td><td>%s</td></tr>\n", data.SynthesisDate)
@@ -110,7 +112,8 @@ th { background-color: #f2f2f2; }
 	fmt.Fprintf(b, "<tr><td>合成工艺版本</td><td>%s</td></tr>\n", data.SynthesisProcessVer)
 	fmt.Fprintf(b, "<tr><td>SEC1工艺版本</td><td>%s</td></tr>\n", data.SEC1ProcessVer)
 	fmt.Fprintf(b, "<tr><td>测序日期</td><td>%s</td></tr>\n", data.SequencingDate)
-	fmt.Fprint(b, "</table>\n")
+	fmt.Fprintf(b, "<tr><td>Barcode数据量（reads）</td><td>%d</td></tr>\n", data.BarcodeReads)
+	// fmt.Fprint(b, "</table>\n")
 
 	// 统计概要 - 使用从mutation_stats获取的更新后数据
 	stats := data.Summary.Statistics
@@ -123,10 +126,10 @@ th { background-color: #f2f2f2; }
 		refMap[ref.ErrorType] = ref.Reference
 	}
 
-	fmt.Fprint(b, "<h3>统计信息</h3>\n")
-	fmt.Fprint(b, `<table border='1' cellpadding='4' style="table-layout: fixed; width: auto;">`+"\n")
-	fmt.Fprint(b, `<colgroup><col style="width: 240px;"></colgroup>`) // 行号列宽度
-	fmt.Fprint(b, `<colgroup><col style="width: 240px;"></colgroup>`) // 行号列宽度
+	// fmt.Fprint(b, "<h3>合成信息</h3>\n")
+	// fmt.Fprint(b, `<table border='1' cellpadding='4' style="table-layout: fixed; width: auto;; min-width: 800px;">`+"\n")
+	// fmt.Fprint(b, `<colgroup><col style="width: 240px;"></colgroup>`) // 行号列宽度
+	// fmt.Fprint(b, `<colgroup><col style="width: 240px;"></colgroup>`) // 行号列宽度
 
 	// 平均收率 - 根据参考值是否存在来决定输出格式
 	if refVal, ok := refMap["平均收率"]; ok && refVal != nil && *refVal > 0 {
@@ -147,18 +150,21 @@ th { background-color: #f2f2f2; }
 
 	// 合成错误统计
 	fmt.Fprint(b, "<h3>合成错误统计</h3>\n")
-	fmt.Fprint(b, `<table border='1' cellpadding='4' style="table-layout: fixed; width: auto;">`+"\n")
-	fmt.Fprint(b, `<colgroup><col style="width: 240px;"></colgroup>`) // 行号列宽度
-	fmt.Fprint(b, `<colgroup><col style="width: 120px;"></colgroup>`) // 行号列宽度
-	fmt.Fprint(b, `<colgroup><col style="width: 120px;"></colgroup>`) // 行号列宽度
-	fmt.Fprint(b, "<tr><th>错误类型</th><th>参考值</th><th>数据</th></tr>\n")
+	fmt.Fprint(b, `<table border='1' cellpadding='4' style="table-layout: fixed; width: auto; min-width: 800px;">`+"\n")
+	fmt.Fprint(b, `<colgroup>`+"\n")                  // 列标题
+	fmt.Fprint(b, `<col style="width: 140px;">`+"\n") // 错误类型-EN列宽度
+	fmt.Fprint(b, `<col style="width: 230px;">`+"\n") // 错误类型-CN列宽度
+	fmt.Fprint(b, `<col style="width: 120px;">`+"\n") // 示例列宽度
+	// fmt.Fprint(b, `</colgroup>`+"\n")                 //
+	// fmt.Fprint(b, `<colgroup>`+"\n")                  // 列值
+	fmt.Fprint(b, `<col style="width: 120px;">`+"\n") // 参考值列宽度
+	fmt.Fprint(b, `<col style="width: 120px;">`+"\n") // 数据列宽度
+	fmt.Fprint(b, `</colgroup>`+"\n")                 //
+	fmt.Fprint(b, "<tr><th>错误类型-EN</th><th>错误类型-CN</th><th>示例</th><th>参考值</th><th>数据</th></tr>\n")
 
 	for _, es := range data.Summary.ErrorStats {
-		// 获取错误类型的显示名称
-		errorTypeName := es.ErrorType
-		if mappedName, ok := subtypeMapping[es.ErrorType]; ok {
-			errorTypeName = mappedName
-		}
+		// 获取错误类型的详细信息
+		errorInfo := errorTypeInfoMap[es.ErrorType]
 
 		refVal := refMap[es.ErrorType]
 		refStr := ""
@@ -169,8 +175,8 @@ th { background-color: #f2f2f2; }
 		if es.Data != nil {
 			dataStr = fmt.Sprintf("%.2f", *es.Data)
 		}
-		fmt.Fprintf(b, "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n",
-			errorTypeName, refStr, dataStr)
+		fmt.Fprintf(b, "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",
+			errorInfo.EN, errorInfo.CN, errorInfo.Example, refStr, dataStr)
 	}
 	fmt.Fprint(b, "</table>\n")
 

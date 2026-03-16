@@ -1,4 +1,5 @@
 *.exe
 cmd/bam-mut-analyzer/bam-mut-analyzer
+cmd/report/report
 
 test/
