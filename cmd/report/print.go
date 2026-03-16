@@ -75,16 +75,21 @@ func printPlateTableHTML(w io.Writer, title, subtitle, note, batchID string, pla
 }
 
 // generateCycleAnalysisGoEcharts 使用go-echarts生成合成轮次分析图表
-func generateCycleAnalysisGoEcharts(title string, posData []int, data []float64, color string) string {
+func generateCycleAnalysisGoEcharts(title string, posData []int, dataSets map[string]struct {
+	Data  []float64
+	Color string
+}) string {
 	// 计算数据范围
 	maxY := 0.0
 	minY := 100.0
-	for _, val := range data {
-		if val > maxY {
-			maxY = val
-		}
-		if val < minY {
-			minY = val
+	for _, set := range dataSets {
+		for _, val := range set.Data {
+			if val > maxY {
+				maxY = val
+			}
+			if val < minY {
+				minY = val
+			}
 		}
 	}
 
@@ -108,7 +113,7 @@ func generateCycleAnalysisGoEcharts(title string, posData []int, data []float64,
 	line.SetGlobalOptions(
 		charts.WithTitleOpts(opts.Title{Title: title}),
 		charts.WithXAxisOpts(opts.XAxis{Name: "位置 (pos)"}),
-		charts.WithYAxisOpts(opts.YAxis{Name: "百分比 (%)", Min: minY, Max: maxY}),
+		charts.WithYAxisOpts(opts.YAxis{Name: "百分比 (%)"}), // , Min: minY, Max: maxY}),
 		charts.WithTooltipOpts(opts.Tooltip{Show: opts.Bool(true), Trigger: "axis"}),
 		charts.WithLegendOpts(opts.Legend{Show: opts.Bool(true), Top: "bottom"}),
 	)
@@ -116,20 +121,17 @@ func generateCycleAnalysisGoEcharts(title string, posData []int, data []float64,
 	// 设置X轴数据
 	line.SetXAxis(posData)
 
-	// 准备数据
-	var items []opts.LineData
-	for _, val := range data {
-		items = append(items, opts.LineData{Value: val})
-	}
-
 	// 添加数据系列
-	line.AddSeries(title, items)
+	for name, set := range dataSets {
+		// 准备数据
+		var items []opts.LineData
+		for _, val := range set.Data {
+			items = append(items, opts.LineData{Value: val})
+		}
 
-	// 设置系列样式
-	line.SetSeriesOptions(
-		charts.WithLineChartOpts(opts.LineChart{Smooth: opts.Bool(false)}),
-		charts.WithItemStyleOpts(opts.ItemStyle{Color: color}),
-	)
+		// 添加数据系列
+		line.AddSeries(name, items)
+	}
 
 	// 使用RenderSnippet生成图表部分
 	snippet := line.Renderer.RenderSnippet()
@@ -143,7 +145,10 @@ func generateCycleAnalysisGoEcharts(title string, posData []int, data []float64,
 }
 
 // generateCycleAnalysisSVG 生成合成轮次分析的SVG图表
-func generateCycleAnalysisSVG(title string, posData []int, data []float64, color string) string {
+func generateCycleAnalysisSVG(title string, posData []int, dataSets map[string]struct {
+	Data  []float64
+	Color string
+}) string {
 	// 图表尺寸
 	width := 1000
 	height := 400
@@ -152,12 +157,14 @@ func generateCycleAnalysisSVG(title string, posData []int, data []float64, color
 	// 计算数据范围
 	maxY := 0.0
 	minY := 100.0
-	for _, val := range data {
-		if val > maxY {
-			maxY = val
-		}
-		if val < minY {
-			minY = val
+	for _, set := range dataSets {
+		for _, val := range set.Data {
+			if val > maxY {
+				maxY = val
+			}
+			if val < minY {
+				minY = val
+			}
 		}
 	}
 
@@ -243,18 +250,32 @@ func generateCycleAnalysisSVG(title string, posData []int, data []float64, color
 	}
 
 	// 绘制数据线条
-	if len(data) >= 2 {
-		fmt.Fprintf(b, `<path d="`)
-		for j, val := range data {
-			x := margin + (posData[j]-minX)*(width-2*margin)/rangeX
-			y := height - margin - int((val-minY)*float64(height-2*margin)/rangeY)
-			if j == 0 {
-				fmt.Fprintf(b, "M %d %d", x, y)
-			} else {
-				fmt.Fprintf(b, " L %d %d", x, y)
+	for name, set := range dataSets {
+		if len(set.Data) >= 2 {
+			fmt.Fprintf(b, `<path d="`)
+			for j, val := range set.Data {
+				x := margin + (posData[j]-minX)*(width-2*margin)/rangeX
+				y := height - margin - int((val-minY)*float64(height-2*margin)/rangeY)
+				if j == 0 {
+					fmt.Fprintf(b, "M %d %d", x, y)
+				} else {
+					fmt.Fprintf(b, " L %d %d", x, y)
+				}
 			}
+			fmt.Fprintf(b, `" stroke="%s" stroke-width="2" fill="none"/>`, set.Color)
 		}
-		fmt.Fprintf(b, `" stroke="%s" stroke-width="2" fill="none"/>`, color)
+	}
+
+	// 绘制图例
+	legendX := margin + 50
+	legendY := 40
+	i := 0
+	for name, set := range dataSets {
+		// 绘制颜色方块
+		fmt.Fprintf(b, `<rect x="%d" y="%d" width="12" height="12" fill="%s"/>`, legendX, legendY+i*20, set.Color)
+		// 绘制文字
+		fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="12">%s</text>`, legendX+20, legendY+i*20+10, name)
+		i++
 	}
 
 	fmt.Fprint(b, `</svg>`)
@@ -262,18 +283,21 @@ func generateCycleAnalysisSVG(title string, posData []int, data []float64, color
 }
 
 // generateCycleAnalysisChart 生成合成轮次分析图表的抽象函数
-func generateCycleAnalysisChart(w io.Writer, sectionTitle, chartTitle, tag string, posData []int, data []float64, color string, useGoEcharts, embedImage bool, outputDir string) {
+func generateCycleAnalysisChart(w io.Writer, sectionTitle, chartTitle, tag string, posData []int, dataSets map[string]struct {
+	Data  []float64
+	Color string
+}, useGoEcharts, embedImage bool, outputDir string) {
 	fmt.Fprint(w, `<div class="section">`+"\n")
 	fmt.Fprintf(w, "<h3>%s</h3>\n", sectionTitle)
 	if useGoEcharts {
 		// 使用go-echarts生成图表
-		chart := generateCycleAnalysisGoEcharts(chartTitle, posData, data, color)
+		chart := generateCycleAnalysisGoEcharts(chartTitle, posData, dataSets)
 		fmt.Fprint(w, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
 		fmt.Fprint(w, chart)
 		fmt.Fprint(w, `</div>`+"\n")
 	} else {
 		// 使用内置SVG生成器
-		svg := generateCycleAnalysisSVG(chartTitle, posData, data, color)
+		svg := generateCycleAnalysisSVG(chartTitle, posData, dataSets)
 		if embedImage {
 			fmt.Fprint(w, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
 			fmt.Fprint(w, svg)
@@ -627,11 +651,68 @@ th { background-color: #f2f2f2; }
 			insertionData = append(insertionData, stats.AvgInsertion)
 		}
 
+		// 准备批次均值数据
+		yieldDataMean := make([]float64, len(posData))
+		deletionDataMean := make([]float64, len(posData))
+		mutationDataMean := make([]float64, len(posData))
+		insertionDataMean := make([]float64, len(posData))
+
+		// 构建位置到索引的映射
+		posToIndex := make(map[int]int)
+		for i, pos := range posData {
+			posToIndex[pos] = i
+		}
+
+		// 填充批次均值数据
+		for _, stats := range data.PositionStatsMean {
+			if idx, ok := posToIndex[stats.Pos]; ok {
+				yieldDataMean[idx] = stats.AvgYield
+				deletionDataMean[idx] = stats.AvgDeletion
+				mutationDataMean[idx] = stats.AvgMutation
+				insertionDataMean[idx] = stats.AvgInsertion
+			}
+		}
+
 		// 生成合成轮次分析图表
-		generateCycleAnalysisChart(b, "3.1 平均合成收率随轮次变化", "平均合成收率随轮次变化", "yield", posData, yieldData, "#4BC0C0", useGoEcharts, embedImage, outputDir)
-		generateCycleAnalysisChart(b, "3.2 平均缺失随轮次变化", "平均缺失随轮次变化", "deletion", posData, deletionData, "#FF6384", useGoEcharts, embedImage, outputDir)
-		generateCycleAnalysisChart(b, "3.3 平均突变随轮次变化", "平均突变随轮次变化", "mutation", posData, mutationData, "#36A2EB", useGoEcharts, embedImage, outputDir)
-		generateCycleAnalysisChart(b, "3.4 平均插入随轮次变化", "平均插入随轮次变化", "insertion", posData, insertionData, "#FFCE56", useGoEcharts, embedImage, outputDir)
+		// 收率图表
+		yieldDataSets := map[string]struct {
+			Data  []float64
+			Color string
+		}{
+			"批次总和 (batch_sum)":  {Data: yieldData, Color: "#4BC0C0"},
+			"批次均值 (batch_mean)": {Data: yieldDataMean, Color: "#FF6384"},
+		}
+		generateCycleAnalysisChart(b, "3.1 平均合成收率随轮次变化", "平均合成收率随轮次变化", "yield", posData, yieldDataSets, useGoEcharts, embedImage, outputDir)
+
+		// 缺失图表
+		deletionDataSets := map[string]struct {
+			Data  []float64
+			Color string
+		}{
+			"批次总和 (batch_sum)":  {Data: deletionData, Color: "#FF6384"},
+			"批次均值 (batch_mean)": {Data: deletionDataMean, Color: "#4BC0C0"},
+		}
+		generateCycleAnalysisChart(b, "3.2 平均缺失随轮次变化", "平均缺失随轮次变化", "deletion", posData, deletionDataSets, useGoEcharts, embedImage, outputDir)
+
+		// 突变图表
+		mutationDataSets := map[string]struct {
+			Data  []float64
+			Color string
+		}{
+			"批次总和 (batch_sum)":  {Data: mutationData, Color: "#36A2EB"},
+			"批次均值 (batch_mean)": {Data: mutationDataMean, Color: "#FFCE56"},
+		}
+		generateCycleAnalysisChart(b, "3.3 平均突变随轮次变化", "平均突变随轮次变化", "mutation", posData, mutationDataSets, useGoEcharts, embedImage, outputDir)
+
+		// 插入图表
+		insertionDataSets := map[string]struct {
+			Data  []float64
+			Color string
+		}{
+			"批次总和 (batch_sum)":  {Data: insertionData, Color: "#FFCE56"},
+			"批次均值 (batch_mean)": {Data: insertionDataMean, Color: "#36A2EB"},
+		}
+		generateCycleAnalysisChart(b, "3.4 平均插入随轮次变化", "平均插入随轮次变化", "insertion", posData, insertionDataSets, useGoEcharts, embedImage, outputDir)
 	} else {
 		fmt.Fprint(b, `<p>未找到位置统计数据，无法生成合成轮次分析图表。</p>`+"\n")
 	}

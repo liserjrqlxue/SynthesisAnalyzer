@@ -129,7 +129,8 @@ type ReportData struct {
 	// 错误统计的参考值（仅用于输出参考列，数据由程序计算）
 	ErrorStatsRef []ErrorStatRef `json:"error_stats_ref"`
 	// 位置统计数据（用于合成轮次分析）
-	PositionStats []PositionStats `json:"position_stats,omitempty"`
+	PositionStats     []PositionStats `json:"position_stats,omitempty"`      // 批次总和
+	PositionStatsMean []PositionStats `json:"position_stats_mean,omitempty"` // 批次均值
 
 	Summary Summary `json:"summary"`
 	// PlateAnalysis PlateAnalysis `json:"plate_analysis"`

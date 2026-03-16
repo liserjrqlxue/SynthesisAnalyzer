@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sort"
 	"strings"
 )
 
@@ -250,7 +251,7 @@ func updateYieldData(report *ReportData, yieldStats map[string]float64, deletion
 	}
 }
 
-// updatePositionStats 更新每个孔的位置统计数据
+// updatePositionStats 更新每个孔的位置统计数据并计算批次均值
 func updatePositionStats(report *ReportData, mutationStatsDir string) {
 	// 为每个孔位读取对应的位置统计数据
 	for _, well := range report.Wells {
@@ -264,4 +265,61 @@ func updatePositionStats(report *ReportData, mutationStatsDir string) {
 			well.PositionStats = positionStats
 		}
 	}
+
+	// 计算批次均值位置统计数据
+	report.PositionStatsMean = calculateBatchMeanPositionStats(report.Wells)
+}
+
+// calculateBatchMeanPositionStats 计算批次均值位置统计数据
+func calculateBatchMeanPositionStats(wells []*Well) []PositionStats {
+	if len(wells) == 0 {
+		return nil
+	}
+
+	// 收集所有位置
+	positionMap := make(map[int]struct{})
+	for _, well := range wells {
+		for _, ps := range well.PositionStats {
+			positionMap[ps.Pos] = struct{}{}
+		}
+	}
+
+	// 将位置转换为切片并排序
+	var positions []int
+	for pos := range positionMap {
+		positions = append(positions, pos)
+	}
+	sort.Ints(positions)
+
+	// 计算每个位置的均值
+	var result []PositionStats
+	for _, pos := range positions {
+		var totalYield, totalDeletion, totalMutation, totalInsertion float64
+		var count int
+
+		for _, well := range wells {
+			for _, ps := range well.PositionStats {
+				if ps.Pos == pos {
+					totalYield += ps.AvgYield
+					totalDeletion += ps.AvgDeletion
+					totalMutation += ps.AvgMutation
+					totalInsertion += ps.AvgInsertion
+					count++
+					break
+				}
+			}
+		}
+
+		if count > 0 {
+			result = append(result, PositionStats{
+				Pos:          pos,
+				AvgYield:     totalYield / float64(count),
+				AvgDeletion:  totalDeletion / float64(count),
+				AvgMutation:  totalMutation / float64(count),
+				AvgInsertion: totalInsertion / float64(count),
+			})
+		}
+	}
+
+	return result
 }
