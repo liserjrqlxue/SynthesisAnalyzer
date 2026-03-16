@@ -308,8 +308,48 @@ func ReadSubtypeStats(inputDir string) (map[string]float64, error) {
 			}
 		}
 	}
-
 	return subtypeStats, nil
+}
+
+// ReadSplitSummary 从split_summary.txt读取总处理reads数
+func ReadSplitSummary(inputDir string) (int, error) {
+	// 构建split_summary.txt文件路径
+	summaryPath := filepath.Join(inputDir, "split_summary.txt")
+
+	// 打开文件
+	file, err := os.Open(summaryPath)
+	if err != nil {
+		return 0, fmt.Errorf("打开split_summary.txt失败: %w", err)
+	}
+	defer file.Close()
+
+	// 读取文件内容
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		// 查找"总处理reads数:"行
+		if strings.Contains(line, "总处理reads数:") {
+			// 提取数值
+			parts := strings.Split(line, ":")
+			if len(parts) >= 2 {
+				// 去除空格和逗号
+				numStr := strings.TrimSpace(parts[1])
+				numStr = strings.ReplaceAll(numStr, ",", "")
+				// 转换为整数
+				num, err := strconv.Atoi(numStr)
+				if err != nil {
+					return 0, fmt.Errorf("解析总处理reads数失败: %w", err)
+				}
+				return num, nil
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return 0, fmt.Errorf("读取split_summary.txt失败: %w", err)
+	}
+
+	return 0, fmt.Errorf("未找到总处理reads数")
 }
 
 // ReadYieldStats 从read_type_by_sample.csv读取收率和错误统计数据

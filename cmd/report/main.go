@@ -157,6 +157,16 @@ func main() {
 			// 更新收率和错误数据
 			updateYieldData(&report, yieldStats, deletionStats, mutationStats, insertionStats)
 		}
+
+		// 读取split_summary.txt中的总处理reads数
+		barcodeReads, err := ReadSplitSummary(*mutationStatsDir)
+		if err != nil {
+			log.Printf("警告：读取split_summary.txt失败: %v", err)
+		} else {
+			// 更新BarcodeReads字段
+			report.BarcodeReads = barcodeReads
+			log.Printf("从split_summary.txt更新BarcodeReads: %d", barcodeReads)
+		}
 	}
 
 	// 生成报告文本
