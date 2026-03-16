@@ -311,6 +311,154 @@ func ReadSubtypeStats(inputDir string) (map[string]float64, error) {
 	return subtypeStats, nil
 }
 
+// PositionStats 位置统计数据
+type PositionStats struct {
+	Pos          int     `json:"pos"`
+	AvgYield     float64 `json:"avg_yield"`     // 平均合成收率: match_pure/depth
+	AvgDeletion  float64 `json:"avg_deletion"`  // 平均缺失: deletion/depth
+	AvgMutation  float64 `json:"avg_mutation"`  // 平均突变: (mismatch_pure+mismatch_with_ins)/depth
+	AvgInsertion float64 `json:"avg_insertion"` // 平均插入: insertion/depth
+}
+
+// ReadPositionStats 从total_position_detailed.csv读取位置统计数据
+func ReadPositionStats(inputDir string) ([]PositionStats, error) {
+	// 构建total_position_detailed.csv文件路径
+	csvPath := filepath.Join(inputDir, "mutation_stats", "total_position_detailed.csv")
+
+	// 打开文件
+	file, err := os.Open(csvPath)
+	if err != nil {
+		return nil, fmt.Errorf("打开total_position_detailed.csv失败: %w", err)
+	}
+	defer file.Close()
+
+	// 读取CSV文件
+	reader := csv.NewReader(file)
+	reader.FieldsPerRecord = -1 // 允许不同行有不同数量的字段
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("读取total_position_detailed.csv失败: %w", err)
+	}
+
+	if len(records) < 2 {
+		return nil, fmt.Errorf("total_position_detailed.csv文件内容不足")
+	}
+
+	// 找到所需列的索引
+	header := records[0]
+	posIndex := -1
+	depthIndex := -1
+	matchPureIndex := -1
+	mismatchPureIndex := -1
+	mismatchWithInsIndex := -1
+	insertionIndex := -1
+	deletionIndex := -1
+
+	for i, col := range header {
+		switch col {
+		case "pos":
+			posIndex = i
+		case "depth":
+			depthIndex = i
+		case "match_pure":
+			matchPureIndex = i
+		case "mismatch_pure":
+			mismatchPureIndex = i
+		case "mismatch_with_ins":
+			mismatchWithInsIndex = i
+		case "insertion":
+			insertionIndex = i
+		case "deletion":
+			deletionIndex = i
+		}
+	}
+
+	// 检查是否找到所有需要的列
+	if posIndex == -1 || depthIndex == -1 || matchPureIndex == -1 ||
+		mismatchPureIndex == -1 || mismatchWithInsIndex == -1 ||
+		insertionIndex == -1 || deletionIndex == -1 {
+		return nil, fmt.Errorf("total_position_detailed.csv文件缺少必要的列")
+	}
+
+	// 解析数据
+	var positionStats []PositionStats
+	for i := 1; i < len(records); i++ {
+		record := records[i]
+		if len(record) <= max(posIndex, depthIndex, matchPureIndex,
+			mismatchPureIndex, mismatchWithInsIndex,
+			insertionIndex, deletionIndex) {
+			continue // 跳过列数不足的行
+		}
+
+		// 解析数值
+		pos, err := strconv.Atoi(record[posIndex])
+		if err != nil {
+			continue
+		}
+
+		depth, err := strconv.ParseFloat(record[depthIndex], 64)
+		if err != nil || depth == 0 {
+			continue
+		}
+
+		matchPure, err := strconv.ParseFloat(record[matchPureIndex], 64)
+		if err != nil {
+			continue
+		}
+
+		mismatchPure, err := strconv.ParseFloat(record[mismatchPureIndex], 64)
+		if err != nil {
+			continue
+		}
+
+		mismatchWithIns, err := strconv.ParseFloat(record[mismatchWithInsIndex], 64)
+		if err != nil {
+			continue
+		}
+
+		insertion, err := strconv.ParseFloat(record[insertionIndex], 64)
+		if err != nil {
+			continue
+		}
+
+		deletion, err := strconv.ParseFloat(record[deletionIndex], 64)
+		if err != nil {
+			continue
+		}
+
+		// 计算统计值
+		avgYield := (matchPure / depth) * 100
+		avgDeletion := (deletion / depth) * 100
+		avgMutation := ((mismatchPure + mismatchWithIns) / depth) * 100
+		avgInsertion := (insertion / depth) * 100
+
+		// 添加到结果列表
+		positionStats = append(positionStats, PositionStats{
+			Pos:          pos,
+			AvgYield:     avgYield,
+			AvgDeletion:  avgDeletion,
+			AvgMutation:  avgMutation,
+			AvgInsertion: avgInsertion,
+		})
+	}
+
+	return positionStats, nil
+}
+
+// max 返回多个整数中的最大值
+func max(vals ...int) int {
+	if len(vals) == 0 {
+		return 0
+	}
+	maxVal := vals[0]
+	for _, v := range vals {
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+	return maxVal
+}
+
 // ReadSplitSummary 从split_summary.txt读取总处理reads数
 func ReadSplitSummary(inputDir string) (int, error) {
 	// 构建split_summary.txt文件路径

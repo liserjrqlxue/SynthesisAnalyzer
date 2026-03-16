@@ -167,6 +167,16 @@ func main() {
 			report.BarcodeReads = barcodeReads
 			log.Printf("从split_summary.txt更新BarcodeReads: %d", barcodeReads)
 		}
+
+		// 读取位置统计数据
+		positionStats, err := ReadPositionStats(*mutationStatsDir)
+		if err != nil {
+			log.Printf("警告：读取位置统计数据失败: %v", err)
+		} else {
+			log.Printf("成功读取位置统计数据，共%d个位置", len(positionStats))
+			// 将positionStats存储在report结构中，以便在生成报告时使用
+			report.PositionStats = positionStats
+		}
 	}
 
 	// 生成报告文本

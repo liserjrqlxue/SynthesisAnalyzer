@@ -235,14 +235,113 @@ th { background-color: #f2f2f2; }
 	printPlateTableHTML(b, insTitle, "", "", batchID, insPlate, nil)
 
 	// --------------------------------------------------------
-	// 3. 合成轮次分析（占位）
+	// 3. 合成轮次分析
 	// --------------------------------------------------------
 	fmt.Fprint(b, "<h2>3. 合成轮次分析</h2>\n")
-	fmt.Fprint(b, "<p>3.1 平均合成收率随轮次变化(折线图)</p>\n")
-	fmt.Fprint(b, "<p>3.2 平均缺失随轮次变化</p>\n")
-	fmt.Fprint(b, "<p>3.3 平均突变随轮次变化</p>\n")
-	fmt.Fprint(b, "<p>3.4 平均插入随轮次变化</p>\n")
-	fmt.Fprint(b, "<p>3.5 …</p>\n")
+
+	// 检查是否有位置统计数据
+	if len(data.PositionStats) > 0 {
+		// 准备图表数据
+		var posData []int
+		var yieldData []float64
+		var deletionData []float64
+		var mutationData []float64
+		var insertionData []float64
+
+		for _, stats := range data.PositionStats {
+			posData = append(posData, stats.Pos)
+			yieldData = append(yieldData, stats.AvgYield)
+			deletionData = append(deletionData, stats.AvgDeletion)
+			mutationData = append(mutationData, stats.AvgMutation)
+			insertionData = append(insertionData, stats.AvgInsertion)
+		}
+
+		// 生成JavaScript代码
+		fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
+		fmt.Fprint(b, `<canvas id="cycleAnalysisChart" height="400"></canvas>`+"\n")
+		fmt.Fprint(b, `<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>`+"\n")
+		fmt.Fprint(b, `<script>`+"\n")
+		fmt.Fprint(b, `const ctx = document.getElementById('cycleAnalysisChart').getContext('2d');`+"\n")
+		fmt.Fprint(b, `const cycleChart = new Chart(ctx, {`+"\n")
+		fmt.Fprint(b, `  type: 'line',`+"\n")
+		fmt.Fprint(b, `  data: {`+"\n")
+		fmt.Fprint(b, `    labels: `+fmt.Sprintf("%v", posData)+`,\n`)
+		fmt.Fprint(b, `    datasets: [`+"\n")
+		// 平均合成收率
+		fmt.Fprint(b, `      {`+"\n")
+		fmt.Fprint(b, `        label: '平均合成收率 (%)',`+"\n")
+		fmt.Fprint(b, `        data: `+fmt.Sprintf("%v", yieldData)+`,\n`)
+		fmt.Fprint(b, `        borderColor: 'rgb(75, 192, 192)',`+"\n")
+		fmt.Fprint(b, `        backgroundColor: 'rgba(75, 192, 192, 0.2)',`+"\n")
+		fmt.Fprint(b, `        borderWidth: 2,`+"\n")
+		fmt.Fprint(b, `        tension: 0.1`+"\n")
+		fmt.Fprint(b, `      },`+"\n")
+		// 平均缺失
+		fmt.Fprint(b, `      {`+"\n")
+		fmt.Fprint(b, `        label: '平均缺失 (%)',`+"\n")
+		fmt.Fprint(b, `        data: `+fmt.Sprintf("%v", deletionData)+`,\n`)
+		fmt.Fprint(b, `        borderColor: 'rgb(255, 99, 132)',`+"\n")
+		fmt.Fprint(b, `        backgroundColor: 'rgba(255, 99, 132, 0.2)',`+"\n")
+		fmt.Fprint(b, `        borderWidth: 2,`+"\n")
+		fmt.Fprint(b, `        tension: 0.1`+"\n")
+		fmt.Fprint(b, `      },`+"\n")
+		// 平均突变
+		fmt.Fprint(b, `      {`+"\n")
+		fmt.Fprint(b, `        label: '平均突变 (%)',`+"\n")
+		fmt.Fprint(b, `        data: `+fmt.Sprintf("%v", mutationData)+`,\n`)
+		fmt.Fprint(b, `        borderColor: 'rgb(54, 162, 235)',`+"\n")
+		fmt.Fprint(b, `        backgroundColor: 'rgba(54, 162, 235, 0.2)',`+"\n")
+		fmt.Fprint(b, `        borderWidth: 2,`+"\n")
+		fmt.Fprint(b, `        tension: 0.1`+"\n")
+		fmt.Fprint(b, `      },`+"\n")
+		// 平均插入
+		fmt.Fprint(b, `      {`+"\n")
+		fmt.Fprint(b, `        label: '平均插入 (%)',`+"\n")
+		fmt.Fprint(b, `        data: `+fmt.Sprintf("%v", insertionData)+`,\n`)
+		fmt.Fprint(b, `        borderColor: 'rgb(255, 205, 86)',`+"\n")
+		fmt.Fprint(b, `        backgroundColor: 'rgba(255, 205, 86, 0.2)',`+"\n")
+		fmt.Fprint(b, `        borderWidth: 2,`+"\n")
+		fmt.Fprint(b, `        tension: 0.1`+"\n")
+		fmt.Fprint(b, `      }`+"\n")
+		fmt.Fprint(b, `    ]`+"\n")
+		fmt.Fprint(b, `  },`+"\n")
+		fmt.Fprint(b, `  options: {`+"\n")
+		fmt.Fprint(b, `    responsive: true,`+"\n")
+		fmt.Fprint(b, `    maintainAspectRatio: false,`+"\n")
+		fmt.Fprint(b, `    plugins: {`+"\n")
+		fmt.Fprint(b, `      title: {`+"\n")
+		fmt.Fprint(b, `        display: true,`+"\n")
+		fmt.Fprint(b, `        text: '合成轮次分析',`+"\n")
+		fmt.Fprint(b, `        font: {`+"\n")
+		fmt.Fprint(b, `          size: 16`+"\n")
+		fmt.Fprint(b, `        }`+"\n")
+		fmt.Fprint(b, `      },`+"\n")
+		fmt.Fprint(b, `      legend: {`+"\n")
+		fmt.Fprint(b, `        position: 'top',`+"\n")
+		fmt.Fprint(b, `      }`+"\n")
+		fmt.Fprint(b, `    },`+"\n")
+		fmt.Fprint(b, `    scales: {`+"\n")
+		fmt.Fprint(b, `      x: {`+"\n")
+		fmt.Fprint(b, `        title: {`+"\n")
+		fmt.Fprint(b, `          display: true,`+"\n")
+		fmt.Fprint(b, `          text: '位置 (pos)'`+"\n")
+		fmt.Fprint(b, `        }`+"\n")
+		fmt.Fprint(b, `      },`+"\n")
+		fmt.Fprint(b, `      y: {`+"\n")
+		fmt.Fprint(b, `        title: {`+"\n")
+		fmt.Fprint(b, `          display: true,`+"\n")
+		fmt.Fprint(b, `          text: '百分比 (%)'`+"\n")
+		fmt.Fprint(b, `        },`+"\n")
+		fmt.Fprint(b, `        beginAtZero: true`+"\n")
+		fmt.Fprint(b, `      }`+"\n")
+		fmt.Fprint(b, `    }`+"\n")
+		fmt.Fprint(b, `  }`+"\n")
+		fmt.Fprint(b, `});`+"\n")
+		fmt.Fprint(b, `</script>`+"\n")
+		fmt.Fprint(b, `</div>`+"\n")
+	} else {
+		fmt.Fprint(b, `<p>未找到位置统计数据，无法生成合成轮次分析图表。</p>`+"\n")
+	}
 
 	// --------------------------------------------------------
 	// 4. 附录（占位）
