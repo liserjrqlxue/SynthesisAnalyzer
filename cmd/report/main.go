@@ -110,6 +110,7 @@ func main() {
 	mutationStatsDir := flag.String("m", "", "mutation_stats目录路径（可选）")
 	bomFile := flag.String("b", "", "BOM.xlsx文件路径（可选）")
 	embedImage := flag.Bool("embed-image", false, "是否将图表以Base64编码嵌入HTML（默认false，使用外部图片文件）")
+	useGoEcharts := flag.Bool("use-go-echarts", false, "是否使用go-echarts生成图表（默认false，使用内置SVG生成器）")
 	flag.Parse()
 
 	if *inputFile == "" {
@@ -181,7 +182,7 @@ func main() {
 	}
 
 	// 生成报告文本
-	htmlReport := GenerateHTMLReport(&report, *embedImage)
+	htmlReport := GenerateHTMLReport(&report, *embedImage, *useGoEcharts)
 
 	// 输出
 	if *outputFile != "" {
