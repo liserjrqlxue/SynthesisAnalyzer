@@ -320,15 +320,15 @@ type PositionStats struct {
 	AvgInsertion float64 `json:"avg_insertion"` // 平均插入: insertion/depth
 }
 
-// ReadPositionStats 从total_position_detailed.csv读取位置统计数据
-func ReadPositionStats(inputDir string) ([]PositionStats, error) {
-	// 构建total_position_detailed.csv文件路径
-	csvPath := filepath.Join(inputDir, "mutation_stats", "total_position_detailed.csv")
+// ReadPositionStats 从{ID}_position_detailed.csv读取位置统计数据
+func ReadPositionStats(inputDir, id string) ([]PositionStats, error) {
+	// 构建position_detailed.csv文件路径
+	csvPath := filepath.Join(inputDir, "mutation_stats", id+"_position_detailed.csv")
 
 	// 打开文件
 	file, err := os.Open(csvPath)
 	if err != nil {
-		return nil, fmt.Errorf("打开total_position_detailed.csv失败: %w", err)
+		return nil, fmt.Errorf("打开%s_position_detailed.csv失败: %w", id, err)
 	}
 	defer file.Close()
 
@@ -337,11 +337,11 @@ func ReadPositionStats(inputDir string) ([]PositionStats, error) {
 	reader.FieldsPerRecord = -1 // 允许不同行有不同数量的字段
 	records, err := reader.ReadAll()
 	if err != nil {
-		return nil, fmt.Errorf("读取total_position_detailed.csv失败: %w", err)
+		return nil, fmt.Errorf("读取%s_position_detailed.csv失败: %w", id, err)
 	}
 
 	if len(records) < 2 {
-		return nil, fmt.Errorf("total_position_detailed.csv文件内容不足")
+		return nil, fmt.Errorf("%s_position_detailed.csv文件内容不足", id)
 	}
 
 	// 找到所需列的索引

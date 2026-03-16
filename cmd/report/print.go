@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/go-echarts/go-echarts/v2/charts"
@@ -17,6 +18,7 @@ import (
 // HTML 表格打印函数（带 batchID 左上角）
 // ------------------------------------------------------------
 func printPlateTableHTML(w io.Writer, title, subtitle, note, batchID string, plate [Rows][Cols]interface{}, overlapMatrix *[Rows][Cols]bool) {
+	fmt.Fprint(w, `<div class="section">`+"\n")
 	fmt.Fprintf(w, "<h3>%s</h3>\n", html.EscapeString(title))
 	if subtitle != "" {
 		fmt.Fprintf(w, "<p><em>%s</em></p>\n", html.EscapeString(subtitle))
@@ -46,7 +48,7 @@ func printPlateTableHTML(w io.Writer, title, subtitle, note, batchID string, pla
 	fmt.Fprint(w, "</tr>\n")
 
 	// 数据行
-	for i := 0; i < Rows; i++ {
+	for i := range Rows {
 		// 在第6行之后（即 i == 6）插入一个空行
 		if i == 6 {
 			fmt.Fprint(w, `<tr><td colspan="9" style="height: 20px; border: none;"></td></tr>`+"\n")
@@ -69,6 +71,7 @@ func printPlateTableHTML(w io.Writer, title, subtitle, note, batchID string, pla
 	if note != "" {
 		fmt.Fprintf(w, "<p><small>注：%s</small></p>\n", html.EscapeString(note))
 	}
+	fmt.Fprint(w, "</div>\n") // 结束section
 }
 
 // generateCycleAnalysisGoEcharts 使用go-echarts生成合成轮次分析图表
@@ -95,11 +98,7 @@ func generateCycleAnalysisGoEcharts(title string, posData []int, data []float64,
 
 	// 对于平均合成收率，确保Y轴范围合理
 	if title == "平均合成收率随轮次变化" {
-		minY = 90
-		if maxY < 95 {
-			maxY = 95
-		}
-		if maxY > 100 {
+		if maxY > 99 {
 			maxY = 100
 		}
 	}
@@ -210,7 +209,7 @@ func generateCycleAnalysisSVG(title string, posData []int, data []float64, color
 	fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="12" text-anchor="middle">位置 (pos)</text>`, width/2, height-10)
 
 	// 绘制Y轴标签
-	fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="12" text-anchor="middle" transform="rotate(-90, %d, %d)">百分比 (%)</text>`, 30, height/2, 30, height/2)
+	fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="12" text-anchor="middle" transform="rotate(-90, %d, %d)">百分比 (%%)</text>`, 30, height/2, 30, height/2)
 
 	// 绘制X轴刻度
 	for i := 0; i <= 10; i++ {
@@ -233,11 +232,12 @@ func generateCycleAnalysisSVG(title string, posData []int, data []float64, color
 		y := height - margin - i*(height-2*margin)/10
 		val := minY + float64(i)*rangeY/10
 		fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="black" stroke-width="1"/>`, margin-5, y, margin, y)
-		if precision == 0 {
+		switch precision {
+		case 0:
 			fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="10" text-anchor="end">%.0f</text>`, margin-10, y+3, val)
-		} else if precision == 1 {
+		case 1:
 			fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="10" text-anchor="end">%.1f</text>`, margin-10, y+3, val)
-		} else {
+		default:
 			fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="10" text-anchor="end">%.2f</text>`, margin-10, y+3, val)
 		}
 	}
@@ -261,6 +261,143 @@ func generateCycleAnalysisSVG(title string, posData []int, data []float64, color
 	return b.String()
 }
 
+// generateCycleAnalysisChart 生成合成轮次分析图表的抽象函数
+func generateCycleAnalysisChart(w io.Writer, sectionTitle, chartTitle, tag string, posData []int, data []float64, color string, useGoEcharts, embedImage bool, outputDir string) {
+	fmt.Fprint(w, `<div class="section">`+"\n")
+	fmt.Fprintf(w, "<h3>%s</h3>\n", sectionTitle)
+	if useGoEcharts {
+		// 使用go-echarts生成图表
+		chart := generateCycleAnalysisGoEcharts(chartTitle, posData, data, color)
+		fmt.Fprint(w, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
+		fmt.Fprint(w, chart)
+		fmt.Fprint(w, `</div>`+"\n")
+	} else {
+		// 使用内置SVG生成器
+		svg := generateCycleAnalysisSVG(chartTitle, posData, data, color)
+		if embedImage {
+			fmt.Fprint(w, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
+			fmt.Fprint(w, svg)
+			fmt.Fprint(w, `</div>`+"\n")
+		} else {
+			// 生成文件名
+			fileName := "cycle_analysis_" + tag + ".svg"
+			fullPath := filepath.Join(outputDir, fileName)
+			fmt.Fprint(w, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
+			fmt.Fprintf(w, `<img src="./%s" alt="%s" style="width: 100%%;">`+"\n", fileName, chartTitle)
+			fmt.Fprint(w, `</div>`+"\n")
+
+			// 保存SVG到文件
+			if err := os.WriteFile(fullPath, []byte(svg), 0644); err != nil {
+				log.Printf("警告：保存SVG文件失败: %v", err)
+			}
+		}
+	}
+	fmt.Fprint(w, "</div>\n") // 结束section
+}
+
+// printWellPositionTableHTML 生成单孔单轮信息表格
+func printWellPositionTableHTML(w io.Writer, data *ReportData, dataType, batchID string) {
+	// 确定数据类型对应的字段和标题
+	var dataField func(*PositionStats) float64
+	switch dataType {
+	case "yield":
+		dataField = func(ps *PositionStats) float64 { return ps.AvgYield }
+	case "deletion":
+		dataField = func(ps *PositionStats) float64 { return ps.AvgDeletion }
+	case "insertion":
+		dataField = func(ps *PositionStats) float64 { return ps.AvgInsertion }
+	case "mutation":
+		dataField = func(ps *PositionStats) float64 { return ps.AvgMutation }
+	default:
+		return
+	}
+
+	// 列索引映射
+	colIndex := map[string]int{
+		"H": 0, "G": 1, "F": 2, "E": 3,
+		"D": 4, "C": 5, "B": 6, "A": 7,
+	}
+
+	// 收集所有位置
+	positions := make(map[int]bool)
+	for _, well := range data.Wells {
+		for _, ps := range well.PositionStats {
+			positions[ps.Pos] = true
+		}
+	}
+
+	// 将位置转换为切片并排序
+	var posSlice []int
+	for pos := range positions {
+		posSlice = append(posSlice, pos)
+	}
+	sort.Ints(posSlice)
+
+	// 为每个位置生成一个表格
+	for _, pos := range posSlice {
+		// 表格样式：固定布局，单元格固定宽高，居中对齐
+		fmt.Fprint(w, `<table border="1" cellpadding="4" cellspacing="0" style="border-collapse: collapse; table-layout: fixed; width: auto;; min-width: 800px;">`+"\n")
+		fmt.Fprint(w, `<colgroup>`+"\n")
+		fmt.Fprint(w, `<col style="width: 120px;">`+"\n") // 行号列宽度
+		for range Cols {
+			fmt.Fprintf(w, `<col style="width: 120px;">`+"\n") // 每列宽度120px
+		}
+		fmt.Fprint(w, `</colgroup>`+"\n")
+
+		// 表头行：第一个单元格为标题，其余为列字母
+		fmt.Fprint(w, "<tr>")
+		fmt.Fprintf(w, `<th style="height: 40px;">%s<br/>%03d轮</th>`, batchID, pos)
+		cols := strings.Split(ColHeaders, "\t")
+		for _, c := range cols {
+			fmt.Fprintf(w, `<th style="height: 40px;">%s</th>`, c)
+		}
+		fmt.Fprint(w, "</tr>\n")
+
+		// 准备板位数据
+		var plate [Rows][Cols]interface{}
+		for i := 0; i < Rows; i++ {
+			for j := 0; j < Cols; j++ {
+				plate[i][j] = ""
+			}
+		}
+
+		// 填充板位数据
+		for _, well := range data.Wells {
+			// 查找该孔位在当前位置的数据
+			for _, ps := range well.PositionStats {
+				if ps.Pos == pos {
+					// 计算行和列索引
+					row := well.Row - 1
+					col, ok := colIndex[well.ColLetter]
+					if ok && row >= 0 && row < Rows && col >= 0 && col < Cols {
+						// 格式化数据，保留2位小数
+						plate[row][col] = fmt.Sprintf("%.2f%%", dataField(&ps))
+					}
+					break
+				}
+			}
+		}
+
+		// 数据行
+		for i := 0; i < Rows; i++ {
+			// 在第6行之后（即 i == 6）插入一个空行
+			if i == 6 {
+				fmt.Fprint(w, `<tr><td colspan="9" style="height: 20px; border: none;"></td></tr>`+"\n")
+			}
+			fmt.Fprintf(w, "<tr>")
+			// 行号单元格
+			fmt.Fprintf(w, `<th style="height: 30px;">%d</th>`, i+1)
+			for j := 0; j < Cols; j++ {
+				cell := formatCell(plate[i][j])
+				fmt.Fprintf(w, `<td style="height: 30px; text-align: center;">%s</td>`, html.EscapeString(cell))
+			}
+			fmt.Fprint(w, "</tr>\n")
+		}
+		fmt.Fprint(w, "</table>\n")
+		fmt.Fprint(w, `<br>`+"\n")
+	}
+}
+
 // ------------------------------------------------------------
 // 生成完整 HTML 报告
 // ------------------------------------------------------------
@@ -273,6 +410,11 @@ func GenerateHTMLReport(data *ReportData, embedImage bool, useGoEcharts bool, ou
 		outputDir = filepath.Dir(outputFile)
 	}
 
+	// 确保输出目录存在
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		log.Printf("警告：创建输出目录失败: %v", err)
+	}
+
 	// HTML 头部
 	fmt.Fprint(b, `<!DOCTYPE html>
 <html>
@@ -283,11 +425,31 @@ func GenerateHTMLReport(data *ReportData, embedImage bool, useGoEcharts bool, ou
 <style>
 body { font-family: sans-serif; margin: 2em; }
 h1 { color: #333; }
-h2 { border-bottom: 1px solid #ccc; padding-bottom: 0.3em; }
-table { margin: 1em 0; }
+h2 { 
+	border-bottom: 1px solid #ccc; 
+	padding-bottom: 0.3em; 
+    page-break-before: always;
+}
+h2:first-of-type {
+    page-break-before: auto;   /* 第一个标题前不分页 */
+}
+table { 
+	margin: 1em 0;
+	page-break-inside: avoid; /* 防止表格整体跨页（对长表格可能无效，因为整体太大时仍会拆分） */
+}
+thead {
+    display: table-header-group;
+}
+tr { page-break-inside: avoid; } /* 更推荐：防止单个行跨页 */
 th { background-color: #f2f2f2; }
 .chart-container { width: 100%; max-width: 1000px; margin: 0 auto; margin-top: 30px; display: flex; justify-content: center; align-items: center; }
 .chart-item { width: 900px; height: 500px; margin: auto; }
+/* 保证整个区块（标题+表格/图表）尽量在同一页 */
+.section {
+    page-break-inside: avoid;   /* 防止内部被拆分 */
+    /* 可选：如果希望区块后尽量不分页 */
+    /* page-break-after: avoid; */
+}
 </style>
 </head>
 <body>
@@ -304,6 +466,7 @@ th { background-color: #f2f2f2; }
 	fmt.Fprint(b, "<h2>1. Summary</h2>\n")
 
 	// 基本信息
+	fmt.Fprint(b, `<div class="section">`+"\n")
 	fmt.Fprint(b, "<h3>基本信息</h3>\n")
 	// 表格样式：固定布局，单元格固定宽高，居中对齐
 
@@ -352,8 +515,10 @@ th { background-color: #f2f2f2; }
 	fmt.Fprintf(b, "<tr><td>重合序列</td><td>%d</td></tr>\n", stats.OverlapSequences)
 	fmt.Fprint(b, "</table>\n")
 	fmt.Fprint(b, "<p><small>*注：预测难度序列需确定阈值</small></p>\n")
+	fmt.Fprint(b, "</div>\n") // 结束section
 
 	// 合成错误统计
+	fmt.Fprint(b, `<div class="section">`+"\n")
 	fmt.Fprint(b, "<h3>合成错误统计</h3>\n")
 	fmt.Fprint(b, `<table border='1' cellpadding='4' style="table-layout: fixed; width: auto; min-width: 800px;">`+"\n")
 	fmt.Fprint(b, `<colgroup>`+"\n")                  // 列标题
@@ -384,6 +549,7 @@ th { background-color: #f2f2f2; }
 			errorInfo.EN, errorInfo.CN, errorInfo.Example, refStr, dataStr)
 	}
 	fmt.Fprint(b, "</table>\n")
+	fmt.Fprint(b, "</div>\n") // 结束section
 
 	// --------------------------------------------------------
 	// 2. 合成板位分析
@@ -392,8 +558,8 @@ th { background-color: #f2f2f2; }
 
 	// 构建重合矩阵（仅在合成排板时需要）
 	var overlapMatrix [Rows][Cols]bool
-	for i := 0; i < Rows; i++ {
-		for j := 0; j < Cols; j++ {
+	for i := range Rows {
+		for j := range Cols {
 			w := plate[i][j]
 			if w != nil && w.IsOverlap {
 				overlapMatrix[i][j] = true
@@ -461,134 +627,43 @@ th { background-color: #f2f2f2; }
 			insertionData = append(insertionData, stats.AvgInsertion)
 		}
 
-		// 3.1 平均合成收率随轮次变化
-		fmt.Fprint(b, "<h3>3.1 平均合成收率随轮次变化</h3>\n")
-		if useGoEcharts {
-			// 使用go-echarts生成图表
-			yieldChart := generateCycleAnalysisGoEcharts("平均合成收率随轮次变化", posData, yieldData, "#4BC0C0")
-			fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
-			fmt.Fprint(b, yieldChart)
-			fmt.Fprint(b, `</div>`+"\n")
-		} else {
-			// 使用内置SVG生成器
-			yieldSVG := generateCycleAnalysisSVG("平均合成收率随轮次变化", posData, yieldData, "#4BC0C0")
-			if embedImage {
-				fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
-				fmt.Fprint(b, yieldSVG)
-				fmt.Fprint(b, `</div>`+"\n")
-			} else {
-				yieldPath := "cycle_analysis_yield.svg"
-				fullYieldPath := filepath.Join(outputDir, yieldPath)
-				fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
-				fmt.Fprintf(b, `<img src="%s" alt="平均合成收率随轮次变化" style="width: 100%;">`+"\n", yieldPath)
-				fmt.Fprint(b, `</div>`+"\n")
-
-				// 保存SVG到文件
-				if err := os.WriteFile(fullYieldPath, []byte(yieldSVG), 0644); err != nil {
-					log.Printf("警告：保存SVG文件失败: %v", err)
-				}
-			}
-		}
-
-		// 3.2 平均缺失随轮次变化
-		fmt.Fprint(b, "<h3>3.2 平均缺失随轮次变化</h3>\n")
-		if useGoEcharts {
-			// 使用go-echarts生成图表
-			deletionChart := generateCycleAnalysisGoEcharts("平均缺失随轮次变化", posData, deletionData, "#FF6384")
-			fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
-			fmt.Fprint(b, deletionChart)
-			fmt.Fprint(b, `</div>`+"\n")
-		} else {
-			// 使用内置SVG生成器
-			deletionSVG := generateCycleAnalysisSVG("平均缺失随轮次变化", posData, deletionData, "#FF6384")
-			if embedImage {
-				fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
-				fmt.Fprint(b, deletionSVG)
-				fmt.Fprint(b, `</div>`+"\n")
-			} else {
-				deletionPath := "cycle_analysis_deletion.svg"
-				fullDeletionPath := filepath.Join(outputDir, deletionPath)
-				fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
-				fmt.Fprintf(b, `<img src="%s" alt="平均缺失随轮次变化" style="width: 100%;">`+"\n", deletionPath)
-				fmt.Fprint(b, `</div>`+"\n")
-
-				// 保存SVG到文件
-				if err := os.WriteFile(fullDeletionPath, []byte(deletionSVG), 0644); err != nil {
-					log.Printf("警告：保存SVG文件失败: %v", err)
-				}
-			}
-		}
-
-		// 3.3 平均突变随轮次变化
-		fmt.Fprint(b, "<h3>3.3 平均突变随轮次变化</h3>\n")
-		if useGoEcharts {
-			// 使用go-echarts生成图表
-			mutationChart := generateCycleAnalysisGoEcharts("平均突变随轮次变化", posData, mutationData, "#36A2EB")
-			fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
-			fmt.Fprint(b, mutationChart)
-			fmt.Fprint(b, `</div>`+"\n")
-		} else {
-			// 使用内置SVG生成器
-			mutationSVG := generateCycleAnalysisSVG("平均突变随轮次变化", posData, mutationData, "#36A2EB")
-			if embedImage {
-				fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
-				fmt.Fprint(b, mutationSVG)
-				fmt.Fprint(b, `</div>`+"\n")
-			} else {
-				mutationPath := "cycle_analysis_mutation.svg"
-				fullMutationPath := filepath.Join(outputDir, mutationPath)
-				fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
-				fmt.Fprintf(b, `<img src="%s" alt="平均突变随轮次变化" style="width: 100%%;">`+"\n", mutationPath)
-				fmt.Fprint(b, `</div>`+"\n")
-
-				// 保存SVG到文件
-				if err := os.WriteFile(fullMutationPath, []byte(mutationSVG), 0644); err != nil {
-					log.Printf("警告：保存SVG文件失败: %v", err)
-				}
-			}
-		}
-
-		// 3.4 平均插入随轮次变化
-		fmt.Fprint(b, "<h3>3.4 平均插入随轮次变化</h3>\n")
-		if useGoEcharts {
-			// 使用go-echarts生成图表
-			insertionChart := generateCycleAnalysisGoEcharts("平均插入随轮次变化", posData, insertionData, "#FFCE56")
-			fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
-			fmt.Fprint(b, insertionChart)
-			fmt.Fprint(b, `</div>`+"\n")
-		} else {
-			// 使用内置SVG生成器
-			insertionSVG := generateCycleAnalysisSVG("平均插入随轮次变化", posData, insertionData, "#FFCE56")
-			if embedImage {
-				fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
-				fmt.Fprint(b, insertionSVG)
-				fmt.Fprint(b, `</div>`+"\n")
-			} else {
-				insertionPath := "cycle_analysis_insertion.svg"
-				fullInsertionPath := filepath.Join(outputDir, insertionPath)
-				fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
-				fmt.Fprintf(b, `<img src="%s" alt="平均插入随轮次变化" style="width: 100%;">`+"\n", insertionPath)
-				fmt.Fprint(b, `</div>`+"\n")
-
-				// 保存SVG到文件
-				if err := os.WriteFile(fullInsertionPath, []byte(insertionSVG), 0644); err != nil {
-					log.Printf("警告：保存SVG文件失败: %v", err)
-				}
-			}
-		}
+		// 生成合成轮次分析图表
+		generateCycleAnalysisChart(b, "3.1 平均合成收率随轮次变化", "平均合成收率随轮次变化", "yield", posData, yieldData, "#4BC0C0", useGoEcharts, embedImage, outputDir)
+		generateCycleAnalysisChart(b, "3.2 平均缺失随轮次变化", "平均缺失随轮次变化", "deletion", posData, deletionData, "#FF6384", useGoEcharts, embedImage, outputDir)
+		generateCycleAnalysisChart(b, "3.3 平均突变随轮次变化", "平均突变随轮次变化", "mutation", posData, mutationData, "#36A2EB", useGoEcharts, embedImage, outputDir)
+		generateCycleAnalysisChart(b, "3.4 平均插入随轮次变化", "平均插入随轮次变化", "insertion", posData, insertionData, "#FFCE56", useGoEcharts, embedImage, outputDir)
 	} else {
 		fmt.Fprint(b, `<p>未找到位置统计数据，无法生成合成轮次分析图表。</p>`+"\n")
 	}
 
 	// --------------------------------------------------------
-	// 4. 附录（占位）
+	// 4. 附录
 	// --------------------------------------------------------
 	fmt.Fprint(b, "<h2>4. 附录</h2>\n")
-	fmt.Fprint(b, "<p>4.1 单孔单轮信息——收率</p>\n")
-	fmt.Fprint(b, "<p>4.2 单孔单轮信息——缺失</p>\n")
-	fmt.Fprint(b, "<p>4.3 单孔单轮信息——插入</p>\n")
-	fmt.Fprint(b, "<p>4.4 单孔单轮信息——突变</p>\n")
-	fmt.Fprint(b, "<p>4.5 …</p>\n")
+
+	// 4.1 单孔单轮信息——收率
+	fmt.Fprint(b, `<div class="section">`+"\n")
+	fmt.Fprint(b, "<h3>4.1 单孔单轮信息——收率</h3>\n")
+	printWellPositionTableHTML(b, data, "yield", batchID)
+	fmt.Fprint(b, "</div>\n") // 结束section
+
+	// 4.2 单孔单轮信息——缺失
+	fmt.Fprint(b, `<div class="section" style="page-break-before: always;">`+"\n")
+	fmt.Fprint(b, "<h3>4.2 单孔单轮信息——缺失</h3>\n")
+	printWellPositionTableHTML(b, data, "deletion", batchID)
+	fmt.Fprint(b, "</div>\n") // 结束section
+
+	// 4.3 单孔单轮信息——插入
+	fmt.Fprint(b, `<div class="section" style="page-break-before: always;">`+"\n")
+	fmt.Fprint(b, "<h3>4.3 单孔单轮信息——插入</h3>\n")
+	printWellPositionTableHTML(b, data, "insertion", batchID)
+	fmt.Fprint(b, "</div>\n") // 结束section
+
+	// 4.4 单孔单轮信息——突变
+	fmt.Fprint(b, `<div class="section" style="page-break-before: always;">`+"\n")
+	fmt.Fprint(b, "<h3>4.4 单孔单轮信息——突变</h3>\n")
+	printWellPositionTableHTML(b, data, "mutation", batchID)
+	fmt.Fprint(b, "</div>\n") // 结束section
 
 	fmt.Fprint(b, "</body>\n</html>")
 	return b.String()

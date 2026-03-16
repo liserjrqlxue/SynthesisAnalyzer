@@ -19,6 +19,8 @@ type Well struct {
 	Insertion      float64 `json:"insertion"`          // 插入 (%)
 	Sequence       string  `json:"sequence,omitempty"` // 序列
 	Position       string  `json:"position,omitempty"` // 位置
+
+	PositionStats []PositionStats `json:"position_stats,omitempty"` // 位置统计数据
 }
 
 // 96孔板数据：12行 x 8列，列顺序固定为 H,G,F,E,D,C,B,A

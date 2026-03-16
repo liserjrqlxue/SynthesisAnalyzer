@@ -171,7 +171,7 @@ func main() {
 		}
 
 		// 读取位置统计数据
-		positionStats, err := ReadPositionStats(*mutationStatsDir)
+		positionStats, err := ReadPositionStats(*mutationStatsDir, "total")
 		if err != nil {
 			log.Printf("警告：读取位置统计数据失败: %v", err)
 		} else {
@@ -179,6 +179,9 @@ func main() {
 			// 将positionStats存储在report结构中，以便在生成报告时使用
 			report.PositionStats = positionStats
 		}
+
+		// 更新每个孔的位置统计数据
+		updatePositionStats(&report, *mutationStatsDir)
 	}
 
 	// 生成报告文本
@@ -243,6 +246,22 @@ func updateYieldData(report *ReportData, yieldStats map[string]float64, deletion
 		}
 		if insertion, ok := insertionStats[well.Name]; ok {
 			well.Insertion = insertion
+		}
+	}
+}
+
+// updatePositionStats 更新每个孔的位置统计数据
+func updatePositionStats(report *ReportData, mutationStatsDir string) {
+	// 为每个孔位读取对应的位置统计数据
+	for _, well := range report.Wells {
+		// 读取该孔位的位置统计数据
+		positionStats, err := ReadPositionStats(mutationStatsDir, well.Name)
+		if err != nil {
+			log.Printf("警告：读取孔位%s的位置统计数据失败: %v", well.Name, err)
+		} else {
+			log.Printf("成功读取孔位%s的位置统计数据，共%d个位置", well.Name, len(positionStats))
+			// 将位置统计数据存储在孔位结构中
+			well.PositionStats = positionStats
 		}
 	}
 }

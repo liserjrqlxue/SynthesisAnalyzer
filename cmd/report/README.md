@@ -111,6 +111,7 @@ BOM.xlsx文件应包含"引物订购单"工作表，格式如下：
 | Insertion | float64 | 插入 (%) | read_type_by_sample.csv |
 | Sequence | string | 序列 | BOM.xlsx（可选） |
 | Position | string | 位置 | BOM.xlsx |
+| PositionStats | []PositionStats | 位置统计数据 | {ID}_position_detailed.csv |
 
 #### SummaryStats（概要统计）
 
@@ -133,6 +134,16 @@ BOM.xlsx文件应包含"引物订购单"工作表，格式如下：
 | Reference | *float64 | 参考值 | JSON文件 |
 | Data | *float64 | 实际数据 | read_type_summary.csv |
 
+#### PositionStats（位置统计数据）
+
+| 字段 | 类型 | 说明 | 计算方法 |
+|------|------|------|----------|
+| Pos | int | 位置 | {ID}_position_detailed.csv |
+| AvgYield | float64 | 平均收率 | (match_pure / depth) * 100 |
+| AvgDeletion | float64 | 平均缺失 | (deletion / depth) * 100 |
+| AvgMutation | float64 | 平均突变 | ((mismatch_pure + mismatch_with_ins) / depth) * 100 |
+| AvgInsertion | float64 | 平均插入 | (insertion / depth) * 100 |
+
 ## 7. 报告结构和格式
 
 ### 报告结构
@@ -150,9 +161,17 @@ BOM.xlsx文件应包含"引物订购单"工作表，格式如下：
    - 突变板位统计：显示每个孔位的突变率
    - 插入板位统计：显示每个孔位的插入率
 
-3. **合成轮次分析**（占位）
+3. **合成轮次分析**
+   - 平均合成收率随轮次变化
+   - 平均缺失随轮次变化
+   - 平均突变随轮次变化
+   - 平均插入随轮次变化
 
-4. **附录**（占位）
+4. **附录**
+   - 单孔单轮信息——收率
+   - 单孔单轮信息——缺失
+   - 单孔单轮信息——插入
+   - 单孔单轮信息——突变
 
 ### 错误类型固定顺序
 
@@ -192,6 +211,8 @@ BOM.xlsx文件应包含"引物订购单"工作表，格式如下：
 4. 如果提供了mutation_stats目录，读取并更新数据：
    - 从`read_type_summary.csv`读取子类型统计数据
    - 从`read_type_by_sample.csv`读取收率和错误统计数据
+   - 从`total_position_detailed.csv`读取总位置统计数据
+   - 从每个样品的`{ID}_position_detailed.csv`读取样品位置统计数据
    - 更新每个孔的收率、缺失、突变和插入数据
    - 计算收率统计值（平均值、标准差、中位数、四分位数等）
 5. 生成HTML报告：
@@ -245,5 +266,5 @@ open test/output.html
 
 ---
 
-**版本**：1.3.0
-**最后更新**：2026-03-13
+**版本**：1.4.0
+**最后更新**：2026-03-16
