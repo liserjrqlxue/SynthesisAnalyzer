@@ -259,18 +259,68 @@ th { background-color: #f2f2f2; }
 		// 生成JavaScript代码
 		fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
 		fmt.Fprint(b, `<canvas id="cycleAnalysisChart" height="400"></canvas>`+"\n")
-		fmt.Fprint(b, `<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>`+"\n")
+		fmt.Fprint(b, `<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>`+"\n")
 		fmt.Fprint(b, `<script>`+"\n")
 		fmt.Fprint(b, `const ctx = document.getElementById('cycleAnalysisChart').getContext('2d');`+"\n")
+
+		// 转换数据为JavaScript数组格式
+		var labelsStr string
+		for i, pos := range posData {
+			if i > 0 {
+				labelsStr += ","
+			}
+			labelsStr += fmt.Sprintf("%d", pos)
+		}
+
+		var yieldDataStr string
+		for i, val := range yieldData {
+			if i > 0 {
+				yieldDataStr += ","
+			}
+			yieldDataStr += fmt.Sprintf("%.4f", val)
+		}
+
+		var deletionDataStr string
+		for i, val := range deletionData {
+			if i > 0 {
+				deletionDataStr += ","
+			}
+			deletionDataStr += fmt.Sprintf("%.4f", val)
+		}
+
+		var mutationDataStr string
+		for i, val := range mutationData {
+			if i > 0 {
+				mutationDataStr += ","
+			}
+			mutationDataStr += fmt.Sprintf("%.4f", val)
+		}
+
+		var insertionDataStr string
+		for i, val := range insertionData {
+			if i > 0 {
+				insertionDataStr += ","
+			}
+			insertionDataStr += fmt.Sprintf("%.4f", val)
+		}
+
+		// 输出JavaScript变量
+		fmt.Fprintf(b, `const labels = [%s];`+"\n", labelsStr)
+		fmt.Fprintf(b, `const yieldData = [%s];`+"\n", yieldDataStr)
+		fmt.Fprintf(b, `const deletionData = [%s];`+"\n", deletionDataStr)
+		fmt.Fprintf(b, `const mutationData = [%s];`+"\n", mutationDataStr)
+		fmt.Fprintf(b, `const insertionData = [%s];`+"\n", insertionDataStr)
+
+		// 创建图表
 		fmt.Fprint(b, `const cycleChart = new Chart(ctx, {`+"\n")
 		fmt.Fprint(b, `  type: 'line',`+"\n")
 		fmt.Fprint(b, `  data: {`+"\n")
-		fmt.Fprint(b, `    labels: `+fmt.Sprintf("%v", posData)+`,\n`)
+		fmt.Fprint(b, `    labels: labels,\n`)
 		fmt.Fprint(b, `    datasets: [`+"\n")
 		// 平均合成收率
 		fmt.Fprint(b, `      {`+"\n")
 		fmt.Fprint(b, `        label: '平均合成收率 (%)',`+"\n")
-		fmt.Fprint(b, `        data: `+fmt.Sprintf("%v", yieldData)+`,\n`)
+		fmt.Fprint(b, `        data: yieldData,\n`)
 		fmt.Fprint(b, `        borderColor: 'rgb(75, 192, 192)',`+"\n")
 		fmt.Fprint(b, `        backgroundColor: 'rgba(75, 192, 192, 0.2)',`+"\n")
 		fmt.Fprint(b, `        borderWidth: 2,`+"\n")
@@ -279,7 +329,7 @@ th { background-color: #f2f2f2; }
 		// 平均缺失
 		fmt.Fprint(b, `      {`+"\n")
 		fmt.Fprint(b, `        label: '平均缺失 (%)',`+"\n")
-		fmt.Fprint(b, `        data: `+fmt.Sprintf("%v", deletionData)+`,\n`)
+		fmt.Fprint(b, `        data: deletionData,\n`)
 		fmt.Fprint(b, `        borderColor: 'rgb(255, 99, 132)',`+"\n")
 		fmt.Fprint(b, `        backgroundColor: 'rgba(255, 99, 132, 0.2)',`+"\n")
 		fmt.Fprint(b, `        borderWidth: 2,`+"\n")
@@ -288,7 +338,7 @@ th { background-color: #f2f2f2; }
 		// 平均突变
 		fmt.Fprint(b, `      {`+"\n")
 		fmt.Fprint(b, `        label: '平均突变 (%)',`+"\n")
-		fmt.Fprint(b, `        data: `+fmt.Sprintf("%v", mutationData)+`,\n`)
+		fmt.Fprint(b, `        data: mutationData,\n`)
 		fmt.Fprint(b, `        borderColor: 'rgb(54, 162, 235)',`+"\n")
 		fmt.Fprint(b, `        backgroundColor: 'rgba(54, 162, 235, 0.2)',`+"\n")
 		fmt.Fprint(b, `        borderWidth: 2,`+"\n")
@@ -297,7 +347,7 @@ th { background-color: #f2f2f2; }
 		// 平均插入
 		fmt.Fprint(b, `      {`+"\n")
 		fmt.Fprint(b, `        label: '平均插入 (%)',`+"\n")
-		fmt.Fprint(b, `        data: `+fmt.Sprintf("%v", insertionData)+`,\n`)
+		fmt.Fprint(b, `        data: insertionData,\n`)
 		fmt.Fprint(b, `        borderColor: 'rgb(255, 205, 86)',`+"\n")
 		fmt.Fprint(b, `        backgroundColor: 'rgba(255, 205, 86, 0.2)',`+"\n")
 		fmt.Fprint(b, `        borderWidth: 2,`+"\n")
