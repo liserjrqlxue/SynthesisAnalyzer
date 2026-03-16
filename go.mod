@@ -15,6 +15,7 @@ require (
 
 require (
 	github.com/bits-and-blooms/bitset v1.24.2 // indirect
+	github.com/go-echarts/go-echarts/v2 v2.7.1 // indirect
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.4 // indirect

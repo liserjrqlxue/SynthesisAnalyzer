@@ -182,7 +182,7 @@ func main() {
 	}
 
 	// 生成报告文本
-	htmlReport := GenerateHTMLReport(&report, *embedImage, *useGoEcharts)
+	htmlReport := GenerateHTMLReport(&report, *embedImage, *useGoEcharts, *outputFile)
 
 	// 输出
 	if *outputFile != "" {

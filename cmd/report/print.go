@@ -6,10 +6,10 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-echarts/go-echarts/v2/charts"
-	"github.com/go-echarts/go-echarts/v2/components"
 	"github.com/go-echarts/go-echarts/v2/opts"
 )
 
@@ -73,15 +73,49 @@ func printPlateTableHTML(w io.Writer, title, subtitle, note, batchID string, pla
 
 // generateCycleAnalysisGoEcharts 使用go-echarts生成合成轮次分析图表
 func generateCycleAnalysisGoEcharts(title string, posData []int, data []float64, color string) string {
+	// 计算数据范围
+	maxY := 0.0
+	minY := 100.0
+	for _, val := range data {
+		if val > maxY {
+			maxY = val
+		}
+		if val < minY {
+			minY = val
+		}
+	}
+
+	// 为了让图表更美观，在最大值和最小值上增加一些边距
+	padding := (maxY - minY) * 0.05
+	maxY += padding
+	minY -= padding
+	if minY < 0 {
+		minY = 0
+	}
+
+	// 对于平均合成收率，确保Y轴范围合理
+	if title == "平均合成收率随轮次变化" {
+		minY = 90
+		if maxY < 95 {
+			maxY = 95
+		}
+		if maxY > 100 {
+			maxY = 100
+		}
+	}
+
 	// 创建折线图
 	line := charts.NewLine()
 	line.SetGlobalOptions(
 		charts.WithTitleOpts(opts.Title{Title: title}),
 		charts.WithXAxisOpts(opts.XAxis{Name: "位置 (pos)"}),
-		charts.WithYAxisOpts(opts.YAxis{Name: "百分比 (%)", Min: 0, Max: 100}),
+		charts.WithYAxisOpts(opts.YAxis{Name: "百分比 (%)", Min: minY, Max: maxY}),
 		charts.WithTooltipOpts(opts.Tooltip{Show: opts.Bool(true), Trigger: "axis"}),
 		charts.WithLegendOpts(opts.Legend{Show: opts.Bool(true), Top: "bottom"}),
 	)
+
+	// 设置X轴数据
+	line.SetXAxis(posData)
 
 	// 准备数据
 	var items []opts.LineData
@@ -90,20 +124,22 @@ func generateCycleAnalysisGoEcharts(title string, posData []int, data []float64,
 	}
 
 	// 添加数据系列
-	line.AddSeries("", items)
+	line.AddSeries(title, items)
 
 	// 设置系列样式
 	line.SetSeriesOptions(
-		charts.WithLineChartOpts(opts.LineChart{Smooth: opts.Bool(true)}),
+		charts.WithLineChartOpts(opts.LineChart{Smooth: opts.Bool(false)}),
 		charts.WithItemStyleOpts(opts.ItemStyle{Color: color}),
 	)
 
-	// 生成HTML
-	page := components.NewPage()
-	page.AddCharts(line)
+	// 使用RenderSnippet生成图表部分
+	snippet := line.Renderer.RenderSnippet()
 
+	// 组合图表部分
 	b := &strings.Builder{}
-	page.Render(b)
+	b.WriteString(snippet.Element)
+	b.WriteString(snippet.Script)
+
 	return b.String()
 }
 
@@ -115,8 +151,38 @@ func generateCycleAnalysisSVG(title string, posData []int, data []float64, color
 	margin := 60
 
 	// 计算数据范围
-	maxY := 100.0
-	minY := 0.0
+	maxY := 0.0
+	minY := 100.0
+	for _, val := range data {
+		if val > maxY {
+			maxY = val
+		}
+		if val < minY {
+			minY = val
+		}
+	}
+
+	// 为了让图表更美观，在最大值和最小值上增加一些边距
+	padding := (maxY - minY) * 0.05
+	// if padding < 1 {
+	// padding = 1
+	// }
+	maxY += padding
+	minY -= padding
+	if minY < 0 {
+		minY = 0
+	}
+
+	// 对于平均合成收率，确保Y轴范围合理
+	if title == "平均合成收率随轮次变化" {
+		// minY = 90
+		if maxY < 95 {
+			maxY = 95
+		}
+		if maxY > 100 {
+			maxY = 100
+		}
+	}
 
 	// 计算X轴范围
 	minX := posData[0]
@@ -154,12 +220,26 @@ func generateCycleAnalysisSVG(title string, posData []int, data []float64, color
 		fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="10" text-anchor="middle">%d</text>`, x, height-margin+15, int(val))
 	}
 
+	// 确定Y轴标签的小数位数
+	precision := 0
+	if rangeY < 5 {
+		precision = 1
+	} else if rangeY < 1 {
+		precision = 2
+	}
+
 	// 绘制Y轴刻度
 	for i := 0; i <= 10; i++ {
 		y := height - margin - i*(height-2*margin)/10
-		val := float64(i) * rangeY / 10
+		val := minY + float64(i)*rangeY/10
 		fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="black" stroke-width="1"/>`, margin-5, y, margin, y)
-		fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="10" text-anchor="end">%.0f</text>`, margin-10, y+3, val)
+		if precision == 0 {
+			fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="10" text-anchor="end">%.0f</text>`, margin-10, y+3, val)
+		} else if precision == 1 {
+			fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="10" text-anchor="end">%.1f</text>`, margin-10, y+3, val)
+		} else {
+			fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="10" text-anchor="end">%.2f</text>`, margin-10, y+3, val)
+		}
 	}
 
 	// 绘制数据线条
@@ -167,7 +247,7 @@ func generateCycleAnalysisSVG(title string, posData []int, data []float64, color
 		fmt.Fprintf(b, `<path d="`)
 		for j, val := range data {
 			x := margin + (posData[j]-minX)*(width-2*margin)/rangeX
-			y := height - margin - int(val*float64(height-2*margin)/rangeY)
+			y := height - margin - int((val-minY)*float64(height-2*margin)/rangeY)
 			if j == 0 {
 				fmt.Fprintf(b, "M %d %d", x, y)
 			} else {
@@ -184,8 +264,14 @@ func generateCycleAnalysisSVG(title string, posData []int, data []float64, color
 // ------------------------------------------------------------
 // 生成完整 HTML 报告
 // ------------------------------------------------------------
-func GenerateHTMLReport(data *ReportData, embedImage bool, useGoEcharts bool) string {
+func GenerateHTMLReport(data *ReportData, embedImage bool, useGoEcharts bool, outputFile string) string {
 	b := &strings.Builder{}
+
+	// 获取输出目录
+	outputDir := "."
+	if outputFile != "" {
+		outputDir = filepath.Dir(outputFile)
+	}
 
 	// HTML 头部
 	fmt.Fprint(b, `<!DOCTYPE html>
@@ -193,12 +279,15 @@ func GenerateHTMLReport(data *ReportData, embedImage bool, useGoEcharts bool) st
 <head>
 <meta charset="UTF-8">
 <title>`+html.EscapeString(data.ReportTitle)+`</title>
+<script src="https://go-echarts.github.io/go-echarts-assets/assets/echarts.min.js"></script>
 <style>
 body { font-family: sans-serif; margin: 2em; }
 h1 { color: #333; }
 h2 { border-bottom: 1px solid #ccc; padding-bottom: 0.3em; }
 table { margin: 1em 0; }
 th { background-color: #f2f2f2; }
+.chart-container { width: 100%; max-width: 1000px; margin: 0 auto; margin-top: 30px; display: flex; justify-content: center; align-items: center; }
+.chart-item { width: 900px; height: 500px; margin: auto; }
 </style>
 </head>
 <body>
@@ -389,12 +478,13 @@ th { background-color: #f2f2f2; }
 				fmt.Fprint(b, `</div>`+"\n")
 			} else {
 				yieldPath := "cycle_analysis_yield.svg"
+				fullYieldPath := filepath.Join(outputDir, yieldPath)
 				fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
 				fmt.Fprintf(b, `<img src="%s" alt="平均合成收率随轮次变化" style="width: 100%;">`+"\n", yieldPath)
 				fmt.Fprint(b, `</div>`+"\n")
 
 				// 保存SVG到文件
-				if err := os.WriteFile(yieldPath, []byte(yieldSVG), 0644); err != nil {
+				if err := os.WriteFile(fullYieldPath, []byte(yieldSVG), 0644); err != nil {
 					log.Printf("警告：保存SVG文件失败: %v", err)
 				}
 			}
@@ -417,12 +507,13 @@ th { background-color: #f2f2f2; }
 				fmt.Fprint(b, `</div>`+"\n")
 			} else {
 				deletionPath := "cycle_analysis_deletion.svg"
+				fullDeletionPath := filepath.Join(outputDir, deletionPath)
 				fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
 				fmt.Fprintf(b, `<img src="%s" alt="平均缺失随轮次变化" style="width: 100%;">`+"\n", deletionPath)
 				fmt.Fprint(b, `</div>`+"\n")
 
 				// 保存SVG到文件
-				if err := os.WriteFile(deletionPath, []byte(deletionSVG), 0644); err != nil {
+				if err := os.WriteFile(fullDeletionPath, []byte(deletionSVG), 0644); err != nil {
 					log.Printf("警告：保存SVG文件失败: %v", err)
 				}
 			}
@@ -445,12 +536,13 @@ th { background-color: #f2f2f2; }
 				fmt.Fprint(b, `</div>`+"\n")
 			} else {
 				mutationPath := "cycle_analysis_mutation.svg"
+				fullMutationPath := filepath.Join(outputDir, mutationPath)
 				fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
-				fmt.Fprintf(b, `<img src="%s" alt="平均突变随轮次变化" style="width: 100%;">`+"\n", mutationPath)
+				fmt.Fprintf(b, `<img src="%s" alt="平均突变随轮次变化" style="width: 100%%;">`+"\n", mutationPath)
 				fmt.Fprint(b, `</div>`+"\n")
 
 				// 保存SVG到文件
-				if err := os.WriteFile(mutationPath, []byte(mutationSVG), 0644); err != nil {
+				if err := os.WriteFile(fullMutationPath, []byte(mutationSVG), 0644); err != nil {
 					log.Printf("警告：保存SVG文件失败: %v", err)
 				}
 			}
@@ -473,12 +565,13 @@ th { background-color: #f2f2f2; }
 				fmt.Fprint(b, `</div>`+"\n")
 			} else {
 				insertionPath := "cycle_analysis_insertion.svg"
+				fullInsertionPath := filepath.Join(outputDir, insertionPath)
 				fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
 				fmt.Fprintf(b, `<img src="%s" alt="平均插入随轮次变化" style="width: 100%;">`+"\n", insertionPath)
 				fmt.Fprint(b, `</div>`+"\n")
 
 				// 保存SVG到文件
-				if err := os.WriteFile(insertionPath, []byte(insertionSVG), 0644); err != nil {
+				if err := os.WriteFile(fullInsertionPath, []byte(insertionSVG), 0644); err != nil {
 					log.Printf("警告：保存SVG文件失败: %v", err)
 				}
 			}
