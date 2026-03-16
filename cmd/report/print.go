@@ -65,10 +65,100 @@ func printPlateTableHTML(w io.Writer, title, subtitle, note, batchID string, pla
 	}
 }
 
+// generateCycleAnalysisSVG 生成合成轮次分析的SVG图表
+func generateCycleAnalysisSVG(posData []int, yieldData, deletionData, mutationData, insertionData []float64) string {
+	// 图表尺寸
+	width := 1000
+	height := 400
+	margin := 60
+
+	// 计算数据范围
+	maxY := 100.0
+	minY := 0.0
+
+	// 计算X轴范围
+	minX := posData[0]
+	maxX := posData[len(posData)-1]
+	rangeX := maxX - minX
+	rangeY := maxY - minY
+
+	// 生成SVG
+	b := &strings.Builder{}
+	fmt.Fprintf(b, `<svg width="%d" height="%d" xmlns="http://www.w3.org/2000/svg">`, width, height)
+
+	// 绘制背景
+	fmt.Fprintf(b, `<rect width="%d" height="%d" fill="white"/>`, width, height)
+
+	// 绘制标题
+	fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="16" text-anchor="middle">合成轮次分析</text>`, width/2, 20)
+
+	// 绘制X轴
+	fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="black" stroke-width="2"/>`, margin, height-margin, width-margin, height-margin)
+
+	// 绘制Y轴
+	fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="black" stroke-width="2"/>`, margin, margin, margin, height-margin)
+
+	// 绘制X轴标签
+	fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="12" text-anchor="middle">位置 (pos)</text>`, width/2, height-10)
+
+	// 绘制Y轴标签
+	fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="12" text-anchor="middle" transform="rotate(-90, %d, %d)">百分比 (%)</text>`, 30, height/2, 30, height/2)
+
+	// 绘制X轴刻度
+	for i := 0; i <= 10; i++ {
+		x := margin + i*(width-2*margin)/10
+		val := minX + i*rangeX/10
+		fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="black" stroke-width="1"/>`, x, height-margin, x, height-margin+5)
+		fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="10" text-anchor="middle">%d</text>`, x, height-margin+15, int(val))
+	}
+
+	// 绘制Y轴刻度
+	for i := 0; i <= 10; i++ {
+		y := height - margin - i*(height-2*margin)/10
+		val := float64(i) * rangeY / 10
+		fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="black" stroke-width="1"/>`, margin-5, y, margin, y)
+		fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="10" text-anchor="end">%.0f</text>`, margin-10, y+3, val)
+	}
+
+	// 绘制数据线条
+	colors := []string{"#4BC0C0", "#FF6384", "#36A2EB", "#FFCE56"}
+	dataSets := [][]float64{yieldData, deletionData, mutationData, insertionData}
+	labels := []string{"平均合成收率", "平均缺失", "平均突变", "平均插入"}
+
+	for i, data := range dataSets {
+		if len(data) < 2 {
+			continue
+		}
+
+		fmt.Fprintf(b, `<path d="`)
+		for j, val := range data {
+			x := margin + (posData[j]-minX)*(width-2*margin)/rangeX
+			y := height - margin - int(val*float64(height-2*margin)/rangeY)
+			if j == 0 {
+				fmt.Fprintf(b, "M %d %d", x, y)
+			} else {
+				fmt.Fprintf(b, " L %d %d", x, y)
+			}
+		}
+		fmt.Fprintf(b, `" stroke="%s" stroke-width="2" fill="none"/>`, colors[i])
+	}
+
+	// 绘制图例
+	legendX := width - margin - 200
+	legendY := margin + 20
+	for i, label := range labels {
+		fmt.Fprintf(b, `<rect x="%d" y="%d" width="15" height="15" fill="%s"/>`, legendX, legendY+i*20, colors[i])
+		fmt.Fprintf(b, `<text x="%d" y="%d" font-family="Arial" font-size="12">%s</text>`, legendX+20, legendY+i*20+12, label)
+	}
+
+	fmt.Fprint(b, `</svg>`)
+	return b.String()
+}
+
 // ------------------------------------------------------------
 // 生成完整 HTML 报告
 // ------------------------------------------------------------
-func GenerateHTMLReport(data *ReportData) string {
+func GenerateHTMLReport(data *ReportData, embedImage bool) string {
 	b := &strings.Builder{}
 
 	// HTML 头部
@@ -256,139 +346,24 @@ th { background-color: #f2f2f2; }
 			insertionData = append(insertionData, stats.AvgInsertion)
 		}
 
-		// 生成JavaScript代码
-		fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
-		fmt.Fprint(b, `<canvas id="cycleAnalysisChart" height="400"></canvas>`+"\n")
-		fmt.Fprint(b, `<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>`+"\n")
-		fmt.Fprint(b, `<script>`+"\n")
-		fmt.Fprint(b, `const ctx = document.getElementById('cycleAnalysisChart').getContext('2d');`+"\n")
+		// 生成SVG图表
+		svgChart := generateCycleAnalysisSVG(posData, yieldData, deletionData, mutationData, insertionData)
 
-		// 转换数据为JavaScript数组格式
-		var labelsStr string
-		for i, pos := range posData {
-			if i > 0 {
-				labelsStr += ","
-			}
-			labelsStr += fmt.Sprintf("%d", pos)
+		if embedImage {
+			// 将SVG直接嵌入HTML
+			fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
+			fmt.Fprint(b, svgChart)
+			fmt.Fprint(b, `</div>`+"\n")
+		} else {
+			// 生成SVG文件并在HTML中引用
+			svgPath := "cycle_analysis.svg"
+			fmt.Fprint(b, `<div style="width: 100%; max-width: 1000px; margin: 0 auto;">`+"\n")
+			fmt.Fprintf(b, `<img src="%s" alt="合成轮次分析" style="width: 100%;">`+"\n", svgPath)
+			fmt.Fprint(b, `</div>`+"\n")
+
+			// 这里可以添加代码将SVG保存到文件
+			// 注意：实际实现时需要处理文件路径和写入操作
 		}
-
-		var yieldDataStr string
-		for i, val := range yieldData {
-			if i > 0 {
-				yieldDataStr += ","
-			}
-			yieldDataStr += fmt.Sprintf("%.4f", val)
-		}
-
-		var deletionDataStr string
-		for i, val := range deletionData {
-			if i > 0 {
-				deletionDataStr += ","
-			}
-			deletionDataStr += fmt.Sprintf("%.4f", val)
-		}
-
-		var mutationDataStr string
-		for i, val := range mutationData {
-			if i > 0 {
-				mutationDataStr += ","
-			}
-			mutationDataStr += fmt.Sprintf("%.4f", val)
-		}
-
-		var insertionDataStr string
-		for i, val := range insertionData {
-			if i > 0 {
-				insertionDataStr += ","
-			}
-			insertionDataStr += fmt.Sprintf("%.4f", val)
-		}
-
-		// 输出JavaScript变量
-		fmt.Fprintf(b, `const labels = [%s];`+"\n", labelsStr)
-		fmt.Fprintf(b, `const yieldData = [%s];`+"\n", yieldDataStr)
-		fmt.Fprintf(b, `const deletionData = [%s];`+"\n", deletionDataStr)
-		fmt.Fprintf(b, `const mutationData = [%s];`+"\n", mutationDataStr)
-		fmt.Fprintf(b, `const insertionData = [%s];`+"\n", insertionDataStr)
-
-		// 创建图表
-		fmt.Fprint(b, `const cycleChart = new Chart(ctx, {`+"\n")
-		fmt.Fprint(b, `  type: 'line',`+"\n")
-		fmt.Fprint(b, `  data: {`+"\n")
-		fmt.Fprint(b, `    labels: labels,\n`)
-		fmt.Fprint(b, `    datasets: [`+"\n")
-		// 平均合成收率
-		fmt.Fprint(b, `      {`+"\n")
-		fmt.Fprint(b, `        label: '平均合成收率 (%)',`+"\n")
-		fmt.Fprint(b, `        data: yieldData,\n`)
-		fmt.Fprint(b, `        borderColor: 'rgb(75, 192, 192)',`+"\n")
-		fmt.Fprint(b, `        backgroundColor: 'rgba(75, 192, 192, 0.2)',`+"\n")
-		fmt.Fprint(b, `        borderWidth: 2,`+"\n")
-		fmt.Fprint(b, `        tension: 0.1`+"\n")
-		fmt.Fprint(b, `      },`+"\n")
-		// 平均缺失
-		fmt.Fprint(b, `      {`+"\n")
-		fmt.Fprint(b, `        label: '平均缺失 (%)',`+"\n")
-		fmt.Fprint(b, `        data: deletionData,\n`)
-		fmt.Fprint(b, `        borderColor: 'rgb(255, 99, 132)',`+"\n")
-		fmt.Fprint(b, `        backgroundColor: 'rgba(255, 99, 132, 0.2)',`+"\n")
-		fmt.Fprint(b, `        borderWidth: 2,`+"\n")
-		fmt.Fprint(b, `        tension: 0.1`+"\n")
-		fmt.Fprint(b, `      },`+"\n")
-		// 平均突变
-		fmt.Fprint(b, `      {`+"\n")
-		fmt.Fprint(b, `        label: '平均突变 (%)',`+"\n")
-		fmt.Fprint(b, `        data: mutationData,\n`)
-		fmt.Fprint(b, `        borderColor: 'rgb(54, 162, 235)',`+"\n")
-		fmt.Fprint(b, `        backgroundColor: 'rgba(54, 162, 235, 0.2)',`+"\n")
-		fmt.Fprint(b, `        borderWidth: 2,`+"\n")
-		fmt.Fprint(b, `        tension: 0.1`+"\n")
-		fmt.Fprint(b, `      },`+"\n")
-		// 平均插入
-		fmt.Fprint(b, `      {`+"\n")
-		fmt.Fprint(b, `        label: '平均插入 (%)',`+"\n")
-		fmt.Fprint(b, `        data: insertionData,\n`)
-		fmt.Fprint(b, `        borderColor: 'rgb(255, 205, 86)',`+"\n")
-		fmt.Fprint(b, `        backgroundColor: 'rgba(255, 205, 86, 0.2)',`+"\n")
-		fmt.Fprint(b, `        borderWidth: 2,`+"\n")
-		fmt.Fprint(b, `        tension: 0.1`+"\n")
-		fmt.Fprint(b, `      }`+"\n")
-		fmt.Fprint(b, `    ]`+"\n")
-		fmt.Fprint(b, `  },`+"\n")
-		fmt.Fprint(b, `  options: {`+"\n")
-		fmt.Fprint(b, `    responsive: true,`+"\n")
-		fmt.Fprint(b, `    maintainAspectRatio: false,`+"\n")
-		fmt.Fprint(b, `    plugins: {`+"\n")
-		fmt.Fprint(b, `      title: {`+"\n")
-		fmt.Fprint(b, `        display: true,`+"\n")
-		fmt.Fprint(b, `        text: '合成轮次分析',`+"\n")
-		fmt.Fprint(b, `        font: {`+"\n")
-		fmt.Fprint(b, `          size: 16`+"\n")
-		fmt.Fprint(b, `        }`+"\n")
-		fmt.Fprint(b, `      },`+"\n")
-		fmt.Fprint(b, `      legend: {`+"\n")
-		fmt.Fprint(b, `        position: 'top',`+"\n")
-		fmt.Fprint(b, `      }`+"\n")
-		fmt.Fprint(b, `    },`+"\n")
-		fmt.Fprint(b, `    scales: {`+"\n")
-		fmt.Fprint(b, `      x: {`+"\n")
-		fmt.Fprint(b, `        title: {`+"\n")
-		fmt.Fprint(b, `          display: true,`+"\n")
-		fmt.Fprint(b, `          text: '位置 (pos)'`+"\n")
-		fmt.Fprint(b, `        }`+"\n")
-		fmt.Fprint(b, `      },`+"\n")
-		fmt.Fprint(b, `      y: {`+"\n")
-		fmt.Fprint(b, `        title: {`+"\n")
-		fmt.Fprint(b, `          display: true,`+"\n")
-		fmt.Fprint(b, `          text: '百分比 (%)'`+"\n")
-		fmt.Fprint(b, `        },`+"\n")
-		fmt.Fprint(b, `        beginAtZero: true`+"\n")
-		fmt.Fprint(b, `      }`+"\n")
-		fmt.Fprint(b, `    }`+"\n")
-		fmt.Fprint(b, `  }`+"\n")
-		fmt.Fprint(b, `});`+"\n")
-		fmt.Fprint(b, `</script>`+"\n")
-		fmt.Fprint(b, `</div>`+"\n")
 	} else {
 		fmt.Fprint(b, `<p>未找到位置统计数据，无法生成合成轮次分析图表。</p>`+"\n")
 	}

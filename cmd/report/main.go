@@ -109,6 +109,7 @@ func main() {
 	outputFile := flag.String("o", "", "输出报告文件路径（默认输出到stdout）")
 	mutationStatsDir := flag.String("m", "", "mutation_stats目录路径（可选）")
 	bomFile := flag.String("b", "", "BOM.xlsx文件路径（可选）")
+	embedImage := flag.Bool("embed-image", false, "是否将图表以Base64编码嵌入HTML（默认false，使用外部图片文件）")
 	flag.Parse()
 
 	if *inputFile == "" {
@@ -180,7 +181,7 @@ func main() {
 	}
 
 	// 生成报告文本
-	htmlReport := GenerateHTMLReport(&report)
+	htmlReport := GenerateHTMLReport(&report, *embedImage)
 
 	// 输出
 	if *outputFile != "" {
