@@ -1,4 +1,4 @@
-package main
+package report
 
 // ------------------------------------------------------------
 // 数据结构定义（与 JSON 一一对应）
@@ -7,16 +7,17 @@ package main
 // ------------------------------------------------------------
 // 数据结构（以孔为中心）
 // ------------------------------------------------------------
+// Well 孔位信息
 type Well struct {
 	Row            int     `json:"row"`                // 1-12
 	ColLetter      string  `json:"col_letter"`         // H,G,F,E,D,C,B,A
 	Name           string  `json:"name"`               // 引物名称
-	IsOverlap      bool    `json:"is_overlap"`         // 是否重合序列
-	PredictedYield float64 `json:"predicted_yield"`    // 预测收率 (%)
 	Yield          float64 `json:"yield"`              // 实际收率 (%)
 	Deletion       float64 `json:"deletion"`           // 缺失 (%)
 	Mutation       float64 `json:"mutation"`           // 突变 (%)
 	Insertion      float64 `json:"insertion"`          // 插入 (%)
+	IsOverlap      bool    `json:"is_overlap"`         // 是否重合序列
+	PredictedYield float64 `json:"predicted_yield"`    // 预测收率 (%)
 	Sequence       string  `json:"sequence,omitempty"` // 序列
 	Position       string  `json:"position,omitempty"` // 位置
 
@@ -42,7 +43,7 @@ type PlateStats struct {
 	Plate  WellPlate `json:"plate"`
 }
 
-// 错误统计条目
+// ErrorStat 错误统计数据
 type ErrorStat struct {
 	ErrorType string   `json:"error_type"` // 如 "平均收率"
 	Reference *float64 `json:"reference"`  // 参考值，可以为 null
@@ -60,7 +61,7 @@ type BasicInfo struct {
 	SequencingDate      string `json:"sequencing_date"`
 }
 
-// 概要统计
+// SummaryStats 摘要统计数据
 type SummaryStats struct {
 	AvgYield              float64 `json:"avg_yield"`
 	YieldStddev           float64 `json:"yield_stddev"`
@@ -72,7 +73,7 @@ type SummaryStats struct {
 	OverlapSequences      int     `json:"overlap_sequences"`
 }
 
-// 概要部分
+// Summary 摘要信息
 type Summary struct {
 	BasicInfo  BasicInfo    `json:"basic_info"`
 	Statistics SummaryStats `json:"statistics"`
@@ -97,23 +98,25 @@ type CyclePlate struct {
 	Plate [12][8]interface{} `json:"plate"`
 }
 
-// 轮次分析（折线图部分，这里仅提供数据，报告只打印标题，后续可扩展）
+// CycleAnalysis 轮次分析（折线图部分，这里仅提供数据，报告只打印标题，后续可扩展）
 type CycleAnalysis struct {
-	AvgYieldByCycle     []float64 `json:"avg_yield_by_cycle"`
-	AvgDeletionByCycle  []float64 `json:"avg_deletion_by_cycle"`
-	AvgMutationByCycle  []float64 `json:"avg_mutation_by_cycle"`
-	AvgInsertionByCycle []float64 `json:"avg_insertion_by_cycle"`
+	AvgYieldByCycle     []float64       `json:"avg_yield_by_cycle"`
+	AvgDeletionByCycle  []float64       `json:"avg_deletion_by_cycle"`
+	AvgMutationByCycle  []float64       `json:"avg_mutation_by_cycle"`
+	AvgInsertionByCycle []float64       `json:"avg_insertion_by_cycle"`
+	PositionStats       []PositionStats `json:"position_stats"`
 }
 
-// 附录
+// Appendix 附录
 type Appendix struct {
-	YieldByWellCycle     []CyclePlate `json:"yield_by_well_cycle"`
-	DeletionByWellCycle  []CyclePlate `json:"deletion_by_well_cycle"`
-	InsertionByWellCycle []CyclePlate `json:"insertion_by_well_cycle"`
-	MutationByWellCycle  []CyclePlate `json:"mutation_by_well_cycle"`
+	YieldByWellCycle     []CyclePlate       `json:"yield_by_well_cycle"`
+	DeletionByWellCycle  []CyclePlate       `json:"deletion_by_well_cycle"`
+	InsertionByWellCycle []CyclePlate       `json:"insertion_by_well_cycle"`
+	MutationByWellCycle  []CyclePlate       `json:"mutation_by_well_cycle"`
+	WellPositionData     []WellPositionData `json:"well_position_data"`
 }
 
-// 根结构
+// ReportData 报告数据结构
 type ReportData struct {
 	ReportTitle         string `json:"report_title"`
 	SynthesisDate       string `json:"synthesis_date"`
@@ -138,8 +141,23 @@ type ReportData struct {
 	Appendix      Appendix      `json:"appendix"`
 }
 
-// 错误统计参考值条目
+// ErrorStatRef 错误统计参考值
 type ErrorStatRef struct {
 	ErrorType string   `json:"error_type"`
 	Reference *float64 `json:"reference"` // 可以为 null
+}
+
+// PositionStats 位置统计数据
+type PositionStats struct {
+	Pos          int     `json:"pos"`
+	AvgYield     float64 `json:"avg_yield"`     // 平均合成收率: match_pure/depth
+	AvgDeletion  float64 `json:"avg_deletion"`  // 平均缺失: deletion/depth
+	AvgMutation  float64 `json:"avg_mutation"`  // 平均突变: (mismatch_pure+mismatch_with_ins)/depth
+	AvgInsertion float64 `json:"avg_insertion"` // 平均插入: insertion/depth
+}
+
+// WellPositionData 单孔单轮数据
+type WellPositionData struct {
+	WellName      string          `json:"well_name"`
+	PositionStats []PositionStats `json:"position_stats"`
 }
