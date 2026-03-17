@@ -44,6 +44,16 @@ func (p *Processor) LoadData() (*ReportData, error) {
 
 	// 如果提供了BOM.xlsx文件，读取并更新孔位信息
 	if p.config.BomFile != "" {
+		// 解析 Batch 信息
+		batchID, synthesisDate, instrumentID, err := ParseBatchInfo(p.config.BomFile)
+		if err != nil {
+			log.Printf("警告：解析 BOM 文件路径失败: %v", err)
+		} else {
+			log.Printf("从 BOM 文件解析得到: BatchID=%s, 合成日期=%s, 仪器号=%s", batchID, synthesisDate, instrumentID)
+			// 使用这些信息更新报告数据
+			report.SynthesisDate = synthesisDate
+			report.InstrumentID = instrumentID
+		}
 		if err := p.updateWellInfo(report); err != nil {
 			log.Printf("警告：更新孔位信息失败: %v", err)
 		} else {
