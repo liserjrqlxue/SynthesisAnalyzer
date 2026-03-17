@@ -97,12 +97,27 @@ go run cmd/fastq_splitter/main.go [参数]
 
 **功能**：生成分析报告，汇总各个工具的分析结果。
 
+**主要特性**：
+- 支持从split_summary.txt读取总处理reads数和测序时间
+- 生成详细的HTML分析报告
+- 支持从BOM文件读取孔位信息
+- 支持突变统计数据的分析和展示
+
 **使用方法**：
 
 ```bash
 # 基本用法
 go run cmd/report/main.go [参数]
+
+# 带BOM文件的用法
+go run cmd/report/main.go -i <输入文件> -b <BOM文件> -m <mutation_stats目录>
 ```
+
+**参数说明**：
+- `-i`：输入JSON文件
+- `-o`：输出HTML文件
+- `-b`：BOM.xlsx文件，用于获取孔位信息
+- `-m`：mutation_stats目录，用于获取突变统计数据
 
 ## 安装方法
 
@@ -252,4 +267,4 @@ ls ./split_results/
 ---
 
 **版本**：1.0.0
-**最后更新**：2026-03-13
+**最后更新**：2026-03-17

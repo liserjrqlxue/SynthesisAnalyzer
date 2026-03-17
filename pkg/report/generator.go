@@ -228,6 +228,12 @@ func (g *Generator) writeSummarySection(b *strings.Builder, data *ReportData, pl
 	} else {
 		b.WriteString(fmt.Sprintf("<tr><td>平均收率</td><td>%.2f%%</td></tr>\n", stats.AvgYield))
 	}
+	// 收率标准差 - 根据参考值是否存在来决定输出格式
+	if refVal, ok := refMap["收率标准差"]; ok && refVal != nil && *refVal > 0 {
+		b.WriteString(fmt.Sprintf("<tr><td>收率标准差</td><td>%.2f%% (参考值%.2f%%)</td></tr>\n", stats.YieldStddev, *refVal))
+	} else {
+		b.WriteString(fmt.Sprintf("<tr><td>收率标准差</td><td>%.2f%%</td></tr>\n", stats.YieldStddev))
+	}
 
 	b.WriteString(fmt.Sprintf("<tr><td>收率标准差</td><td>%.2f%%</td></tr>\n", stats.YieldStddev))
 	b.WriteString(fmt.Sprintf("<tr><td>收率中位数</td><td>%.2f%%</td></tr>\n", stats.YieldMedian))

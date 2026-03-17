@@ -95,9 +95,6 @@ func (p *Processor) validateReportData(report *ReportData) error {
 	if report.ReportTitle == "" {
 		return fmt.Errorf("报告标题为空")
 	}
-	if report.Wells == nil || len(report.Wells) == 0 {
-		return fmt.Errorf("孔位数据为空")
-	}
 	return nil
 }
 
@@ -177,14 +174,20 @@ func (p *Processor) updateMutationStats(report *ReportData) error {
 		log.Printf("成功更新收率和错误数据")
 	}
 
-	// 读取split_summary.txt中的总处理reads数
-	barcodeReads, err := ReadSplitSummary(p.config.MutationStatsDir)
+	// 读取split_summary.txt中的总处理reads数和测序时间
+	barcodeReads, sequencingDate, err := ReadSplitSummary(p.config.MutationStatsDir)
 	if err != nil {
 		log.Printf("警告：读取split_summary.txt失败: %v", err)
 	} else {
 		// 更新BarcodeReads字段
 		report.BarcodeReads = barcodeReads
 		log.Printf("从split_summary.txt更新BarcodeReads: %d", barcodeReads)
+
+		// 更新SequencingDate字段
+		if sequencingDate != "" {
+			report.SequencingDate = sequencingDate
+			log.Printf("从split_summary.txt更新SequencingDate: %s", sequencingDate)
+		}
 	}
 
 	// 读取位置统计数据
@@ -629,20 +632,23 @@ func ReadYieldStats(inputDir string) (map[string]float64, map[string]float64, ma
 	return yieldStats, deletionStats, mutationStats, insertionStats, nil
 }
 
-// ReadSplitSummary 从split_summary.txt读取总处理reads数
-func ReadSplitSummary(inputDir string) (int, error) {
+// ReadSplitSummary 从split_summary.txt读取总处理reads数和测序时间
+func ReadSplitSummary(inputDir string) (int, string, error) {
 	// 构建split_summary.txt文件路径
 	summaryPath := filepath.Join(inputDir, "split_summary.txt")
 
 	// 打开文件
 	file, err := os.Open(summaryPath)
 	if err != nil {
-		return 0, fmt.Errorf("打开split_summary.txt失败: %w", err)
+		return 0, "", fmt.Errorf("打开split_summary.txt失败: %w", err)
 	}
 	defer file.Close()
 
 	// 读取文件内容
 	scanner := bufio.NewScanner(file)
+	var barcodeReads int
+	var sequencingDate string
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		// 查找"总处理reads数:"行
@@ -656,18 +662,30 @@ func ReadSplitSummary(inputDir string) (int, error) {
 				// 转换为整数
 				num, err := strconv.Atoi(numStr)
 				if err != nil {
-					return 0, fmt.Errorf("解析总处理reads数失败: %w", err)
+					return 0, "", fmt.Errorf("解析总处理reads数失败: %w", err)
 				}
-				return num, nil
+				barcodeReads = num
+			}
+		}
+		// 查找"测序时间:"行
+		if strings.Contains(line, "测序时间:") {
+			// 提取时间
+			parts := strings.Split(line, ":")
+			if len(parts) >= 2 {
+				sequencingDate = strings.TrimSpace(parts[1])
 			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return 0, fmt.Errorf("读取split_summary.txt失败: %w", err)
+		return 0, "", fmt.Errorf("读取split_summary.txt失败: %w", err)
 	}
 
-	return 0, fmt.Errorf("未找到总处理reads数")
+	if barcodeReads == 0 {
+		return 0, "", fmt.Errorf("未找到总处理reads数")
+	}
+
+	return barcodeReads, sequencingDate, nil
 }
 
 // ReadPositionStats 从{ID}_position_detailed.csv读取位置统计数据
