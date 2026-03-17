@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -30,7 +31,7 @@ var (
 	)
 	outputDir = flag.String(
 		"o",
-		"output",
+		"",
 		"[输出目录]",
 	)
 	fastqDir = flag.String(
@@ -52,11 +53,65 @@ func main() {
 		log.Fatalln("-i required!")
 	}
 
+	// 处理输出目录
+	output := *outputDir
+	if output == "" {
+		// 如果-o未定义，使用-i 切掉".xlsx"作为输出目录
+		baseName := filepath.Base(*excelFile)
+		if before, ok := strings.CutSuffix(baseName, ".xlsx"); ok {
+			output = before
+		} else {
+			output = baseName
+		}
+	}
+
+	// 处理fastq目录
+	fastq := *fastqDir
+	if fastq == "" {
+		// 如果-fq未定义，查找-i对应目录内的*path.txt(兼容大写字符)
+		excelDir := filepath.Dir(*excelFile)
+		files, err := filepath.Glob(filepath.Join(excelDir, "*[Pp][Aa][Tt][Hh].txt"))
+		if err != nil || len(files) == 0 {
+			log.Fatalln("No path.txt file found in the Excel directory")
+		}
+
+		// 读取path.txt文件内容
+		pathFile := files[0]
+		content, err := os.ReadFile(pathFile)
+		if err != nil {
+			log.Fatalf("Failed to read path.txt: %v", err)
+		}
+
+		fqBatch := strings.TrimSpace(string(content))
+		if fqBatch == "" {
+			log.Fatalln("Empty content in path.txt")
+		}
+
+		// 判断模式
+		if matched, _ := regexp.MatchString(`^FT\d+$`, fqBatch); matched {
+			// G99模式
+			fastq = fmt.Sprintf("/data2/wangyaoshen/Sequencing_data/G99/R21007100240139/%s/L01", fqBatch)
+		} else if strings.HasPrefix(fqBatch, "oss://novo-medical-customer-tj/") {
+			// Novo模式
+			parts := strings.Split(fqBatch, "/")
+			if len(parts) < 4 {
+				log.Fatalln("Invalid Novo path format")
+			}
+			// 提取最后一个目录
+			lastDir := parts[len(parts)-1]
+			// 提取CYB编号 (parts[3] after splitting "oss://novo-medical-customer-tj/CYB24030020/...")
+			cyb := parts[3]
+			fastq = fmt.Sprintf("/data2/wangyaoshen/novo-medical-customer-tj/%s/%s/Rawdata", cyb, lastDir)
+		} else {
+			log.Fatalln("Unsupported fqBatch format")
+		}
+	}
+
 	// 创建配置
 	config := &Config{
 		ExcelFile:    *excelFile,
-		OutputDir:    *outputDir,
-		FastqDir:     *fastqDir,
+		OutputDir:    output,
+		FastqDir:     fastq,
 		Threads:      runtime.NumCPU(),
 		SearchWindow: 200, // 从头/尾搜索50bp
 		Quality:      20,
@@ -107,7 +162,6 @@ func main() {
 
 	// 创建处理器
 	splitter := NewEnhancedSplitter(config)
-	fmt.Printf("%+v", splitter)
 
 	// 运行处理流程
 	if err := splitter.RunWithAlignment(); err != nil {
@@ -160,9 +214,67 @@ func NewAlignmentAnalyzer(config *AlignmentConfig, samples []*SampleInfo, output
 	}
 }
 
+// 计算测序时间
+func (s *EnhancedSplitter) calculateSequencingTime() error {
+	fastqDir := s.config.FastqDir
+
+	// 判断模式
+	if strings.Contains(fastqDir, "/G99/") {
+		// G99模式：解析version.json
+		versionFile := filepath.Join(fastqDir, "version.json")
+		content, err := os.ReadFile(versionFile)
+		if err != nil {
+			return fmt.Errorf("failed to read version.json: %v", err)
+		}
+
+		// 简单解析DateTime字段
+		dateTimeRegex := regexp.MustCompile(`"DateTime":\s*"([^"]+)"`)
+		matches := dateTimeRegex.FindSubmatch(content)
+		if len(matches) < 2 {
+			return fmt.Errorf("DateTime field not found in version.json")
+		}
+
+		dateTimeStr := string(matches[1])
+		// 解析时间格式：2026-03-13 04:17:38
+		t, err := time.Parse("2006-01-02 15:04:05", dateTimeStr)
+		if err != nil {
+			return fmt.Errorf("failed to parse DateTime: %v", err)
+		}
+
+		s.sequencingTime = t.Format("2006.01.02")
+	} else if strings.Contains(fastqDir, "/novo-medical-customer-tj/") {
+		// Novo模式：使用最后的目录的头部如20260311
+		parts := strings.Split(fastqDir, "/")
+		if len(parts) < 2 {
+			return fmt.Errorf("invalid fastq directory path")
+		}
+
+		// 找到包含日期的目录名
+		for i := len(parts) - 1; i >= 0; i-- {
+			if len(parts[i]) >= 8 {
+				// 提取前8个字符作为日期
+				datePart := parts[i][:8]
+				if matched, _ := regexp.MatchString(`^\d{8}$`, datePart); matched {
+					s.sequencingTime = datePart
+					return nil
+				}
+			}
+		}
+
+		return fmt.Errorf("date not found in novo directory path")
+	}
+
+	return nil
+}
+
 // 扩展的主运行函数，包含比对步骤
 func (s *EnhancedSplitter) RunWithAlignment() error {
 	fmt.Println("=== FASTQ拆分与比对分析完整流程 ===")
+
+	// 计算测序时间
+	if err := s.calculateSequencingTime(); err != nil {
+		fmt.Printf("警告: 计算测序时间失败: %v\n", err)
+	}
 
 	// 阶段1: 拆分
 	fmt.Println("\n--- 阶段1: FASTQ拆分 ---")

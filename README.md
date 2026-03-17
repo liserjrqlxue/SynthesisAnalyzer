@@ -85,13 +85,36 @@ Excel文件需要包含以下列：
 - 支持模糊匹配
 - 生成详细的拆分报告
 - 支持可视化结果
+- 自动确定输出目录（当-o未定义时）
+- 自动确定fastq目录（当-fq未定义时）
+- 在拆分报告中添加测序时间信息
 
 **使用方法**：
 
 ```bash
 # 基本用法
-go run cmd/fastq_splitter/main.go [参数]
+go run cmd/fastq_splitter/main.go -i <Excel文件> -o <输出目录> -fq <Fastq目录>
+
+# 自动确定输出目录和fastq目录
+go run cmd/fastq_splitter/main.go -i <Excel文件>
 ```
+
+**参数说明**：
+- `-i`：输入Excel文件，包含样本信息和靶标序列
+- `-o`：输出目录，默认使用Excel文件名（不含.xlsx后缀）
+- `-fq`：Fastq目录，默认从同目录下的*path.txt文件读取
+- `-m`：最小重叠长度，默认30
+
+**自动fastq目录确定逻辑**：
+1. 查找与Excel文件同目录的*path.txt文件（大小写不敏感）
+2. 读取文件内容作为$fqBatch
+3. 根据$fqBatch格式确定模式：
+   - G99模式：$fqBatch为"FT\d+"格式，设置为`/data2/wangyaoshen/Sequencing_data/G99/R21007100240139/$fqBatch/L01`
+   - Novo模式：$fqBatch为"oss://novo-medical-customer-tj/..."格式，提取最后一个目录作为$fqBatch，设置为`/data2/wangyaoshen/novo-medical-customer-tj/$CYB/$fqBatch/Rawdata`
+
+**测序时间获取逻辑**：
+- G99模式：解析fastq目录下的version.json文件中的"DateTime"字段
+- Novo模式：提取目录名中的日期部分（前8个字符）
 
 ### 3. report
 

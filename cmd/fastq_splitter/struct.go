@@ -74,6 +74,9 @@ type EnhancedSplitter struct {
 	// 全局统计
 	stats      *SplitStats
 	statsMutex sync.RWMutex
+
+	// 测序时间
+	sequencingTime string
 }
 
 // 拆分统计

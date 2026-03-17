@@ -64,6 +64,7 @@ func (s *EnhancedSplitter) generateSummaryReport() error {
 
 生成时间: %s
 程序版本: v1.0
+测序时间: %s
 
 运行配置
 --------
@@ -88,6 +89,7 @@ Excel文件: %s
 --------
 `,
 		time.Now().Format("2006-01-02 15:04:05"),
+		s.sequencingTime,
 		s.config.ExcelFile,
 		s.config.OutputDir,
 		s.config.Threads,
