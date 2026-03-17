@@ -15,15 +15,15 @@ require (
 
 require (
 	github.com/bits-and-blooms/bitset v1.24.2 // indirect
-	github.com/go-echarts/go-echarts/v2 v2.7.1 // indirect
+	github.com/go-echarts/go-echarts/v2 v2.7.1
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.4 // indirect
 	github.com/tiendc/go-deepcopy v1.7.1 // indirect
 	github.com/xuri/efp v0.0.1 // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
-	golang.org/x/crypto v0.43.0 // indirect
-	golang.org/x/net v0.46.0 // indirect
-	golang.org/x/text v0.30.0 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 	gonum.org/v1/gonum v0.17.0
 )
