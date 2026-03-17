@@ -46,26 +46,26 @@ chmod +x cmd/fastq_splitter/install_deps.sh
 
 ```bash
 # 基本用法
-fastq_splitter <Excel文件> [输出目录] [Fastq目录]
+fastq_splitter -i <Excel文件> -o <输出目录> -fq <Fastq目录>
 
 # 示例
-fastq_splitter samples.xlsx ./output ./fastq
+fastq_splitter -i samples.xlsx -o ./output -fq ./fastq
+
+# 自动确定输出目录和fastq目录
+fastq_splitter -i samples.xlsx
 
 # 完整参数
-fastq_splitter <Excel文件> [输出目录] [Fastq目录] [其他参数]
+fastq_splitter -i <Excel文件> [-o <输出目录>] [-fq <Fastq目录>] [-m <最小重叠长度>]
 ```
 
 ### 参数说明
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `<Excel文件>` | Excel文件，包含样本信息和靶标序列 | 必需 |
-| `[输出目录]` | 输出目录 | ./output |
-| `[Fastq目录]` | Fastq文件目录 | ./fastq |
-| `-m` | 匹配模式（exact/fuzzy） | exact |
-| `-f` | 模糊匹配的最大错配数 | 2 |
-| `-p` | 并行处理数 | 4 |
-| `-s` | 最小序列长度 | 50 |
+| `-i` | Excel文件，包含样本信息和靶标序列 | 必需 |
+| `-o` | 输出目录，默认使用Excel文件名（不含.xlsx后缀） | Excel文件名 |
+| `-fq` | Fastq文件目录，默认从同目录下的*path.txt文件读取 | 从*path.txt读取 |
+| `-m` | 最小重叠长度 | 30 |
 
 ## 4. 输入文件格式
 
@@ -79,13 +79,22 @@ Excel文件需要包含以下列：
 | 靶标序列 | 靶标部分的序列 |
 | 合成序列 | 合成部分的序列 |
 | 后靶标 | 后靶标部分的序列 |
+| 路径-R1 | R1 FASTQ文件路径 |
+| 路径-R2 | R2 FASTQ文件路径 |
+
+### path.txt文件格式
+
+当未指定`-fq`参数时，工具会查找与Excel文件同目录的*path.txt文件（大小写不敏感），文件内容为：
+
+- G99模式：`FT\d+`格式，如`FT100120704`
+- Novo模式：`oss://novo-medical-customer-tj/...`格式，如`oss://novo-medical-customer-tj/CYB24030020/20260311_222613_23JNYHLT4-sanwen-CYB24030020_Result`
 
 **示例Excel文件内容**：
 
-| 样品名称 | 靶标序列 | 合成序列 | 后靶标 |
-|----------|----------|----------|--------|
-| Sample1  | ATGC...  | CGTA...  | GCAT...|
-| Sample2  | ATGC...  | CGTA...  | GCAT...|
+| 样品名称 | 靶标序列 | 合成序列 | 后靶标 | 路径-R1 | 路径-R2 |
+|----------|----------|----------|--------|---------|---------|
+| Sample1  | ATGC...  | CGTA...  | GCAT...| sample1_R1.fastq.gz | sample1_R2.fastq.gz |
+| Sample2  | ATGC...  | CGTA...  | GCAT...| sample2_R1.fastq.gz | sample2_R2.fastq.gz |
 
 ### FASTQ文件要求
 
@@ -93,7 +102,31 @@ Excel文件需要包含以下列：
 - 支持单端和双端测序数据
 - 文件名建议包含样本信息
 
-## 5. 输出文件说明
+## 5. 自动目录检测
+
+### 自动输出目录检测
+
+当未指定`-o`参数时，工具会：
+1. 提取Excel文件名（不含.xlsx后缀）
+2. 使用该名称作为输出目录
+
+### 自动fastq目录检测
+
+当未指定`-fq`参数时，工具会：
+1. 查找与Excel文件同目录的*path.txt文件（大小写不敏感）
+2. 读取文件内容作为$fqBatch
+3. 根据$fqBatch格式确定模式：
+   - **G99模式**：$fqBatch为"FT\d+"格式，设置为`/data2/wangyaoshen/Sequencing_data/G99/R21007100240139/$fqBatch/L01`
+   - **Novo模式**：$fqBatch为"oss://novo-medical-customer-tj/..."格式，提取最后一个目录作为$fqBatch，设置为`/data2/wangyaoshen/novo-medical-customer-tj/$CYB/$fqBatch/Rawdata`
+
+## 6. 测序时间获取
+
+工具会在拆分报告中添加测序时间信息：
+
+- **G99模式**：解析fastq目录下的version.json文件中的"DateTime"字段
+- **Novo模式**：提取目录名中的日期部分（前8个字符）
+
+## 7. 输出文件说明
 
 ### 主要输出文件
 
@@ -263,6 +296,13 @@ ls ./split_results/Sample1/
 - 改进报告格式
 - 增加可视化功能
 
+### v1.3.0
+- 增加自动输出目录检测功能
+- 增加自动fastq目录检测功能
+- 增加测序时间获取和报告功能
+- 支持G99和Novo两种模式
+- 改进命令行参数解析
+
 ## 14. 联系方式
 
 如有问题或建议，请联系：
@@ -272,5 +312,5 @@ ls ./split_results/Sample1/
 
 ---
 
-**版本**：1.2.0
-**最后更新**：2026-03-13
+**版本**：1.3.0
+**最后更新**：2026-03-17
