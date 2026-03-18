@@ -128,6 +128,8 @@ type ReportData struct {
 	SequencingDate      string `json:"sequencing_date"`
 	BarcodeReads        int    `json:"barcode_reads"` // 测序数据中的Barcode reads数量
 
+	BatchID string
+
 	Wells []*Well `json:"wells"` // 所有孔的列表
 	// 错误统计的参考值（仅用于输出参考列，数据由程序计算）
 	ErrorStatsRef []ErrorStatRef `json:"error_stats_ref"`

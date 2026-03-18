@@ -53,6 +53,7 @@ func (p *Processor) LoadData() (*ReportData, error) {
 			// 使用这些信息更新报告数据
 			report.SynthesisDate = synthesisDate
 			report.InstrumentID = instrumentID
+			report.BatchID = batchID
 		}
 		if err := p.updateWellInfo(report); err != nil {
 			log.Printf("警告：更新孔位信息失败: %v", err)

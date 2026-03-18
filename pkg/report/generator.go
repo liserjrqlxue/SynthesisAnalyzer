@@ -49,7 +49,10 @@ func (g *Generator) GenerateHTML(data *ReportData) string {
 
 	// 构建二维孔索引
 	plate := g.buildWellPlate(data.Wells)
-	batchID := g.makeBatchID(data.SynthesisDate, data.InstrumentID)
+	batchID := data.BatchID
+	if batchID == "" {
+		batchID = g.makeBatchID(data.SynthesisDate, data.InstrumentID)
+	}
 
 	// 1. Summary
 	g.writeSummarySection(b, data, plate, batchID)
@@ -113,11 +116,12 @@ table {
 	border-collapse: collapse;
 	width: 100%;
 	max-width: 1000px;
+	min-width: 920px;
 	page-break-inside: avoid; /* 防止表格整体跨页 */
 	box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 table th, table td {
-	padding: 8px 12px;
+	padding: 2px 3px;
 	text-align: center;
 	border: 1px solid #ddd;
 }
@@ -138,11 +142,11 @@ thead {
 tr { page-break-inside: avoid; } /* 防止单个行跨页 */
 .chart-container {
 	width: 100%;
-	max-width: 1000px;
-	margin: 0 auto;
+	max-width: 900px;
+	margin: 0 0;
 	margin-top: 30px;
 	margin-bottom: 30px;
-	padding: 20px;
+	padding: 0px;
 	background-color: #f8f9fa;
 	border-radius: 8px;
 	box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -201,7 +205,7 @@ func (g *Generator) writeSummarySection(b *strings.Builder, data *ReportData, pl
 	// 基本信息
 	b.WriteString(`<div class="section">` + "\n")
 	b.WriteString("<h3>基本信息</h3>\n")
-	b.WriteString(`<table border='1' cellpadding='4' style="table-layout: fixed; width: auto;; min-width: 800px;">` + "\n")
+	b.WriteString(`<table border='1' cellpadding='4' style="table-layout: fixed; width: auto;">` + "\n")
 	b.WriteString(`<colgroup><col style="width: 240px;"></colgroup>`)
 	b.WriteString(`<colgroup><col style="width: 240px;"></colgroup>`)
 	b.WriteString(fmt.Sprintf("<tr><td>合成日期</td><td>%s</td></tr>\n", data.SynthesisDate))
@@ -249,7 +253,7 @@ func (g *Generator) writeSummarySection(b *strings.Builder, data *ReportData, pl
 	// 合成错误统计
 	b.WriteString(`<div class="section">` + "\n")
 	b.WriteString("<h3>合成错误统计</h3>\n")
-	b.WriteString(`<table border='1' cellpadding='4' style="table-layout: fixed; width: auto; min-width: 800px;">` + "\n")
+	b.WriteString(`<table border='1' cellpadding='4' style="table-layout: fixed; width: auto;">` + "\n")
 	b.WriteString(`<colgroup>` + "\n")
 	b.WriteString(`<col style="width: 140px;">` + "\n")
 	b.WriteString(`<col style="width: 230px;">` + "\n")
@@ -596,11 +600,11 @@ func (g *Generator) printPlateTableHTML(w io.Writer, title, subtitle, note, batc
 	}
 
 	// 表格样式：固定布局，单元格固定宽高，居中对齐
-	fmt.Fprint(w, `<table border="1" cellpadding="4"  style=" table-layout: fixed; width: auto;; min-width: 800px;">`+"\n")
+	fmt.Fprint(w, `<table border="1" cellpadding="4"  style=" table-layout: fixed; width: auto;">`+"\n")
 	fmt.Fprint(w, `<colgroup>`+"\n")
-	fmt.Fprint(w, `<col style="width: 120px;">`+"\n") // 行号列宽度
+	fmt.Fprint(w, `<col style="width: 100px;">`+"\n") // 行号列宽度
 	for range Cols {
-		fmt.Fprintf(w, `<col style="width: 120px;">`+"\n") // 每列宽度120px
+		fmt.Fprintf(w, `<col style="width: 100px;">`+"\n") // 每列宽度120px
 	}
 	fmt.Fprint(w, "\n")
 	fmt.Fprint(w, `</colgroup>`+"\n")
@@ -679,7 +683,7 @@ func (g *Generator) printWellPositionTableHTML(w io.Writer, data *ReportData, da
 	// 为每个位置生成一个表格
 	for _, pos := range posSlice {
 		// 表格样式：固定布局，单元格固定宽高，居中对齐
-		fmt.Fprint(w, `<table border="1" cellpadding="4" cellspacing="0" style="border-collapse: collapse; table-layout: fixed; width: auto;; min-width: 800px;">`+"\n")
+		fmt.Fprint(w, `<table border="1" cellpadding="4" cellspacing="0" style="border-collapse: collapse; table-layout: fixed; width: auto;">`+"\n")
 		fmt.Fprint(w, `<colgroup>`+"\n")
 		fmt.Fprint(w, `<col style="width: 120px;">`+"\n") // 行号列宽度
 		for range Cols {
