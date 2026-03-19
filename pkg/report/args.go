@@ -20,7 +20,7 @@ type Config struct {
 
 // ParseArgs 解析命令行参数
 func ParseArgs() *Config {
-	inputFile := flag.String("i", "", "输入JSON文件路径")
+	inputFile := flag.String("i", "", "输入JSON文件路径（可选）")
 	outputFile := flag.String("o", "", "输出报告文件路径（默认输出到stdout）")
 	mutationStatsDir := flag.String("m", "", "mutation_stats目录路径（可选）")
 	bomFile := flag.String("b", "", "BOM.xlsx文件路径（可选）")
@@ -33,10 +33,6 @@ func ParseArgs() *Config {
 
 	// 设置日志级别
 	setLogLevel(*logLevel)
-
-	if *inputFile == "" {
-		log.Fatal("请使用 -i 指定输入JSON文件")
-	}
 
 	return &Config{
 		InputFile:        *inputFile,

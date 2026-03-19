@@ -123,24 +123,41 @@ go run cmd/fastq_splitter/main.go -i <Excel文件>
 **主要特性**：
 - 支持从split_summary.txt读取总处理reads数和测序时间
 - 生成详细的HTML分析报告
-- 支持从BOM文件读取孔位信息
+- 支持从BOM.xlsx文件直接读取孔位信息（使用excelize库）
 - 支持突变统计数据的分析和展示
+- 提供默认配置，无需指定输入文件即可生成报告
 
 **使用方法**：
 
 ```bash
-# 基本用法
-go run cmd/report/main.go [参数]
+# 基本用法（使用默认配置）
+go run cmd/report/main.go
+
+# 带输入文件的用法
+go run cmd/report/main.go -i <输入文件>
 
 # 带BOM文件的用法
-go run cmd/report/main.go -i <输入文件> -b <BOM文件> -m <mutation_stats目录>
+go run cmd/report/main.go -b <BOM文件> -m <mutation_stats目录>
+
+# 完整用法
+go run cmd/report/main.go -i <输入文件> -o <输出文件> -b <BOM文件> -m <mutation_stats目录>
 ```
 
 **参数说明**：
-- `-i`：输入JSON文件
-- `-o`：输出HTML文件
-- `-b`：BOM.xlsx文件，用于获取孔位信息
-- `-m`：mutation_stats目录，用于获取突变统计数据
+- `-i`：输入JSON文件（可选，不指定时使用默认配置）
+- `-o`：输出HTML文件（可选，默认输出到stdout）
+- `-b`：BOM.xlsx文件，用于获取孔位信息（可选）
+- `-m`：mutation_stats目录，用于获取突变统计数据（可选）
+- `-embed-image`：是否将图表以Base64编码嵌入HTML（默认false）
+- `-use-go-echarts`：是否使用go-echarts生成图表（默认false）
+- `-c`：配置文件路径（可选）
+- `-template`：报告模板名称（默认：default）
+- `-log-level`：日志级别（可选：debug, info, warn, error）
+
+**默认值**：
+- 报告标题：TIESyno-96合成仪下机报告
+- 合成工艺版本：V3.0
+- SEC1工艺版本：SECV1.0
 
 ## 安装方法
 
@@ -290,4 +307,4 @@ ls ./split_results/
 ---
 
 **版本**：1.0.0
-**最后更新**：2026-03-17
+**最后更新**：2026-03-18

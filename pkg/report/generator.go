@@ -554,7 +554,7 @@ func (g *Generator) extractFieldPlate(plate [Rows][Cols]*Well, field string) [Ro
 				case "name":
 					result[i][j] = well.Name
 				case "predicted_yield":
-					result[i][j] = fmt.Sprintf("%.2f%%", well.Yield) // 这里假设Yield是预测收率
+					result[i][j] = fmt.Sprintf("%.2f%%", well.PredictedYield) // 这里假设Yield是预测收率
 				case "yield":
 					result[i][j] = fmt.Sprintf("%.2f%%", well.Yield)
 				case "deletion":

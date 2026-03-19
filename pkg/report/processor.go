@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/xuri/excelize/v2"
 	"gonum.org/v1/gonum/stat"
 )
 
@@ -74,8 +75,30 @@ func (p *Processor) LoadData() (*ReportData, error) {
 	return report, nil
 }
 
-// loadJSON 加载JSON文件
+// loadJSON 加载JSON文件或创建默认报告数据
 func (p *Processor) loadJSON() (*ReportData, error) {
+	// 如果没有指定输入文件，创建默认的ReportData结构
+	if p.config.InputFile == "" {
+		return &ReportData{
+			ReportTitle:         "TIESyno-96合成仪下机报告",
+			SynthesisProcessVer: "V3.0",
+			SEC1ProcessVer:      "SECV1.0",
+			Wells:               []*Well{},
+			ErrorStatsRef:       []ErrorStatRef{},
+			Summary: Summary{
+				BasicInfo: BasicInfo{
+					SynthesisProcessVer: "V3.0",
+					SEC1ProcessVer:      "SECV1.0",
+				},
+				Statistics: SummaryStats{},
+				ErrorStats: []ErrorStat{},
+			},
+			CycleAnalysis: CycleAnalysis{},
+			Appendix:      Appendix{},
+		}, nil
+	}
+
+	// 否则，加载指定的JSON文件
 	file, err := os.Open(p.config.InputFile)
 	if err != nil {
 		return nil, err
@@ -86,6 +109,26 @@ func (p *Processor) loadJSON() (*ReportData, error) {
 	decoder := json.NewDecoder(file)
 	if err := decoder.Decode(&report); err != nil {
 		return nil, err
+	}
+
+	// 如果报告标题为空，设置默认值
+	if report.ReportTitle == "" {
+		report.ReportTitle = "TIESyno-96合成仪下机报告"
+	}
+	// 如果合成工艺版本为空，设置默认值
+	if report.SynthesisProcessVer == "" {
+		report.SynthesisProcessVer = "V3.0"
+	}
+	// 如果SEC1工艺版本为空，设置默认值
+	if report.SEC1ProcessVer == "" {
+		report.SEC1ProcessVer = "SECV1.0"
+	}
+	// 确保Summary中的版本信息也同步
+	if report.Summary.BasicInfo.SynthesisProcessVer == "" {
+		report.Summary.BasicInfo.SynthesisProcessVer = "V3.0"
+	}
+	if report.Summary.BasicInfo.SEC1ProcessVer == "" {
+		report.Summary.BasicInfo.SEC1ProcessVer = "SECV1.0"
 	}
 
 	return &report, nil
@@ -343,16 +386,27 @@ func (p *Processor) calculateBatchMeanPositionStats(wells []*Well) []PositionSta
 
 // ReadBOMFile 从BOM.xlsx文件读取孔位信息
 func ReadBOMFile(bomFile string) (map[string]*Well, error) {
-	// 由于Go标准库不直接支持读取Excel文件，我们假设BOM.xlsx已经被转换为txt文件
-	// 实际项目中可能需要使用第三方库如github.com/360EntSecGroup-Skylar/excelize
-	txtFile := bomFile + ".引物订购单.txt"
-	file, err := os.Open(txtFile)
+	var (
+		sheetName = "引物订购单"
+	)
+
+	// 打开Excel文件
+	f, err := excelize.OpenFile(bomFile)
 	if err != nil {
 		return nil, fmt.Errorf("打开BOM文件失败: %w", err)
 	}
-	defer file.Close()
+	defer f.Close()
 
-	scanner := bufio.NewScanner(file)
+	// 获取所有行
+	rows, err := f.GetRows(sheetName)
+	if err != nil {
+		return nil, fmt.Errorf("读取BOM文件失败: %w", err)
+	}
+
+	if len(rows) < 2 {
+		return nil, fmt.Errorf("BOM文件内容不足")
+	}
+
 	wellMap := make(map[string]*Well) // key: 位置, value: 孔位信息
 
 	// 读取表头，确定各列的索引
@@ -363,22 +417,19 @@ func ReadBOMFile(bomFile string) (map[string]*Well, error) {
 	predictedYieldIndex = -1
 	sequenceIndex = -1
 
-	if scanner.Scan() {
-		headerLine := scanner.Text()
-		headers := strings.Split(headerLine, "\t")
-		for i, header := range headers {
-			switch strings.TrimSpace(header) {
-			case "位置":
-				positionIndex = i
-			case "引物名称":
-				primerNameIndex = i
-			case "是否重合":
-				isOverlapIndex = i
-			case "预测收率":
-				predictedYieldIndex = i
-			case "序列":
-				sequenceIndex = i
-			}
+	headers := rows[0]
+	for i, header := range headers {
+		switch strings.TrimSpace(header) {
+		case "位置":
+			positionIndex = i
+		case "引物名称":
+			primerNameIndex = i
+		case "是否重合":
+			isOverlapIndex = i
+		case "预测收率":
+			predictedYieldIndex = i
+		case "序列":
+			sequenceIndex = i
 		}
 	}
 
@@ -388,17 +439,16 @@ func ReadBOMFile(bomFile string) (map[string]*Well, error) {
 	}
 
 	// 读取数据行
-	for scanner.Scan() {
-		line := scanner.Text()
-		fields := strings.Split(line, "\t")
+	for i := 1; i < len(rows); i++ {
+		row := rows[i]
 
 		// 确保字段数量足够
-		if len(fields) <= positionIndex || len(fields) <= primerNameIndex {
+		if len(row) <= positionIndex || len(row) <= primerNameIndex {
 			continue
 		}
 
-		position := strings.TrimSpace(fields[positionIndex])
-		primerName := strings.TrimSpace(fields[primerNameIndex])
+		position := strings.TrimSpace(row[positionIndex])
+		primerName := strings.TrimSpace(row[primerNameIndex])
 
 		// 跳过引物名称为"0"的行
 		if primerName == "0" {
@@ -413,16 +463,16 @@ func ReadBOMFile(bomFile string) (map[string]*Well, error) {
 			}
 
 			// 读取是否重合列
-			if isOverlapIndex != -1 && len(fields) > isOverlapIndex {
-				isOverlapStr := strings.TrimSpace(fields[isOverlapIndex])
+			if isOverlapIndex != -1 && len(row) > isOverlapIndex {
+				isOverlapStr := strings.TrimSpace(row[isOverlapIndex])
 				if isOverlapStr == "是" || isOverlapStr == "1" || isOverlapStr == "true" {
 					well.IsOverlap = true
 				}
 			}
 
 			// 读取预测收率列
-			if predictedYieldIndex != -1 && len(fields) > predictedYieldIndex {
-				predictedYieldStr := strings.TrimSpace(fields[predictedYieldIndex])
+			if predictedYieldIndex != -1 && len(row) > predictedYieldIndex {
+				predictedYieldStr := strings.TrimSpace(row[predictedYieldIndex])
 				if predictedYieldStr != "" {
 					predictedYield, err := strconv.ParseFloat(predictedYieldStr, 64)
 					if err == nil {
@@ -432,16 +482,12 @@ func ReadBOMFile(bomFile string) (map[string]*Well, error) {
 			}
 
 			// 读取序列列
-			if sequenceIndex != -1 && len(fields) > sequenceIndex {
-				well.Sequence = strings.TrimSpace(fields[sequenceIndex])
+			if sequenceIndex != -1 && len(row) > sequenceIndex {
+				well.Sequence = strings.TrimSpace(row[sequenceIndex])
 			}
 
 			wellMap[position] = well
 		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("读取BOM文件失败: %w", err)
 	}
 
 	return wellMap, nil
