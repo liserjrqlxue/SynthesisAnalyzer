@@ -146,8 +146,8 @@ go run cmd/report/main.go -i <输入文件> -o <输出文件> -b <BOM文件> -m 
 **参数说明**：
 - `-i`：输入JSON文件（可选，不指定时使用默认配置）
 - `-o`：输出HTML文件（可选，默认输出到stdout）
-- `-b`：BOM.xlsx文件，用于获取孔位信息（可选）
-- `-m`：mutation_stats目录，用于获取突变统计数据（可选）
+- `-b`：BOM.xlsx文件，用于获取孔位信息（必填）
+- `-m`：mutation_stats目录，用于获取突变统计数据（必填）
 - `-embed-image`：是否将图表以Base64编码嵌入HTML（默认false）
 - `-use-go-echarts`：是否使用go-echarts生成图表（默认false）
 - `-c`：配置文件路径（可选）
@@ -307,4 +307,4 @@ ls ./split_results/
 ---
 
 **版本**：1.0.0
-**最后更新**：2026-03-18
+**最后更新**：2026-03-20

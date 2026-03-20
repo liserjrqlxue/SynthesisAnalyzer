@@ -18,14 +18,14 @@ func TestReadSplitSummary(t *testing.T) {
 	summaryContent := `FASTQ拆分汇总报告
 =====================
 
-生成时间: 2026-03-17 17:31:28
+生成时间: 2026-03-20 10:08:10
 程序版本: v1.0
-测序时间: 2026.03.13
+测序时间: 2026.03.19
 
 运行配置
 --------
-Excel文件: input-260305B-FT100120704.xlsx
-输出目录: input-260305B-FT100120704
+Excel文件: input-260303C-FT100120710.xlsx
+输出目录: input-260303C-FT100120710
 线程数: 128
 启用反向互补: true
 质量阈值: 20
@@ -36,10 +36,13 @@ Excel文件: input-260305B-FT100120704.xlsx
 总体统计
 --------
 合并文件数: 1
-样品总数: 87
-总处理reads数: 10573823
-成功匹配reads数: 8533735 (80.7%)
-匹配失败reads数: 2040088 (19.3%)
+样品总数: 48
+总处理reads数: 36315768
+总处理bases数: 5447365200
+过滤拼接后reads数: 17981735
+过滤拼接后bases数: 3654802344
+成功匹配reads数: 147 (0.0%)
+匹配失败reads数: 17981588 (100.0%)
 `
 
 	summaryPath := filepath.Join(tempDir, "split_summary.txt")
@@ -49,26 +52,36 @@ Excel文件: input-260305B-FT100120704.xlsx
 	}
 
 	// 调用 ReadSplitSummary 函数
-	barcodeReads, sequencingDate, err := ReadSplitSummary(tempDir)
+	totalReads, sequencingDate, filteredReads, matchedReads, err := ReadSplitSummary(tempDir)
 	if err != nil {
 		t.Errorf("ReadSplitSummary 失败: %v", err)
 		return
 	}
 
 	// 验证结果
-	expectedBarcodeReads := 10573823
-	expectedSequencingDate := "2026.03.13"
+	expectedTotalReads := 36315768
+	expectedSequencingDate := "2026.03.19"
+	expectedFilteredReads := 17981735
+	expectedMatchedReads := 147
 
-	if barcodeReads != expectedBarcodeReads {
-		t.Errorf("BarcodeReads 错误: 期望 %d, 实际 %d", expectedBarcodeReads, barcodeReads)
+	if totalReads != expectedTotalReads {
+		t.Errorf("TotalReads 错误: 期望 %d, 实际 %d", expectedTotalReads, totalReads)
 	}
 
 	if sequencingDate != expectedSequencingDate {
 		t.Errorf("SequencingDate 错误: 期望 %s, 实际 %s", expectedSequencingDate, sequencingDate)
 	}
 
+	if filteredReads != expectedFilteredReads {
+		t.Errorf("FilteredReads 错误: 期望 %d, 实际 %d", expectedFilteredReads, filteredReads)
+	}
+
+	if matchedReads != expectedMatchedReads {
+		t.Errorf("MatchedReads 错误: 期望 %d, 实际 %d", expectedMatchedReads, matchedReads)
+	}
+
 	// 打印测试结果
-	t.Logf("测试通过! BarcodeReads: %d, SequencingDate: %s", barcodeReads, sequencingDate)
+	t.Logf("测试通过! TotalReads: %d, SequencingDate: %s, FilteredReads: %d, MatchedReads: %d", totalReads, sequencingDate, filteredReads, matchedReads)
 }
 
 func TestReadSplitSummaryWithoutSequencingDate(t *testing.T) {
@@ -102,6 +115,7 @@ Excel文件: input-260305B-FT100120704.xlsx
 合并文件数: 1
 样品总数: 87
 总处理reads数: 10573823
+过滤拼接后reads数: 5286911
 成功匹配reads数: 8533735 (80.7%)
 匹配失败reads数: 2040088 (19.3%)
 `
@@ -113,24 +127,34 @@ Excel文件: input-260305B-FT100120704.xlsx
 	}
 
 	// 调用 ReadSplitSummary 函数
-	barcodeReads, sequencingDate, err := ReadSplitSummary(tempDir)
+	totalReads, sequencingDate, filteredReads, matchedReads, err := ReadSplitSummary(tempDir)
 	if err != nil {
 		t.Errorf("ReadSplitSummary 失败: %v", err)
 		return
 	}
 
 	// 验证结果
-	expectedBarcodeReads := 10573823
+	expectedTotalReads := 10573823
 	expectedSequencingDate := ""
+	expectedFilteredReads := 5286911
+	expectedMatchedReads := 8533735
 
-	if barcodeReads != expectedBarcodeReads {
-		t.Errorf("BarcodeReads 错误: 期望 %d, 实际 %d", expectedBarcodeReads, barcodeReads)
+	if totalReads != expectedTotalReads {
+		t.Errorf("TotalReads 错误: 期望 %d, 实际 %d", expectedTotalReads, totalReads)
 	}
 
 	if sequencingDate != expectedSequencingDate {
 		t.Errorf("SequencingDate 错误: 期望 %s, 实际 %s", expectedSequencingDate, sequencingDate)
 	}
 
+	if filteredReads != expectedFilteredReads {
+		t.Errorf("FilteredReads 错误: 期望 %d, 实际 %d", expectedFilteredReads, filteredReads)
+	}
+
+	if matchedReads != expectedMatchedReads {
+		t.Errorf("MatchedReads 错误: 期望 %d, 实际 %d", expectedMatchedReads, matchedReads)
+	}
+
 	// 打印测试结果
-	t.Logf("测试通过! BarcodeReads: %d, SequencingDate: %s", barcodeReads, sequencingDate)
+	t.Logf("测试通过! TotalReads: %d, SequencingDate: %s, FilteredReads: %d, MatchedReads: %d", totalReads, sequencingDate, filteredReads, matchedReads)
 }

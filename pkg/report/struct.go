@@ -20,6 +20,7 @@ type Well struct {
 	PredictedYield float64 `json:"predicted_yield"`    // 预测收率 (%)
 	Sequence       string  `json:"sequence,omitempty"` // 序列
 	Position       string  `json:"position,omitempty"` // 位置
+	HasStats       bool    `json:"has_stats"`          // 是否有统计数据
 
 	PositionStats []PositionStats `json:"position_stats,omitempty"` // 位置统计数据
 }
@@ -126,7 +127,9 @@ type ReportData struct {
 	SynthesisProcessVer string `json:"synthesis_process_version"`
 	SEC1ProcessVer      string `json:"sec1_process_version"`
 	SequencingDate      string `json:"sequencing_date"`
-	BarcodeReads        int    `json:"barcode_reads"` // 测序数据中的Barcode reads数量
+	BarcodeReads        int    `json:"barcode_reads"`  // 总处理reads数
+	FilteredReads       int    `json:"filtered_reads"` // 过滤拼接后reads数
+	MatchedReads        int    `json:"matched_reads"`  // 成功匹配reads数
 
 	BatchID string
 

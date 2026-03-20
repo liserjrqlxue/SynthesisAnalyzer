@@ -83,6 +83,9 @@ func (p *Processor) loadJSON() (*ReportData, error) {
 			ReportTitle:         "TIESyno-96合成仪下机报告",
 			SynthesisProcessVer: "V3.0",
 			SEC1ProcessVer:      "SECV2.0",
+			BarcodeReads:        0,
+			FilteredReads:       0,
+			MatchedReads:        0,
 			Wells:               []*Well{},
 			ErrorStatsRef:       []ErrorStatRef{},
 			Summary: Summary{
@@ -218,20 +221,28 @@ func (p *Processor) updateMutationStats(report *ReportData) error {
 		log.Printf("成功更新收率和错误数据")
 	}
 
-	// 读取split_summary.txt中的总处理reads数和测序时间
-	barcodeReads, sequencingDate, err := ReadSplitSummary(p.config.MutationStatsDir)
+	// 读取split_summary.txt中的总处理reads数、测序时间、过滤拼接后reads数和成功匹配reads数
+	totalReads, sequencingDate, filteredReads, matchedReads, err := ReadSplitSummary(p.config.MutationStatsDir)
 	if err != nil {
 		log.Printf("警告：读取split_summary.txt失败: %v", err)
 	} else {
-		// 更新BarcodeReads字段
-		report.BarcodeReads = barcodeReads
-		log.Printf("从split_summary.txt更新BarcodeReads: %d", barcodeReads)
+		// 更新BarcodeReads字段（现在存储总处理reads数）
+		report.BarcodeReads = totalReads
+		log.Printf("从split_summary.txt更新总处理reads数: %d", totalReads)
 
-		// 更新SequencingDate字段
+		// 更新测序时间字段
 		if sequencingDate != "" {
 			report.SequencingDate = sequencingDate
 			log.Printf("从split_summary.txt更新SequencingDate: %s", sequencingDate)
 		}
+
+		// 更新过滤拼接后reads数字段
+		report.FilteredReads = filteredReads
+		log.Printf("从split_summary.txt更新过滤拼接后reads数: %d", filteredReads)
+
+		// 更新成功匹配reads数字段
+		report.MatchedReads = matchedReads
+		log.Printf("从split_summary.txt更新成功匹配reads数: %d", matchedReads)
 	}
 
 	// 读取位置统计数据
@@ -275,8 +286,32 @@ func (p *Processor) updateErrorStats(report *ReportData, subtypeStats map[string
 
 // updateYieldData 更新收率数据
 func (p *Processor) updateYieldData(report *ReportData, yieldStats map[string]float64, deletionStats map[string]float64, mutationStats map[string]float64, insertionStats map[string]float64) {
+	// 收集有统计数据的收率值
+	var yields []float64
+	for _, well := range report.Wells {
+		hasStats := false
+		if yield, ok := yieldStats[well.Name]; ok {
+			well.Yield = yield
+			yields = append(yields, yield)
+			hasStats = true
+		}
+		if deletion, ok := deletionStats[well.Name]; ok {
+			well.Deletion = deletion
+			hasStats = true
+		}
+		if mutation, ok := mutationStats[well.Name]; ok {
+			well.Mutation = mutation
+			hasStats = true
+		}
+		if insertion, ok := insertionStats[well.Name]; ok {
+			well.Insertion = insertion
+			hasStats = true
+		}
+		well.HasStats = hasStats
+	}
+
 	// 计算收率统计值
-	avgYield, stdYield, medYield, q1Yield, lt1Count, lt5Count := CalculateYieldStatistics(yieldStats)
+	avgYield, stdYield, medYield, q1Yield, lt1Count, lt5Count := CalculateYieldStatistics(yields)
 
 	// 更新概要统计
 	report.Summary.Statistics.AvgYield = avgYield
@@ -285,22 +320,6 @@ func (p *Processor) updateYieldData(report *ReportData, yieldStats map[string]fl
 	report.Summary.Statistics.YieldQuartile = q1Yield
 	report.Summary.Statistics.YieldLt1Count = lt1Count
 	report.Summary.Statistics.YieldLt5Count = lt5Count
-
-	// 更新每个孔的收率和错误数据（如果能匹配到样本名称）
-	for _, well := range report.Wells {
-		if yield, ok := yieldStats[well.Name]; ok {
-			well.Yield = yield
-		}
-		if deletion, ok := deletionStats[well.Name]; ok {
-			well.Deletion = deletion
-		}
-		if mutation, ok := mutationStats[well.Name]; ok {
-			well.Mutation = mutation
-		}
-		if insertion, ok := insertionStats[well.Name]; ok {
-			well.Insertion = insertion
-		}
-	}
 }
 
 // updatePositionStats 更新每个孔的位置统计数据并计算批次均值
@@ -679,22 +698,24 @@ func ReadYieldStats(inputDir string) (map[string]float64, map[string]float64, ma
 	return yieldStats, deletionStats, mutationStats, insertionStats, nil
 }
 
-// ReadSplitSummary 从split_summary.txt读取总处理reads数和测序时间
-func ReadSplitSummary(inputDir string) (int, string, error) {
+// ReadSplitSummary 从split_summary.txt读取总处理reads数、测序时间、过滤拼接后reads数和成功匹配reads数
+func ReadSplitSummary(inputDir string) (int, string, int, int, error) {
 	// 构建split_summary.txt文件路径
 	summaryPath := filepath.Join(inputDir, "split_summary.txt")
 
 	// 打开文件
 	file, err := os.Open(summaryPath)
 	if err != nil {
-		return 0, "", fmt.Errorf("打开split_summary.txt失败: %w", err)
+		return 0, "", 0, 0, fmt.Errorf("打开split_summary.txt失败: %w", err)
 	}
 	defer file.Close()
 
 	// 读取文件内容
 	scanner := bufio.NewScanner(file)
-	var barcodeReads int
+	var totalReads int
 	var sequencingDate string
+	var filteredReads int
+	var matchedReads int
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -709,9 +730,9 @@ func ReadSplitSummary(inputDir string) (int, string, error) {
 				// 转换为整数
 				num, err := strconv.Atoi(numStr)
 				if err != nil {
-					return 0, "", fmt.Errorf("解析总处理reads数失败: %w", err)
+					return 0, "", 0, 0, fmt.Errorf("解析总处理reads数失败: %w", err)
 				}
-				barcodeReads = num
+				totalReads = num
 			}
 		}
 		// 查找"测序时间:"行
@@ -722,17 +743,53 @@ func ReadSplitSummary(inputDir string) (int, string, error) {
 				sequencingDate = strings.TrimSpace(parts[1])
 			}
 		}
+		// 查找"过滤拼接后reads数:"行
+		if strings.Contains(line, "过滤拼接后reads数:") {
+			// 提取数值
+			parts := strings.Split(line, ":")
+			if len(parts) >= 2 {
+				// 去除空格和逗号
+				numStr := strings.TrimSpace(parts[1])
+				numStr = strings.ReplaceAll(numStr, ",", "")
+				// 转换为整数
+				num, err := strconv.Atoi(numStr)
+				if err != nil {
+					return 0, "", 0, 0, fmt.Errorf("解析过滤拼接后reads数失败: %w", err)
+				}
+				filteredReads = num
+			}
+		}
+		// 查找"成功匹配reads数:"行
+		if strings.Contains(line, "成功匹配reads数:") {
+			// 提取数值
+			parts := strings.Split(line, ":")
+			if len(parts) >= 2 {
+				// 去除空格、逗号和括号内的百分比
+				numStr := strings.TrimSpace(parts[1])
+				numStr = strings.ReplaceAll(numStr, ",", "")
+				// 提取数字部分（去除括号内的百分比）
+				if idx := strings.Index(numStr, " ("); idx != -1 {
+					numStr = numStr[:idx]
+				}
+				// 转换为整数
+				num, err := strconv.Atoi(numStr)
+				if err != nil {
+					return 0, "", 0, 0, fmt.Errorf("解析成功匹配reads数失败: %w", err)
+				}
+				matchedReads = num
+			}
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return 0, "", fmt.Errorf("读取split_summary.txt失败: %w", err)
+		return 0, "", 0, 0, fmt.Errorf("读取split_summary.txt失败: %w", err)
 	}
 
-	if barcodeReads == 0 {
-		return 0, "", fmt.Errorf("未找到总处理reads数")
+	if totalReads == 0 {
+		return 0, "", 0, 0, fmt.Errorf("未找到总处理reads数")
 	}
 
-	return barcodeReads, sequencingDate, nil
+	return totalReads, sequencingDate, filteredReads, matchedReads, nil
 }
 
 // ReadPositionStats 从{ID}_position_detailed.csv读取位置统计数据
@@ -860,12 +917,7 @@ func ReadPositionStats(inputDir, id string) ([]PositionStats, error) {
 	return positionStats, nil
 }
 
-func CalculateYieldStatistics(yieldStats map[string]float64) (float64, float64, float64, float64, int, int) {
-	var yields []float64
-	for _, yield := range yieldStats {
-		yields = append(yields, yield)
-	}
-
+func CalculateYieldStatistics(yields []float64) (float64, float64, float64, float64, int, int) {
 	if len(yields) == 0 {
 		return 0, 0, 0, 0, 0, 0
 	}

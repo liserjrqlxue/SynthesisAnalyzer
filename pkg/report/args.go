@@ -22,8 +22,8 @@ type Config struct {
 func ParseArgs() *Config {
 	inputFile := flag.String("i", "", "输入JSON文件路径（可选）")
 	outputFile := flag.String("o", "", "输出报告文件路径（默认输出到stdout）")
-	mutationStatsDir := flag.String("m", "", "mutation_stats目录路径（可选）")
-	bomFile := flag.String("b", "", "BOM.xlsx文件路径（可选）")
+	mutationStatsDir := flag.String("m", "", "mutation_stats目录路径（必填）")
+	bomFile := flag.String("b", "", "BOM.xlsx文件路径（必填）")
 	embedImage := flag.Bool("embed-image", false, "是否将图表以Base64编码嵌入HTML（默认false，使用外部图片文件）")
 	useGoEcharts := flag.Bool("use-go-echarts", false, "是否使用go-echarts生成图表（默认false，使用内置SVG生成器）")
 	configFile := flag.String("c", "", "配置文件路径（可选）")
@@ -33,6 +33,14 @@ func ParseArgs() *Config {
 
 	// 设置日志级别
 	setLogLevel(*logLevel)
+
+	// 检查必填参数
+	if *bomFile == "" {
+		log.Fatal("请使用 -b 指定BOM.xlsx文件")
+	}
+	if *mutationStatsDir == "" {
+		log.Fatal("请使用 -m 指定mutation_stats目录")
+	}
 
 	return &Config{
 		InputFile:        *inputFile,
