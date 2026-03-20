@@ -158,7 +158,7 @@ tr { page-break-inside: avoid; } /* 防止单个行跨页 */
 /* 保证整个区块（标题+表格/图表）尽量在同一页 */
 .section {
     page-break-inside: avoid;   /* 防止内部被拆分 */
-    margin-bottom: 2em;
+    margin-bottom: 1em;
     padding: 20px;
     background-color: #ffffff;
     border-radius: 8px;
@@ -215,7 +215,9 @@ func (g *Generator) writeSummarySection(b *strings.Builder, data *ReportData, pl
 	b.WriteString(fmt.Sprintf("<tr><td>合成工艺版本</td><td>%s</td></tr>\n", data.SynthesisProcessVer))
 	b.WriteString(fmt.Sprintf("<tr><td>SEC1工艺版本</td><td>%s</td></tr>\n", data.SEC1ProcessVer))
 	b.WriteString(fmt.Sprintf("<tr><td>测序日期</td><td>%s</td></tr>\n", data.SequencingDate))
-	b.WriteString(fmt.Sprintf("<tr><td>Barcode数据量（reads）</td><td>%d</td></tr>\n", data.BarcodeReads))
+	b.WriteString(fmt.Sprintf("<tr><td>总处理reads数</td><td>%d</td></tr>\n", data.BarcodeReads))
+	b.WriteString(fmt.Sprintf("<tr><td>过滤拼接后reads数</td><td>%d</td></tr>\n", data.FilteredReads))
+	b.WriteString(fmt.Sprintf("<tr><td>成功匹配reads数</td><td>%d</td></tr>\n", data.MatchedReads))
 
 	// 统计概要
 	stats := data.Summary.Statistics
@@ -239,7 +241,6 @@ func (g *Generator) writeSummarySection(b *strings.Builder, data *ReportData, pl
 		b.WriteString(fmt.Sprintf("<tr><td>收率标准差</td><td>%.2f%%</td></tr>\n", stats.YieldStddev))
 	}
 
-	b.WriteString(fmt.Sprintf("<tr><td>收率标准差</td><td>%.2f%%</td></tr>\n", stats.YieldStddev))
 	b.WriteString(fmt.Sprintf("<tr><td>收率中位数</td><td>%.2f%%</td></tr>\n", stats.YieldMedian))
 	b.WriteString(fmt.Sprintf("<tr><td>收率四分位数</td><td>%.2f%%</td></tr>\n", stats.YieldQuartile))
 	b.WriteString(fmt.Sprintf("<tr><td>收率&lt;1%%片段个数</td><td>%d</td></tr>\n", stats.YieldLt1Count))
