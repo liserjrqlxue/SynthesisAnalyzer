@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/csv"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -116,7 +117,8 @@ func (sample *SampleInfo) generatePositionReport() error {
 		}
 	}
 
-	fmt.Printf("  样本 %s 位置统计已生成\n", sample.Name)
+	// fmt.Printf("  样本 %s 位置统计已生成\n", sample.Name)
+	slog.Debug("位置统计已生成", "样本", sample.Name)
 	return nil
 }
 

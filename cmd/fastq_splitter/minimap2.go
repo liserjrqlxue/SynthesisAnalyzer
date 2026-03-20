@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -87,10 +88,14 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 		result.Sample.BamFile = result.Alignment.BamFile
 		result.Sample.PositionStats = result.Alignment.PositionStats
 
-		fmt.Printf("  样本 %s: 比对完成 (%d reads, %.1f%% mapping rate)\n",
-			result.Sample.Name,
-			result.Alignment.Summary.MappedReads,
-			result.Alignment.Summary.MappingRate)
+		// fmt.Printf("  样本 %s: 比对完成 (%d reads, %.1f%% mapping rate)\n",
+		// 	result.Sample.Name,
+		// 	result.Alignment.Summary.MappedReads,
+		// 	result.Alignment.Summary.MappingRate)
+		slog.Debug("比对完成",
+			"样本", result.Sample.Name,
+			"映射读数", result.Alignment.Summary.MappedReads,
+			"映射率", result.Alignment.Summary.MappingRate)
 	}
 
 	a.stats.endTime = time.Now()
