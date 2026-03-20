@@ -181,9 +181,11 @@ func (s *EnhancedSplitter) readFastpStats(jsonFile string) (map[string]interface
 	if summary, ok := result["summary"].(map[string]interface{}); ok {
 		if before, ok := summary["before_filtering"].(map[string]interface{}); ok {
 			stats["before_reads"] = before["total_reads"]
+			stats["before_bases"] = before["total_bases"]
 		}
 		if after, ok := summary["after_filtering"].(map[string]interface{}); ok {
 			stats["after_reads"] = after["total_reads"]
+			stats["after_bases"] = after["total_bases"]
 			stats["merged_reads"] = after["merged_reads"]
 		}
 	}

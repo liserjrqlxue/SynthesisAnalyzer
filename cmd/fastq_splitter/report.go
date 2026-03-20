@@ -47,10 +47,18 @@ func (s *EnhancedSplitter) generateSummaryReport() error {
 	totalMatched := 0
 	totalSamples := len(s.samples)
 	totalFiles := len(s.mergedFiles)
+	beforeFilteringTotalReads := 0
+	beforeFilteringTotalBases := int64(0)
+	afterFilteringTotalReads := 0
+	afterFilteringTotalBases := int64(0)
 
 	for _, mergedInfo := range s.mergedFiles {
 		totalReads += mergedInfo.TotalReads
 		totalMatched += mergedInfo.MatchedReads
+		beforeFilteringTotalReads += mergedInfo.BeforeFilteringTotalReads
+		beforeFilteringTotalBases += mergedInfo.BeforeFilteringTotalBases
+		afterFilteringTotalReads += mergedInfo.AfterFilteringTotalReads
+		afterFilteringTotalBases += mergedInfo.AfterFilteringTotalBases
 	}
 
 	overallRate := 0.0
@@ -82,6 +90,9 @@ Excel文件: %s
 合并文件数: %d
 样品总数: %d
 总处理reads数: %d
+总处理bases数: %d
+过滤拼接后reads数: %d
+过滤拼接后bases数: %d
 成功匹配reads数: %d (%.1f%%)
 匹配失败reads数: %d (%.1f%%)
 
@@ -100,7 +111,10 @@ Excel文件: %s
 		s.config.Compression,
 		totalFiles,
 		totalSamples,
-		totalReads,
+		beforeFilteringTotalReads,
+		beforeFilteringTotalBases,
+		afterFilteringTotalReads,
+		afterFilteringTotalBases,
 		totalMatched, overallRate,
 		totalReads-totalMatched, float64(totalReads-totalMatched)/float64(totalReads)*100)
 
@@ -142,7 +156,10 @@ Excel文件: %s
 		fileInfo := fmt.Sprintf("%d. 文件: %s\n", i+1, filepath.Base(mergedInfo.FilePath))
 		fileInfo += fmt.Sprintf("   样品数: %d\n", len(mergedInfo.Samples))
 		fileInfo += fmt.Sprintf("   样品列表: %s\n", strings.Join(mergedInfo.SampleNames, ", "))
-		fileInfo += fmt.Sprintf("   总处理reads数: %d\n", mergedInfo.TotalReads)
+		fileInfo += fmt.Sprintf("   总处理reads数: %d\n", mergedInfo.BeforeFilteringTotalReads)
+		fileInfo += fmt.Sprintf("   总处理bases数: %d\n", mergedInfo.BeforeFilteringTotalBases)
+		fileInfo += fmt.Sprintf("   过滤拼接后reads数: %d\n", mergedInfo.AfterFilteringTotalReads)
+		fileInfo += fmt.Sprintf("   过滤拼接后bases数: %d\n", mergedInfo.AfterFilteringTotalBases)
 		fileInfo += fmt.Sprintf("   匹配reads数: %d (%.1f%%)\n", mergedInfo.MatchedReads, fileMatchRate)
 		fileInfo += "   状态: 已完成\n\n"
 

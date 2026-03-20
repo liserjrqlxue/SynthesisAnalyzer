@@ -89,6 +89,8 @@ func (s *EnhancedSplitter) mergeAndMapFiles() error {
 				for _, sample := range samps {
 					sample.MergeTime = time.Now()
 				}
+
+
 			}
 
 			results <- result
@@ -125,6 +127,27 @@ func (s *EnhancedSplitter) mergeAndMapFiles() error {
 			sample.Status = "merged"
 			sample.MergedFile = result.output
 			s.fileMap[result.output] = append(s.fileMap[result.output], sample)
+		}
+
+		// 读取fastp统计信息
+		fastpJsonFile := result.output + ".fastp.json"
+		if _, err := os.Stat(fastpJsonFile); err == nil {
+			stats, err := s.readFastpStats(fastpJsonFile)
+			if err == nil {
+				// 填充统计信息到mergedInfo
+				if beforeReads, ok := stats["before_reads"].(float64); ok {
+					mergedInfo.BeforeFilteringTotalReads = int(beforeReads)
+				}
+				if beforeBases, ok := stats["before_bases"].(float64); ok {
+					mergedInfo.BeforeFilteringTotalBases = int64(beforeBases)
+				}
+				if afterReads, ok := stats["after_reads"].(float64); ok {
+					mergedInfo.AfterFilteringTotalReads = int(afterReads)
+				}
+				if afterBases, ok := stats["after_bases"].(float64); ok {
+					mergedInfo.AfterFilteringTotalBases = int64(afterBases)
+				}
+			}
 		}
 
 		// 添加到列表

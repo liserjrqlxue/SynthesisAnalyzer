@@ -49,6 +49,11 @@ type MergedFileInfo struct {
 	Status       string        // pending, processing, done
 	TotalReads   int
 	MatchedReads int
+	// fastp统计信息
+	BeforeFilteringTotalReads int
+	BeforeFilteringTotalBases int64
+	AfterFilteringTotalReads  int
+	AfterFilteringTotalBases  int64
 }
 
 // 更新后的拆分处理器
