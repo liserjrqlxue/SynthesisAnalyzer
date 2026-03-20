@@ -274,7 +274,7 @@ func (g *Generator) writeSummarySection(b *strings.Builder, data *ReportData, pl
 		}
 		dataStr := ""
 		if es.Data != nil {
-			dataStr = fmt.Sprintf("%.2f", *es.Data)
+			dataStr = fmt.Sprintf("%.2f%%", *es.Data)
 		}
 		b.WriteString(fmt.Sprintf("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",
 			errorInfo.EN, errorInfo.CN, errorInfo.Example, refStr, dataStr))

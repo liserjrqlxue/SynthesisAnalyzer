@@ -82,7 +82,7 @@ func (p *Processor) loadJSON() (*ReportData, error) {
 		return &ReportData{
 			ReportTitle:         "TIESyno-96合成仪下机报告",
 			SynthesisProcessVer: "V3.0",
-			SEC1ProcessVer:      "SECV1.0",
+			SEC1ProcessVer:      "SECV2.0",
 			Wells:               []*Well{},
 			ErrorStatsRef:       []ErrorStatRef{},
 			Summary: Summary{
