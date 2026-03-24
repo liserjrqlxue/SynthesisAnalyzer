@@ -57,6 +57,7 @@ bam-mut-analyzer -i <Excel文件> -d <输入目录> -o <输出目录> -head 27 -
 | `-tail` | 尾切除长度 | 20 |
 | `-max-sub` | 最大替换个数阈值 | 5 |
 | `-n` | N-mer 统计的 N 值 | 4 |
+| `-log-level` | 日志级别 (debug, info, warn, error) | info |
 
 ## 4. 输入文件格式
 

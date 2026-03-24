@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -19,6 +20,7 @@ var (
 	nMerSize int
 
 	maxSubstitutions int // 最大替换个数阈值
+	logLevel         string // 日志级别
 
 	// fullLengths map[string]int
 	fullSeqs = make(map[string]string)
@@ -35,11 +37,15 @@ func init() {
 	flag.IntVar(&tailCut, "tail", 20, "尾切除长度")
 	flag.IntVar(&maxSubstitutions, "max-sub", 5, "最大替换个数阈值，用于定义比对良好reads")
 	flag.IntVar(&nMerSize, "n", 4, "N-mer 统计的 N 值（默认4，即统计5-mer准确率）")
+	flag.StringVar(&logLevel, "log-level", "info", "日志级别 (debug, info, warn, error)")
 }
 
 func main() {
 	// 解析命令行参数
 	flag.Parse()
+
+	// 设置日志级别
+	setLogLevel(logLevel)
 
 	// 验证必需参数
 	if inputDir == "" {
@@ -92,4 +98,29 @@ func main() {
 	mainWrite(outputDir, stats)
 
 	mainPrint(stats)
+}
+
+// setLogLevel 设置slog日志级别
+func setLogLevel(level string) {
+	var logLevel slog.Level
+	switch level {
+	case "debug":
+		logLevel = slog.LevelDebug
+	case "info":
+		logLevel = slog.LevelInfo
+	case "warn":
+		logLevel = slog.LevelWarn
+	case "error":
+		logLevel = slog.LevelError
+	default:
+		logLevel = slog.LevelInfo
+	}
+
+	// 创建新的logger配置
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: logLevel,
+	}))
+
+	// 设置全局logger
+	slog.SetDefault(logger)
 }
