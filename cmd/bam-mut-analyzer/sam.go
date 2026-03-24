@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,6 +63,7 @@ func parseMutationsWithMD(read *sam.Record, refSeq string, mdMap map[int]string)
 					}
 					mutation.Subtype = mutation.ClassifySubstitution(refSeq)
 					mutations = append(mutations, mutation)
+					slog.Debug("mutation", "position", mutation.Position, "ref", mutation.Ref, "alt", mutation.Alt, "subtype", mutation.Subtype)
 				}
 			}
 

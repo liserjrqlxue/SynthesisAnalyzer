@@ -532,7 +532,7 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	write1line(writer, "ReadsWithMutations", stats.TotalReadsWithMuts, readsCount, alignedReads, totalReads)
 
 	// 替换个数分布
-	writer.WriteString("\n替换个数分布（基于良好reads）:\n")
+	writer.WriteString("\n替换个数分布:\n")
 	var counts []int
 	for c := range stats.TotalSubstitutionCountDist {
 		counts = append(counts, c)
@@ -540,7 +540,7 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	sort.Ints(counts)
 	for _, c := range counts {
 		n := stats.TotalSubstitutionCountDist[c]
-		pct := float64(n) / float64(readsCount) * 100
+		pct := float64(n) / float64(alignedReads) * 100
 		fmt.Fprintf(writer, "%d,%d,%.4f%%\n", c, n, pct)
 	}
 

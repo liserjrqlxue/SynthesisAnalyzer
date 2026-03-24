@@ -74,11 +74,11 @@ func (a *AlignmentAnalyzer) createReferenceFiles() error {
 		createdCount++
 
 		if createdCount%10 == 0 {
-			fmt.Printf("  已创建 %d 个参考序列文件\n", createdCount)
+			fmt.Printf("\r  已创建 %d 个参考序列文件", createdCount)
 		}
 	}
 
-	fmt.Printf("参考序列文件创建完成: %d 个文件\n", createdCount)
+	fmt.Printf("\n参考序列文件创建完成: %d 个文件\n", createdCount)
 	return nil
 }
 
