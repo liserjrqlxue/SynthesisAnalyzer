@@ -96,34 +96,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	}
 
 	localPosMap := make(map[int]*localPosStats)
-	localReadStats := &SampleStats{}
-	localReadStats.SubstitutionCountDist = make(map[int]int)
-	localReadStats.InsertLengthDist = make(map[int]int)
-	localReadStats.DeleteLengthDist = make(map[int]int)
-	localReadStats.InsertBaseCounts = make(map[string]int)
-	localReadStats.DeletePositionCounts = make(map[string]int)
-	localReadStats.MutationBaseCounts = make(map[string]int)
-	localReadStats.Mutations = make(map[string]int)
-	localReadStats.PositionMutations = make(map[string]int)
-	localReadStats.PositionDetails = make(map[string]map[string]int)
-	localReadStats.ReadTypeCounts = make(map[ReadType]int)
-
-	// 细分类统计初始化
-	localReadStats.DeleteSubtypeReads = make(map[DeletionSubtype]int)
-	localReadStats.DeleteSubtypeEvents = make(map[DeletionSubtype]int)
-	localReadStats.DeleteSubtypeBases = make(map[DeletionSubtype]int)
-	localReadStats.InsertSubtypeReads = make(map[InsertionSubtype]int)
-	localReadStats.InsertSubtypeEvents = make(map[InsertionSubtype]int)
-	localReadStats.InsertSubtypeBases = make(map[InsertionSubtype]int)
-	localReadStats.SubstitutionSubtypeReads = make(map[SubstitutionSubtype]int)
-	localReadStats.SubstitutionSubtypeEvents = make(map[SubstitutionSubtype]int)
-	localReadStats.SubstitutionSubtypeBases = make(map[SubstitutionSubtype]int)
-	localReadStats.SubtypeCombinationCounts = make(map[string]int)
-	localReadStats.Del1BaseCounts = make(map[byte]int)
-	localReadStats.Del3PrevBaseCounts = make(map[byte]int)
-	localReadStats.Del3FirstBaseCounts = make(map[byte]int)
-	localReadStats.Del3PrevFirstCombCounts = make(map[string]int)
-	localReadStats.MutationList = make([]Mutation, 0, 64)
+	localReadStats := NewSampleStats()
 
 	// 预分配buffer减少GC
 	var totalReads, alignedReads int

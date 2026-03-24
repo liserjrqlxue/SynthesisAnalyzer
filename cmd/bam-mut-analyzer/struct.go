@@ -69,7 +69,6 @@ type SampleStats struct {
 	ReadTypeCounts       map[ReadType]int // read type -> count
 	InsertLengthDist     map[int]int      // 插入长度 -> count
 	DeleteLengthDist     map[int]int      // 缺失长度 -> count
-	MaxDeleteLengthDist  map[int]int      // 最长缺失长度 -> count
 	InsertBaseCounts     map[string]int   // 插入序列 -> count
 	DeletePositionCounts map[string]int   // "位置:碱基" -> count
 	MutationBaseCounts   map[string]int   // 碱基维度变异统计
@@ -234,11 +233,11 @@ func NewSampleStats() *SampleStats {
 		ReadTypeCounts:       make(map[ReadType]int),
 		InsertLengthDist:     make(map[int]int),
 		DeleteLengthDist:     make(map[int]int),
-		MaxDeleteLengthDist:  make(map[int]int),
 		InsertBaseCounts:     make(map[string]int),
 		DeletePositionCounts: make(map[string]int),
 		MutationBaseCounts:   make(map[string]int),
 
+		// 细分类统计初始化
 		DeleteSubtypeReads:        make(map[DeletionSubtype]int),
 		DeleteSubtypeEvents:       make(map[DeletionSubtype]int),
 		DeleteSubtypeBases:        make(map[DeletionSubtype]int),
@@ -258,7 +257,8 @@ func NewSampleStats() *SampleStats {
 		Del3FirstBaseCounts:     make(map[byte]int),
 		Del3PrevFirstCombCounts: make(map[string]int),
 
-		NMerStats: make(map[int]*PositionNMerStats),
+		NMerStats:    make(map[int]*PositionNMerStats),
+		MutationList: make([]Mutation, 0, 64),
 	}
 }
 
