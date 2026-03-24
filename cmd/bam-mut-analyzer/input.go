@@ -82,7 +82,7 @@ func readExcelSampleOrder(filePath string) ([]string, map[string]string, map[str
 			continue
 		}
 
-		fullSeq := targetSeq + synthSeq + postSeq
+		fullSeq := strings.ToUpper(targetSeq + synthSeq + postSeq)
 		fullSeqs[sampleName] = fullSeq
 		headCuts[sampleName] = len(targetSeq) // 头切除长度 = 靶标序列长度
 		tailCuts[sampleName] = len(postSeq)   // 尾切除长度 = 后靶标长度
