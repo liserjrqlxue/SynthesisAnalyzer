@@ -88,14 +88,6 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 		sampleTailCut = tailCutFromExcel
 	}
 
-	// 使用局部变量收集统计，避免频繁锁操作
-	type localPosStats struct {
-		detail              PositionDetail
-		nMerStats           *PositionNMerStats
-		perfectCountUpdated bool
-	}
-
-	localPosMap := make(map[int]*localPosStats)
 	localReadStats := NewSampleStats()
 
 	// 预分配buffer减少GC
@@ -144,7 +136,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 		cigarLen := len(cigarOps)
 
 		// 第一次遍历：收集位置统计和突变信息
-		var mutationList []Mutation
+		// var mutationList []Mutation
 		var insertSubtypes = make(map[InsertionSubtype]bool)
 		var deleteSubtypes = make(map[DeletionSubtype]bool)
 		var substSubtypes = make(map[SubstitutionSubtype]bool)
@@ -171,40 +163,39 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 					hasInsertAfter := (j == length-1 && ci+1 < cigarLen && cigarOps[ci+1].Type() == 1)
 
 					// 获取或创建位置统计
-					posStats, exists := localPosMap[currentPos]
+					posStats, exists := localReadStats.PositionStats[currentPos]
 					if !exists {
-						posStats = &localPosStats{}
-						localPosMap[currentPos] = posStats
+						posStats = &PositionDetail{}
+						localReadStats.PositionStats[currentPos] = posStats
 					}
-					posStats.detail.Depth++
+					posStats.Depth++
 
 					if perfectUptoNow && !isMismatch && !hasInsertAfter {
-						posStats.detail.PerfectUptoPosCount++
+						posStats.PerfectUptoPosCount++
 					}
 
 					if hasInsertAfter {
 						if isMismatch {
-							posStats.detail.MismatchWithIns++
+							posStats.MismatchWithIns++
 						} else {
-							posStats.detail.MatchWithIns++
+							posStats.MatchWithIns++
 						}
-						posStats.detail.Insertion++
+						posStats.Insertion++
 					} else {
 						if isMismatch {
-							posStats.detail.MismatchPure++
+							posStats.MismatchPure++
 						} else {
-							posStats.detail.MatchPure++
+							posStats.MatchPure++
 						}
 					}
 
 					// N-mer统计
 					if consecutiveMatch >= nMerSize {
-						if posStats.nMerStats == nil {
-							posStats.nMerStats = &PositionNMerStats{}
-						}
-						posStats.nMerStats.NCorrect++
+						// posStats.nMerStats.NCorrect++
+						posStats.NCorrect++
 						if !isMismatch {
-							posStats.nMerStats.N1Correct++
+							// posStats.nMerStats.N1Correct++
+							posStats.N1Correct++
 						}
 					}
 
@@ -226,15 +217,15 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 				alignedBasesThisRead += length
 				for j := range length {
 					pos := refPos + j + 1
-					posStats, exists := localPosMap[pos]
+					posStats, exists := localReadStats.PositionStats[pos]
 					if !exists {
-						posStats = &localPosStats{}
-						localPosMap[pos] = posStats
+						posStats = &PositionDetail{}
+						localReadStats.PositionStats[pos] = posStats
 					}
-					posStats.detail.Depth++
-					posStats.detail.Deletion++
+					posStats.Depth++
+					posStats.Deletion++
 					if length == 1 {
-						posStats.detail.Del1++
+						posStats.Del1++
 					}
 				}
 				readIsPerfect = false
@@ -265,10 +256,10 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 				case 0, 7, 8:
 					for j := range length {
 						pos := refPos + j + 1
-						posStats, exists := localPosMap[pos]
+						posStats, exists := localReadStats.PositionStats[pos]
 						if exists {
-							posStats.perfectCountUpdated = true
-							posStats.detail.PerfectReadsCount++
+							// posStats.PerfectCountUpdated = true
+							posStats.PerfectReadsCount++
 						}
 					}
 					refPos += length
@@ -342,11 +333,11 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 				localReadStats.PositionDetails[posKey][mutKey]++
 				localReadStats.Mutations[mutKey]++
 				localReadStats.PositionMutations[posMutKey]++
-				mutationList = append(mutationList, mut)
+				// mutationList = append(mutationList, mut)
 			}
 		}
 
-		localReadStats.MutationList = append(localReadStats.MutationList, mutationList...)
+		// localReadStats.MutationList = append(localReadStats.MutationList, mutationList...)
 
 		// 缺失细分类统计
 		if readInfo.DeleteSub != nil {
@@ -546,38 +537,28 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 
 	// 合并位置统计
 	if sampleStats.PositionStats == nil {
-		sampleStats.PositionStats = make(map[int]*PositionDetail, len(localPosMap))
-	}
-	if sampleStats.NMerStats == nil {
-		sampleStats.NMerStats = make(map[int]*PositionNMerStats, len(localPosMap))
+		sampleStats.PositionStats = make(map[int]*PositionDetail, len(localReadStats.PositionStats))
 	}
 
-	for pos, localStats := range localPosMap {
+	for pos, localStats := range localReadStats.PositionStats {
 		detail, exists := sampleStats.PositionStats[pos]
 		if !exists {
 			detail = &PositionDetail{}
 			sampleStats.PositionStats[pos] = detail
 		}
-		detail.Depth += localStats.detail.Depth
-		detail.MatchPure += localStats.detail.MatchPure
-		detail.MatchWithIns += localStats.detail.MatchWithIns
-		detail.MismatchPure += localStats.detail.MismatchPure
-		detail.MismatchWithIns += localStats.detail.MismatchWithIns
-		detail.Insertion += localStats.detail.Insertion
-		detail.Deletion += localStats.detail.Deletion
-		detail.Del1 += localStats.detail.Del1
-		detail.PerfectReadsCount += localStats.detail.PerfectReadsCount
-		detail.PerfectUptoPosCount += localStats.detail.PerfectUptoPosCount
+		detail.Depth += localStats.Depth
+		detail.MatchPure += localStats.MatchPure
+		detail.MatchWithIns += localStats.MatchWithIns
+		detail.MismatchPure += localStats.MismatchPure
+		detail.MismatchWithIns += localStats.MismatchWithIns
+		detail.Insertion += localStats.Insertion
+		detail.Deletion += localStats.Deletion
+		detail.Del1 += localStats.Del1
+		detail.PerfectReadsCount += localStats.PerfectReadsCount
+		detail.PerfectUptoPosCount += localStats.PerfectUptoPosCount
 
-		if localStats.nMerStats != nil {
-			nMer, exists := sampleStats.NMerStats[pos]
-			if !exists {
-				nMer = &PositionNMerStats{}
-				sampleStats.NMerStats[pos] = nMer
-			}
-			nMer.NCorrect += localStats.nMerStats.NCorrect
-			nMer.N1Correct += localStats.nMerStats.N1Correct
-		}
+		detail.NCorrect += localStats.NCorrect
+		detail.N1Correct += localStats.N1Correct
 	}
 	sampleStats.Unlock()
 

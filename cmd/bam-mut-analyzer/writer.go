@@ -1903,7 +1903,7 @@ func writeNMerStats(stats *MutationStats, outputDir string) error {
 
 		// 收集并排序位置
 		var positions []int
-		for pos := range sampleStats.NMerStats {
+		for pos := range sampleStats.PositionStats {
 			if pos >= minPos && pos <= maxPos {
 				positions = append(positions, pos)
 			}
@@ -1934,16 +1934,16 @@ func writeNMerStats(stats *MutationStats, outputDir string) error {
 				}
 			}
 
-			nm := sampleStats.NMerStats[rawPos]
-			if nm == nil {
+			ps := sampleStats.PositionStats[rawPos]
+			if ps == nil {
 				continue
 			}
 			stepAcc := 0.0
-			if nm.NCorrect > 0 {
-				stepAcc = float64(nm.N1Correct) / float64(nm.NCorrect)
+			if ps.NCorrect > 0 {
+				stepAcc = float64(ps.N1Correct) / float64(ps.NCorrect)
 			}
-			writer.WriteString(fmt.Sprintf("%d,%s,%s,%d,%d,%.6f\n",
-				correctedPos, prefix, base, nm.NCorrect, nm.N1Correct, stepAcc))
+			fmt.Fprintf(writer, "%d,%s,%s,%d,%d,%.6f\n",
+				correctedPos, prefix, base, ps.NCorrect, ps.N1Correct, stepAcc)
 		}
 
 		writer.Flush()

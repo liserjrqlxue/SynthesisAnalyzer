@@ -17,6 +17,10 @@ type PositionDetail struct {
 	PerfectUptoPosCount int
 	AlignedSum          int // 覆盖该位置的所有样品的 aligned reads 之和
 	TotalSum            int // 覆盖该位置的所有样品的 total reads 之和
+
+	// PerfectCountUpdated bool
+	NCorrect  int
+	N1Correct int
 }
 
 // InsertSubtype 插入子类型（多条插入）
@@ -52,11 +56,6 @@ type ReadDetailedInfo struct {
 	Mutations      []Mutation // 该read中的所有突变，兼容替换细分类列表
 	SubtypeTags    []string   // 该read的所有细分类标签（去重后排序用）
 	CombinationKey string     // 细分类组合唯一键（排序后拼接）
-}
-
-type PositionNMerStats struct {
-	NCorrect  int
-	N1Correct int
 }
 
 // SampleStats 单个样本的统计信息 - 添加新字段
@@ -114,8 +113,6 @@ type SampleStats struct {
 	// 新增：细分类组合统计（reads维度）
 	SubtypeCombinationCounts map[string]int // 组合键 -> reads数
 
-	PositionStats map[int]*PositionDetail
-
 	RefSeqFull         string       // 完整的原始参考序列
 	RefLength          int          // 参考序列全长
 	HeadCut            int          // 头切除长度（默认或Excel指定）
@@ -132,7 +129,8 @@ type SampleStats struct {
 	Del3FirstBaseCounts     map[byte]int
 	Del3PrevFirstCombCounts map[string]int // 组合计数，键如 "AC"
 
-	NMerStats map[int]*PositionNMerStats // 1-base
+	// 新增：位置统计信息 1-based
+	PositionStats map[int]*PositionDetail
 
 	AlignedBases int // 样本所有比对read的总参考覆盖碱基数
 }
@@ -249,7 +247,6 @@ func NewSampleStats() *SampleStats {
 		SubstitutionSubtypeBases:  make(map[SubstitutionSubtype]int),
 		SubtypeCombinationCounts:  make(map[string]int),
 
-		PositionStats:           make(map[int]*PositionDetail),
 		SubstitutionCountDist:   make(map[int]int),
 		Del1BaseCounts:          make(map[byte]int),
 		RefACGTCounts:           make(map[byte]int),
@@ -257,8 +254,8 @@ func NewSampleStats() *SampleStats {
 		Del3FirstBaseCounts:     make(map[byte]int),
 		Del3PrevFirstCombCounts: make(map[string]int),
 
-		NMerStats:    make(map[int]*PositionNMerStats),
-		MutationList: make([]Mutation, 0, 64),
+		PositionStats: make(map[int]*PositionDetail),
+		// MutationList: make([]Mutation, 0, 64),
 	}
 }
 
@@ -398,4 +395,9 @@ type SumPct struct {
 	sumAligned float64
 	sumTotal   float64
 	count      int
+}
+
+// 使用局部变量收集统计，避免频繁锁操作
+type localPosStats struct {
+	detail PositionDetail
 }
