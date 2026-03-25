@@ -18,7 +18,6 @@ type PositionDetail struct {
 	AlignedSum          int // 覆盖该位置的所有样品的 aligned reads 之和
 	TotalSum            int // 覆盖该位置的所有样品的 total reads 之和
 
-	// PerfectCountUpdated bool
 	NCorrect  int
 	N1Correct int
 }
@@ -395,9 +394,4 @@ type SumPct struct {
 	sumAligned float64
 	sumTotal   float64
 	count      int
-}
-
-// 使用局部变量收集统计，避免频繁锁操作
-type localPosStats struct {
-	detail PositionDetail
 }

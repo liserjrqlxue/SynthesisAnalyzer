@@ -136,7 +136,6 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 		cigarLen := len(cigarOps)
 
 		// 第一次遍历：收集位置统计和突变信息
-		// var mutationList []Mutation
 		var insertSubtypes = make(map[InsertionSubtype]bool)
 		var deleteSubtypes = make(map[DeletionSubtype]bool)
 		var substSubtypes = make(map[SubstitutionSubtype]bool)
@@ -191,10 +190,8 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 
 					// N-mer统计
 					if consecutiveMatch >= nMerSize {
-						// posStats.nMerStats.NCorrect++
 						posStats.NCorrect++
 						if !isMismatch {
-							// posStats.nMerStats.N1Correct++
 							posStats.N1Correct++
 						}
 					}
@@ -258,7 +255,6 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 						pos := refPos + j + 1
 						posStats, exists := localReadStats.PositionStats[pos]
 						if exists {
-							// posStats.PerfectCountUpdated = true
 							posStats.PerfectReadsCount++
 						}
 					}
@@ -333,11 +329,8 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 				localReadStats.PositionDetails[posKey][mutKey]++
 				localReadStats.Mutations[mutKey]++
 				localReadStats.PositionMutations[posMutKey]++
-				// mutationList = append(mutationList, mut)
 			}
 		}
-
-		// localReadStats.MutationList = append(localReadStats.MutationList, mutationList...)
 
 		// 缺失细分类统计
 		if readInfo.DeleteSub != nil {
