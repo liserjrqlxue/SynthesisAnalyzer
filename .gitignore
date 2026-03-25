@@ -1,5 +1,7 @@
 *.exe
-cmd/bam-mut-analyzer/bam-mut-analyzer
-cmd/report/report
+cmd/bam-mut-analyzer/bam-mut-analyzer*
+cmd/report/report*
+cmd/fastq_splitter/fastq_splitter*
 
 test/
+bin/
