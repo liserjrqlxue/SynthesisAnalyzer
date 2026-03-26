@@ -122,6 +122,7 @@ func (stats *MutationStats) GetOrCreateSampleStats(sample *Sample) *SampleStats 
 		return sampleStats
 	}
 
+	// 初始化样本统计对象
 	sampleStats := sample.NewSampleStats()
 
 	stats.Samples[sample.Name] = sampleStats

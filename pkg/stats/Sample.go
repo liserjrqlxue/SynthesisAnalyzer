@@ -47,7 +47,33 @@ func (sample *Sample) UpdateFullSeqs() (err error) {
 
 func (sample *Sample) NewSampleStats() *SampleStats {
 	sampleStats := NewSampleStats()
+
 	sampleStats.Sample = sample
+	sample.RefLength = len(sample.RefSeqFull)
+
+	// 预计算参考序列信息
+	if sample.RefSeqFull != "" {
+		if sample.HeadCut+sample.TailCut < sample.RefLength {
+			trimmedSeq := sample.RefSeqFull[sample.HeadCut : sample.RefLength-sample.TailCut]
+			acgtCounts := make(map[byte]int, 4)
+			for i := range trimmedSeq {
+				b := trimmedSeq[i]
+				if b == 'A' || b == 'C' || b == 'G' || b == 'T' {
+					acgtCounts[b]++
+				}
+			}
+			sampleStats.RefACGTCounts = acgtCounts
+			sampleStats.RefLengthAfterTrim = len(trimmedSeq)
+		} else {
+			fmt.Printf("  警告: 样本 %s 的切除长度超过序列全长\n", sample.Name)
+		}
+
+		// 基于参考序列长度预定义PositionStats
+		sampleStats.PositionStats = make(map[int]*PositionDetail, sample.RefLength)
+		for pos := 1; pos <= sample.RefLength; pos++ {
+			sampleStats.PositionStats[pos] = &PositionDetail{}
+		}
+	}
 
 	return sampleStats
 }

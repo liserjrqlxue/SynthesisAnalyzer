@@ -231,28 +231,6 @@ func (sampleStats *SampleStats) ProcessBAMFile(ctx context.Context, NMerSize, Ma
 	}
 	defer br.Close()
 
-	// 预计算参考序列信息
-	if sample.RefSeqFull != "" {
-
-		sampleHeadCut := sample.HeadCut
-		sampleTailCut := sample.TailCut
-		totalLen := len(sample.RefSeqFull)
-		if sampleHeadCut+sampleTailCut < totalLen {
-			trimmedSeq := sample.RefSeqFull[sampleHeadCut : totalLen-sampleTailCut]
-			acgtCounts := make(map[byte]int, 4)
-			for i := range trimmedSeq {
-				b := trimmedSeq[i]
-				if b == 'A' || b == 'C' || b == 'G' || b == 'T' {
-					acgtCounts[b]++
-				}
-			}
-			sampleStats.RefACGTCounts = acgtCounts
-			sampleStats.RefLengthAfterTrim = len(trimmedSeq)
-		} else {
-			fmt.Printf("  警告: 样本 %s 的切除长度超过序列全长\n", sample.Name)
-		}
-	}
-
 	// 检查参考序列长度是否与BAM头中一致
 	// 一致则继续，不一致则报错
 	refSeqLen := 0
@@ -268,13 +246,24 @@ func (sampleStats *SampleStats) ProcessBAMFile(ctx context.Context, NMerSize, Ma
 		slog.Error("参考序列长度冲突", "样品", sample.Name, "refSeqLen", refSeqLen, "sampleStats.RefLength", sampleStats.Sample.RefLength)
 		return fmt.Errorf("参考序列长度冲突: %d vs. %d", refSeqLen, sampleStats.Sample.RefLength)
 	}
-	// 基于参考序列长度预定义PositionStats
-	if refSeqLen > 0 {
-		sampleStats.PositionStats = make(map[int]*PositionDetail, refSeqLen)
-		for pos := 1; pos <= refSeqLen; pos++ {
-			sampleStats.PositionStats[pos] = &PositionDetail{}
-		}
+
+	err = sampleStats.ProcessBAMReader(ctx, br, NMerSize, MaxSubstitutions)
+	if err != nil {
+		return err
 	}
+
+	// 更新样本统计 - 无需加锁，因为每个样本只对应一个BAM文件
+	sampleStats.TotalSubstitution = sampleStats.SubstitutionEventCount // + sampleStats.InsertEventCount + sampleStats.DeleteEventCount
+	// 平滑连续碱基缺失分配
+	sampleStats.NormalizeDeletionsByContinuousBases()
+
+	return nil
+}
+
+// ProcessBAMReader 处理BAM读取器中的记录
+func (sampleStats *SampleStats) ProcessBAMReader(ctx context.Context, br *bam.Reader, NMerSize, MaxSubstitutions int) error {
+	defer br.Close()
+	sample := sampleStats.Sample
 
 	// 预分配临时映射和切片，减少每次循环中的内存分配
 	var insertSubtypes = make(map[InsertionSubtype]bool)
@@ -599,11 +588,5 @@ func (sampleStats *SampleStats) ProcessBAMFile(ctx context.Context, NMerSize, Ma
 			sampleStats.SubtypeCombinationCounts[combKey]++
 		}
 	}
-
-	// 更新样本统计 - 无需加锁，因为每个样本只对应一个BAM文件
-	sampleStats.TotalSubstitution = sampleStats.SubstitutionEventCount // + sampleStats.InsertEventCount + sampleStats.DeleteEventCount
-	// 平滑连续碱基缺失分配
-	sampleStats.NormalizeDeletionsByContinuousBases()
-
 	return nil
 }
