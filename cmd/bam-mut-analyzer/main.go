@@ -8,12 +8,19 @@ import (
 	"path/filepath"
 )
 
+// 样本结构体
+type Sample struct {
+	Name     string // 样本名称
+	FullSeqs string // 全长参考序列
+	BamFile  string // BAM文件路径
+	HeadCuts int    // 头切除长度
+	TailCuts int    // 尾切除长度
+}
+
 // 样本信息结构体
 type SampleInfo struct {
-	Order    []string          // 样本顺序列表
-	FullSeqs map[string]string // 样本名->全长参考序列
-	HeadCuts map[string]int    // 样本名->头切除长度
-	TailCuts map[string]int    // 样本名->尾切除长度
+	Order   []string           // 样本顺序列表
+	Samples map[string]*Sample // 样本名->样本信息
 }
 
 // 全局变量，用于存储命令行参数
@@ -77,20 +84,18 @@ func main() {
 	} else {
 		// 初始化样本信息
 		sampleInfo = SampleInfo{
-			Order:    []string{},
-			FullSeqs: make(map[string]string),
-			HeadCuts: make(map[string]int),
-			TailCuts: make(map[string]int),
+			Order:   []string{},
+			Samples: make(map[string]*Sample),
 		}
 	}
 
 	// 查找所有BAM文件
-	bamFiles, err := findBAMFiles(inputDir, sampleInfo)
+	err := findBAMFiles(inputDir, sampleInfo)
 	if err != nil {
 		fmt.Printf("查找BAM文件失败: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("找到 %d 个BAM文件\n", len(bamFiles))
+	fmt.Printf("找到 %d 个BAM文件\n", len(sampleInfo.Order))
 
 	// 创建输出目录
 	if outputDir == "" {
@@ -102,7 +107,11 @@ func main() {
 	}
 
 	// 统计处理
-	var stats = processBAMFiles(bamFiles, sampleInfo)
+	stats, err := processBAMFiles(sampleInfo)
+	if err != nil {
+		fmt.Printf("处理BAM文件失败: %v\n", err)
+		os.Exit(1)
+	}
 
 	fmt.Println("\n开始生成统计文件...")
 

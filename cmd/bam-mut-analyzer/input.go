@@ -60,10 +60,8 @@ func readExcelSampleOrder(filePath string) (SampleInfo, error) {
 	}
 
 	sampleInfo := SampleInfo{
-		Order:    []string{},
-		FullSeqs: make(map[string]string),
-		HeadCuts: make(map[string]int),
-		TailCuts: make(map[string]int),
+		Order:   []string{},
+		Samples: make(map[string]*Sample),
 	}
 
 	// 遍历数据行（从第二行开始）
@@ -85,9 +83,13 @@ func readExcelSampleOrder(filePath string) (SampleInfo, error) {
 		}
 
 		fullSeq := strings.ToUpper(targetSeq + synthSeq + postSeq)
-		sampleInfo.FullSeqs[sampleName] = fullSeq
-		sampleInfo.HeadCuts[sampleName] = len(targetSeq) // 头切除长度 = 靶标序列长度
-		sampleInfo.TailCuts[sampleName] = len(postSeq)   // 尾切除长度 = 后靶标长度
+		sample := &Sample{
+			Name:     sampleName,
+			FullSeqs: fullSeq,
+			HeadCuts: len(targetSeq), // 头切除长度 = 靶标序列长度
+			TailCuts: len(postSeq),   // 尾切除长度 = 后靶标长度
+		}
+		sampleInfo.Samples[sampleName] = sample
 		sampleInfo.Order = append(sampleInfo.Order, sampleName)
 	}
 
