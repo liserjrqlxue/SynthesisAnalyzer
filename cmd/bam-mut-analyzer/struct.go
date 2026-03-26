@@ -138,8 +138,6 @@ type SampleStats struct {
 // 将 PositionStats 中对应位置的 Deletion 值修正为：区间内平均缺失率 * 该位置 Depth。
 // 缺失率 = Deletion / Depth，平均缺失率取区间内各位置缺失率的算术平均。
 func (s *SampleStats) NormalizeDeletionsByContinuousBases() {
-	s.Lock()
-	defer s.Unlock()
 
 	// 获取切除后的参考序列
 	if s.RefSeqFull == "" || s.RefLength == 0 {
