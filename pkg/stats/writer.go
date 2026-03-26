@@ -1,9 +1,8 @@
-package main
+package stats
 
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -12,8 +11,6 @@ import (
 	"strings"
 
 	"github.com/samber/lo"
-
-	. "SynthesisAnalyzer/pkg/stats"
 )
 
 // 更新输出函数以使用新的数据结构
@@ -327,18 +324,6 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	fmt.Printf("突变分析已写入: %s\n", filename)
 
 	return nil
-}
-
-func write1line(w io.Writer, name string, count, reads, base, total int) {
-	fmt.Fprintf(
-		w,
-		"%s,%d,%.4f%%,%.4f%%,%.4f%%\n",
-		name,
-		count,
-		float64(count)/float64(reads)*100,
-		float64(count)/float64(base)*100,
-		float64(count)/float64(total)*100,
-	)
 }
 
 // writeReadTypeStats 写入read类型统计 - 更新输出
@@ -1293,8 +1278,8 @@ func extractPosition(posKey string) int {
 	return 0
 }
 
-func mainWrite(stats *MutationStats) {
-	outputDir = stats.SampleInfo.OutputDir
+func (stats *MutationStats) MainWrite() {
+	outputDir := stats.SampleInfo.OutputDir
 	// 写入各bam各位置各碱基变化组合的个数分布统计
 	if err := writePositionStats(stats, outputDir); err != nil {
 		fmt.Printf("写入位置统计失败: %v\n", err)
@@ -1353,7 +1338,7 @@ func mainWrite(stats *MutationStats) {
 	}
 }
 
-func mainPrint(stats *MutationStats) {
+func (stats *MutationStats) MainPrint() {
 	// 打印总体统计
 	fmt.Printf("\n处理完成!\n")
 	fmt.Printf("总体统计:\n")
@@ -1809,10 +1794,10 @@ func writeNMerStats(stats *MutationStats, outputDir string) error {
 			prefix := "NNNN"
 			base := "N"
 
-			if rawPos > nMerSize {
+			if rawPos > stats.SampleInfo.NMerSize {
 				// 提取前缀：原始序列中 [rawPos-N, rawPos-1] 区间
-				startIdx := rawPos - nMerSize - 1 // 0-based 起始
-				endIdx := rawPos - 2              // 0-based 结束（包含）
+				startIdx := rawPos - stats.SampleInfo.NMerSize - 1 // 0-based 起始
+				endIdx := rawPos - 2                               // 0-based 结束（包含）
 				if len(fullSeq) >= rawPos {
 					prefix = fullSeq[startIdx : endIdx+1]
 					base = fullSeq[rawPos-1 : rawPos] // 当前碱基

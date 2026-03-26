@@ -104,8 +104,8 @@ func main() {
 
 	fmt.Println("\n开始生成统计文件...")
 	mutationStats.SortSampleNames()
-	mainWrite(mutationStats)
-	mainPrint(mutationStats)
+	mutationStats.MainWrite()
+	mutationStats.MainPrint()
 }
 
 // setLogLevel 设置slog日志级别
