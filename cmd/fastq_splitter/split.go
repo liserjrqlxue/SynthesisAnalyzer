@@ -496,7 +496,7 @@ func (s *EnhancedSplitter) processSingleFile(fileInfo *MergedFileInfo,
 					batchCount++
 
 					if batchCount%batchSize == 0 {
-						fmt.Printf("\r    文件 %s: 已处理 %09d 条",
+						fmt.Printf("\r    文件 %s: 已处理 %9d 条",
 							filepath.Base(fileInfo.FilePath), batchCount)
 					}
 				}

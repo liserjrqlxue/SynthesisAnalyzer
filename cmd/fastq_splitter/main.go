@@ -129,7 +129,7 @@ func main() {
 
 		Alignment: AlignmentConfig{
 			UseMinimap2:    true,
-			AlignerThreads: 4,
+			AlignerThreads: 8,
 			MapQThreshold:  10,
 			MinIdentity:    0.90,
 			SkipAlignment:  false,
