@@ -44,7 +44,7 @@ func (sample *Sample) UpdateFullSeqs() (err error) {
 }
 
 // 样本信息结构体
-type SampleInfo struct {
+type BatchInfo struct {
 	InputExcel string // 输入Excel文件路径
 	InputDir   string // 输入目录路径
 	OutputDir  string // 输出目录路径
@@ -53,13 +53,14 @@ type SampleInfo struct {
 	TailCuts         int // 尾切除长度
 	NMerSize         int // n-mer大小
 	MaxSubstitutions int // 最大错配次数
+	MaxThreads       int // 最大线程数
 
 	Order   []string           // 样本顺序列表
 	Samples map[string]*Sample // 样本名->样本信息
 }
 
-func NewSampleInfo() *SampleInfo {
-	return &SampleInfo{
+func NewSampleInfo() *BatchInfo {
+	return &BatchInfo{
 		Order:   []string{},
 		Samples: make(map[string]*Sample),
 	}
@@ -67,7 +68,7 @@ func NewSampleInfo() *SampleInfo {
 
 // readExcelSampleOrder 使用 excelize 读取 Excel 文件，基于表头确定列
 // 返回: 样品信息结构体, 错误
-func (s *SampleInfo) ReadExcel() error {
+func (s *BatchInfo) ReadExcel() error {
 	if s.InputExcel == "" {
 		slog.Warn("未指定Excel文件路径")
 		return nil
@@ -160,7 +161,7 @@ func (s *SampleInfo) ReadExcel() error {
 }
 
 // findBAMFiles 查找所有BAM文件，并尝试补充参考序列
-func (s *SampleInfo) FindBAMFiles() error {
+func (s *BatchInfo) FindBAMFiles() error {
 	if len(s.Order) > 0 {
 		return s.findBAMFilesFromExcel()
 	} else {
@@ -169,7 +170,7 @@ func (s *SampleInfo) FindBAMFiles() error {
 }
 
 // findBAMFilesFromExcel 从Excel文件中获取样本顺序并查找对应BAM文件
-func (s *SampleInfo) findBAMFilesFromExcel() (err error) {
+func (s *BatchInfo) findBAMFilesFromExcel() (err error) {
 	// 使用Excel中的样本顺序
 	for _, sampleName := range s.Order {
 		sortBam := filepath.Join(s.InputDir, "samples", sampleName, sampleName+".sorted.bam")
@@ -205,7 +206,7 @@ func (s *SampleInfo) findBAMFilesFromExcel() (err error) {
 }
 
 // findBAMFilesFromWalk 递归遍历目录查找BAM文件
-func (s *SampleInfo) findBAMFilesFromWalk() (err error) {
+func (s *BatchInfo) findBAMFilesFromWalk() (err error) {
 	// 原来的方法：递归查找所有BAM文件
 	err = filepath.Walk(s.InputDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {

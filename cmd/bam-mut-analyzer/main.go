@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	stats "SynthesisAnalyzer/pkg/stats"
 )
@@ -20,11 +21,15 @@ type Config struct {
 	TailCut          int
 	NMerSize         int
 	MaxSubstitutions int
+	MaxThreads       int
 }
 
 // parseFlags 解析命令行参数，返回配置对象
 func parseFlags() *Config {
 	cfg := &Config{}
+
+	// 计算默认最大线程数: max(8, CPU个数/8)
+	defaultMaxThreads := max(runtime.NumCPU()/8, 8)
 
 	flag.StringVar(&cfg.InputDir, "d", "", "输入目录，包含样本子目录")
 	flag.StringVar(&cfg.OutputDir, "o", "", "输出目录，默认输入目录/mutation_stats")
@@ -34,6 +39,7 @@ func parseFlags() *Config {
 	flag.IntVar(&cfg.MaxSubstitutions, "max-sub", 5, "最大替换个数阈值，用于定义比对良好reads")
 	flag.IntVar(&cfg.NMerSize, "n", 4, "N-mer 统计的 N 值（默认4，即统计5-mer准确率）")
 	flag.StringVar(&cfg.LogLevel, "log-level", "info", "日志级别 (debug, info, warn, error)")
+	flag.IntVar(&cfg.MaxThreads, "max-threads", defaultMaxThreads, "最大线程数，默认值为max(8, CPU个数/8)")
 
 	flag.Parse()
 	return cfg
@@ -89,6 +95,7 @@ func run(cfg *Config) error {
 	sampleInfo.TailCuts = cfg.TailCut
 	sampleInfo.NMerSize = cfg.NMerSize
 	sampleInfo.MaxSubstitutions = cfg.MaxSubstitutions
+	sampleInfo.MaxThreads = cfg.MaxThreads
 
 	// 设置输出目录
 	sampleInfo.OutputDir = cfg.OutputDir

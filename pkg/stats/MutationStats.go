@@ -18,7 +18,7 @@ import (
 // MutationStats 存储突变统计 - 添加新字段
 type MutationStats struct {
 	sync.RWMutex
-	SampleInfo  *SampleInfo             // 样本信息指针
+	SampleInfo  *BatchInfo              // 样本信息指针
 	Samples     map[string]*SampleStats // sample -> 样本统计
 	SampleNames []string                // 样本名顺序
 
@@ -704,6 +704,9 @@ func (stats *MutationStats) ProcessBAMFiles() (err error) {
 
 	g, ctx := errgroup.WithContext(ctx)
 
+	// 信号量 channel，容量即为最大并发数
+	sem := make(chan struct{}, sampleInfo.MaxThreads)
+
 	// 处理每个BAM文件
 	for _, sampleName := range sampleInfo.Order {
 		sample, ok := sampleInfo.Samples[sampleName]
@@ -713,7 +716,12 @@ func (stats *MutationStats) ProcessBAMFiles() (err error) {
 			return
 		}
 
+		// 获取信号量，阻塞直到有空闲槽位
+		sem <- struct{}{}
 		g.Go(func() error {
+			// 任务结束后释放信号量
+			defer func() { <-sem }()
+
 			return stats.ProcessBAMFile(ctx, sample)
 		})
 	}
