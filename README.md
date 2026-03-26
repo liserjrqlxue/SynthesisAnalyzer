@@ -10,6 +10,9 @@ SynthesisAnalyzer/
 │   ├── bam-mut-analyzer/  # BAM文件突变分析工具
 │   ├── fastq_splitter/     # FASTQ文件拆分工具
 │   └── report/             # 报告生成工具
+├── pkg/
+│   ├── stats/              # 核心统计功能包
+│   └── report/             # 报告生成功能包
 ├── go.mod                  # Go模块定义
 ├── go.sum                  # 依赖版本锁定
 └── README.md               # 项目文档

@@ -241,12 +241,15 @@ cat ./results/read_type_by_sample.csv
 ### 主要文件
 
 - **main.go**：主入口，处理命令行参数
-- **process.go**：核心处理逻辑，分析BAM文件
-- **writer.go**：输出文件写入逻辑
-- **input.go**：输入文件处理
-- **struct.go**：数据结构定义
-- **sam.go**：SAM/BAM文件解析
-- **type.go**：类型定义
+- **pkg/stats/**：核心统计功能包
+  - **Sample.go**：样本信息管理
+  - **SampleStats.go**：样本统计信息
+  - **MutationStats.go**：突变统计信息
+  - **sam.go**：SAM/BAM文件解析
+  - **writer.go**：输出文件写入逻辑
+  - **struct.go**：数据结构定义
+  - **type.go**：类型定义
+  - **util.go**：工具函数
 
 ### 核心流程
 
