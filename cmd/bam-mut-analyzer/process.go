@@ -564,7 +564,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	return nil
 }
 
-func processBAMFiles(bamFiles []string) (stats *MutationStats) {
+func processBAMFiles(bamFiles []string, sampleInfo SampleInfo) (stats *MutationStats) {
 	// 初始化统计
 	stats = NewMutationStats()
 
@@ -586,11 +586,11 @@ func processBAMFiles(bamFiles []string) (stats *MutationStats) {
 			headCutFromExcel := 0
 			tailCutFromExcel := 0
 			fullSeq := ""
-			if fullSeqs != nil {
-				fullSeq = fullSeqs[sampleName]
+			if sampleInfo.FullSeqs != nil {
+				fullSeq = sampleInfo.FullSeqs[sampleName]
 				refLen = len(fullSeq)
-				headCutFromExcel = headCuts[sampleName]
-				tailCutFromExcel = tailCuts[sampleName]
+				headCutFromExcel = sampleInfo.HeadCuts[sampleName]
+				tailCutFromExcel = sampleInfo.TailCuts[sampleName]
 			}
 
 			// 处理BAM文件
@@ -604,36 +604,83 @@ func processBAMFiles(bamFiles []string) (stats *MutationStats) {
 	// 等待所有goroutine完成
 	wg.Wait()
 
-	stats.SortSampleNames(excelFile, sampleOrder)
+	stats.SortSampleNames(sampleInfo.Order)
 
 	return stats
 }
 
 // findBAMFiles 查找所有BAM文件，并尝试补充参考序列
-func findBAMFiles(inputDir string, fullSeqs map[string]string) ([]string, error) {
+func findBAMFiles(inputDir string, sampleInfo SampleInfo) ([]string, error) {
+	if len(sampleInfo.Order) > 0 {
+		return findBAMFilesFromExcel(inputDir, sampleInfo)
+	} else {
+		return findBAMFilesFromWalk(inputDir, sampleInfo)
+	}
+}
+
+// findBAMFilesFromExcel 从Excel文件中获取样本顺序并查找对应BAM文件
+func findBAMFilesFromExcel(inputDir string, sampleInfo SampleInfo) ([]string, error) {
 	var bamFiles []string
 
-	if excelFile != "" && len(sampleOrder) > 0 {
-		// 使用Excel中的样本顺序
-		for _, sampleName := range sampleOrder {
-			sortBam := filepath.Join(inputDir, "samples", sampleName, sampleName+".sorted.bam")
-			filterBam := filepath.Join(inputDir, sampleName, sampleName+".filter.bam")
-			var bamPath string
-			if _, err := os.Stat(sortBam); err == nil {
-				bamPath = sortBam
-			} else if _, err := os.Stat(filterBam); err == nil {
-				bamPath = filterBam
-			} else {
-				fmt.Printf("警告: 找不到样本 %s 的BAM文件: %s 或 %s\n", sampleName, sortBam, filterBam)
-				continue
-			}
-			bamFiles = append(bamFiles, bamPath)
+	// 使用Excel中的样本顺序
+	for _, sampleName := range sampleInfo.Order {
+		sortBam := filepath.Join(inputDir, "samples", sampleName, sampleName+".sorted.bam")
+		filterBam := filepath.Join(inputDir, sampleName, sampleName+".filter.bam")
+		var bamPath string
+		if _, err := os.Stat(sortBam); err == nil {
+			bamPath = sortBam
+		} else if _, err := os.Stat(filterBam); err == nil {
+			bamPath = filterBam
+		} else {
+			fmt.Printf("警告: 找不到样本 %s 的BAM文件: %s 或 %s\n", sampleName, sortBam, filterBam)
+			continue
+		}
+		bamFiles = append(bamFiles, bamPath)
 
-			// 若 fullSeqs 中尚无该样本的参考序列，尝试查找 .ref.fa 文件
-			if _, ok := fullSeqs[sampleName]; !ok || fullSeqs[sampleName] == "" {
+		// 若 fullSeqs 中尚无该样本的参考序列，尝试查找 .ref.fa 文件
+		if _, ok := sampleInfo.FullSeqs[sampleName]; !ok || sampleInfo.FullSeqs[sampleName] == "" {
+			refCandidates := []string{
+				filepath.Join(inputDir, "samples", sampleName, sampleName+".ref.fa"),
+				filepath.Join(inputDir, sampleName, sampleName+".ref.fa"),
+			}
+			for _, refPath := range refCandidates {
+				if _, err := os.Stat(refPath); err == nil {
+					seq, err := readRefFasta(refPath)
+					if err != nil {
+						fmt.Printf("警告: 读取参考文件 %s 失败: %v\n", refPath, err)
+					} else {
+						sampleInfo.FullSeqs[sampleName] = seq
+						// fmt.Printf("从参考文件 %s 加载序列，长度 %d\n", refPath, len(seq))
+					}
+					break
+				}
+			}
+		}
+	}
+
+	return bamFiles, nil
+}
+
+// findBAMFilesFromWalk 递归遍历目录查找BAM文件
+func findBAMFilesFromWalk(inputDir string, sampleInfo SampleInfo) ([]string, error) {
+	var bamFiles []string
+
+	// 原来的方法：递归查找所有BAM文件
+	err := filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if !info.IsDir() && (strings.HasSuffix(path, ".sorted.bam") || strings.HasSuffix(path, ".filter.bam")) {
+			bamFiles = append(bamFiles, path)
+
+			// ===== 新增：尝试补充参考序列 =====
+			sampleName := filepath.Base(filepath.Dir(path))
+			if _, ok := sampleInfo.FullSeqs[sampleName]; !ok || sampleInfo.FullSeqs[sampleName] == "" {
+				// 构造可能的参考文件路径
 				refCandidates := []string{
-					filepath.Join(inputDir, "samples", sampleName, sampleName+".ref.fa"),
-					filepath.Join(inputDir, sampleName, sampleName+".ref.fa"),
+					filepath.Join(filepath.Dir(path), sampleName+".ref.fa"),
+					filepath.Join(filepath.Dir(path), "ref.fa"),
 				}
 				for _, refPath := range refCandidates {
 					if _, err := os.Stat(refPath); err == nil {
@@ -641,58 +688,25 @@ func findBAMFiles(inputDir string, fullSeqs map[string]string) ([]string, error)
 						if err != nil {
 							fmt.Printf("警告: 读取参考文件 %s 失败: %v\n", refPath, err)
 						} else {
-							fullSeqs[sampleName] = seq
-							// fmt.Printf("从参考文件 %s 加载序列，长度 %d\n", refPath, len(seq))
+							sampleInfo.FullSeqs[sampleName] = seq
+							fmt.Printf("从参考文件 %s 加载序列，长度 %d\n", refPath, len(seq))
 						}
 						break
 					}
 				}
 			}
-		}
-	} else {
-		// 原来的方法：递归查找所有BAM文件
-		err := filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			if !info.IsDir() && (strings.HasSuffix(path, ".sorted.bam") || strings.HasSuffix(path, ".filter.bam")) {
-				bamFiles = append(bamFiles, path)
-
-				// ===== 新增：尝试补充参考序列 =====
-				sampleName := filepath.Base(filepath.Dir(path))
-				if _, ok := fullSeqs[sampleName]; !ok || fullSeqs[sampleName] == "" {
-					// 构造可能的参考文件路径
-					refCandidates := []string{
-						filepath.Join(filepath.Dir(path), sampleName+".ref.fa"),
-						filepath.Join(filepath.Dir(path), "ref.fa"),
-					}
-					for _, refPath := range refCandidates {
-						if _, err := os.Stat(refPath); err == nil {
-							seq, err := readRefFasta(refPath)
-							if err != nil {
-								fmt.Printf("警告: 读取参考文件 %s 失败: %v\n", refPath, err)
-							} else {
-								fullSeqs[sampleName] = seq
-								fmt.Printf("从参考文件 %s 加载序列，长度 %d\n", refPath, len(seq))
-							}
-							break
-						}
-					}
-				}
-				// ===== 新增结束 =====
-			}
-
-			return nil
-		})
-
-		if err != nil {
-			return nil, err
+			// ===== 新增结束 =====
 		}
 
-		// 按路径排序
-		sort.Strings(bamFiles)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
+
+	// 按路径排序
+	sort.Strings(bamFiles)
 
 	return bamFiles, nil
 }

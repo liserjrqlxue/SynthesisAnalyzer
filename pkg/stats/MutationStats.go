@@ -122,9 +122,9 @@ func (stats *MutationStats) GetOrCreateSampleStats(sampleName string) *SampleSta
 }
 
 // 辅助函数：获取排序后的样本名列表
-func (stats *MutationStats) SortSampleNames(excelFile string, sampleOrder []string) {
+func (stats *MutationStats) SortSampleNames(sampleOrder []string) {
 	var names = stats.SampleNames
-	if excelFile != "" && len(sampleOrder) > 0 {
+	if len(sampleOrder) > 0 {
 		// 按 Excel 顺序排序
 		orderMap := make(map[string]int)
 		for i, n := range sampleOrder {

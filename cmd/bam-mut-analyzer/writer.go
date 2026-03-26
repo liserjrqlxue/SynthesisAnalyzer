@@ -20,20 +20,7 @@ import (
 
 // writePositionStats 写入各bam各位置各碱基变化组合的个数分布统计
 func writePositionStats(stats *MutationStats, outputDir string) error {
-	// 确定样本顺序
-	var sampleNames []string
-	if excelFile != "" && len(sampleOrder) > 0 {
-		// 使用Excel中的样本顺序
-		sampleNames = sampleOrder
-	} else {
-		// 收集所有样本名并按字母排序
-		for sampleName := range stats.Samples {
-			sampleNames = append(sampleNames, sampleName)
-		}
-		sort.Strings(sampleNames)
-	}
-
-	for _, sampleName := range sampleNames {
+	for _, sampleName := range stats.SampleNames {
 		sampleStats, exists := stats.Samples[sampleName]
 		if !exists {
 			continue
@@ -105,20 +92,7 @@ func writePositionStats(stats *MutationStats, outputDir string) error {
 
 // writeSampleMutationStats 写入各bam各碱基变化组合的分布
 func writeSampleMutationStats(stats *MutationStats, outputDir string) error {
-	// 确定样本顺序
-	var sampleNames []string
-	if excelFile != "" && len(sampleOrder) > 0 {
-		// 使用Excel中的样本顺序
-		sampleNames = sampleOrder
-	} else {
-		// 收集所有样本名并按字母排序
-		for sampleName := range stats.Samples {
-			sampleNames = append(sampleNames, sampleName)
-		}
-		sort.Strings(sampleNames)
-	}
-
-	for _, sampleName := range sampleNames {
+	for _, sampleName := range stats.SampleNames {
 		sampleStats, exists := stats.Samples[sampleName]
 		if !exists {
 			continue
@@ -229,21 +203,8 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	}
 	writer.WriteString(header + "\n")
 
-	// 确定样本顺序
-	var sampleNames []string
-	if excelFile != "" && len(sampleOrder) > 0 {
-		// 使用Excel中的样本顺序
-		sampleNames = sampleOrder
-	} else {
-		// 收集所有样本名并按字母排序
-		for sampleName := range stats.Samples {
-			sampleNames = append(sampleNames, sampleName)
-		}
-		sort.Strings(sampleNames)
-	}
-
 	// 写入每行数据
-	for _, sampleName := range sampleNames {
+	for _, sampleName := range stats.SampleNames {
 		sampleStats, exists := stats.Samples[sampleName]
 		if !exists {
 			continue
@@ -411,21 +372,8 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 
 	writer.WriteString(header + "\n")
 
-	// 确定样本顺序
-	var sampleNames []string
-	if excelFile != "" && len(sampleOrder) > 0 {
-		// 使用Excel中的样本顺序
-		sampleNames = sampleOrder
-	} else {
-		// 收集所有样本名并按字母排序
-		for sampleName := range stats.Samples {
-			sampleNames = append(sampleNames, sampleName)
-		}
-		sort.Strings(sampleNames)
-	}
-
 	// 写入每行数据
-	for _, sampleName := range sampleNames {
+	for _, sampleName := range stats.SampleNames {
 		sampleStats, exists := stats.Samples[sampleName]
 		if !exists {
 			continue
@@ -851,18 +799,7 @@ func writeDetailedStats(stats *MutationStats, outputDir string) error {
 	writer = bufio.NewWriter(file)
 	writer.WriteString("Sample,TotalReads,AlignedReads,AlignmentRate,ReadsWithMutations,MutationReadRate,TotalMutations,MutationRatePerRead\n")
 
-	// 确定样本顺序
-	var sampleNames []string
-	if excelFile != "" && len(sampleOrder) > 0 {
-		sampleNames = sampleOrder
-	} else {
-		for sampleName := range stats.Samples {
-			sampleNames = append(sampleNames, sampleName)
-		}
-		sort.Strings(sampleNames)
-	}
-
-	for _, sampleName := range sampleNames {
+	for _, sampleName := range stats.SampleNames {
 		sampleStats, exists := stats.Samples[sampleName]
 		if !exists {
 			continue
@@ -938,23 +875,12 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 	// 变异类型
 	// mutationTypes := []string{"substitution", "insertion", "deletion"}
 
-	// 确定样本顺序
-	var sampleNames []string
-	if excelFile != "" && len(sampleOrder) > 0 {
-		sampleNames = sampleOrder
-	} else {
-		for sampleName := range stats.Samples {
-			sampleNames = append(sampleNames, sampleName)
-		}
-		sort.Strings(sampleNames)
-	}
-
 	// 总计行
 	totalSubstitution := 0
 	totalInsertion := 0
 	totalDeletion := 0
 
-	for _, sampleName := range sampleNames {
+	for _, sampleName := range stats.SampleNames {
 		sampleStats, exists := stats.Samples[sampleName]
 		if !exists {
 			continue
@@ -1034,7 +960,7 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 		sampleReads := []string{}
 		sampleAlignedReads := []string{}
 
-		for _, sampleName := range sampleNames {
+		for _, sampleName := range stats.SampleNames {
 			sampleStats, exists := stats.Samples[sampleName]
 			if !exists {
 				continue
@@ -1104,7 +1030,7 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 
 		// 各样本计数
 		sampleCounts := []string{}
-		for _, sampleName := range sampleNames {
+		for _, sampleName := range stats.SampleNames {
 			sampleStats, exists := stats.Samples[sampleName]
 			if !exists {
 				continue
@@ -1306,18 +1232,7 @@ func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 		header += fmt.Sprintf(",Total_%s", base)
 	}
 
-	// 添加样本列
-	var sampleNames []string
-	if excelFile != "" && len(sampleOrder) > 0 {
-		sampleNames = sampleOrder
-	} else {
-		for sampleName := range stats.Samples {
-			sampleNames = append(sampleNames, sampleName)
-		}
-		sort.Strings(sampleNames)
-	}
-
-	for _, sampleName := range sampleNames {
+	for _, sampleName := range stats.SampleNames {
 		for _, base := range bases {
 			header += fmt.Sprintf(",%s_%s", sampleName, base)
 		}
@@ -1337,7 +1252,7 @@ func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 		}
 
 		// 各样本数据
-		for _, sampleName := range sampleNames {
+		for _, sampleName := range stats.SampleNames {
 			sampleStats, exists := stats.Samples[sampleName]
 			if exists {
 				sampleStats.RLock()

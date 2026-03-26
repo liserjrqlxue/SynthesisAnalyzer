@@ -8,20 +8,20 @@ import (
 )
 
 // readExcelSampleOrder 使用 excelize 读取 Excel 文件，基于表头确定列
-// 返回: 样品顺序列表, 样品名->全长参考序列, 样品名->头切除长度, 样品名->尾切除长度, 错误
-func readExcelSampleOrder(filePath string) ([]string, map[string]string, map[string]int, map[string]int, error) {
+// 返回: 样品信息结构体, 错误
+func readExcelSampleOrder(filePath string) (SampleInfo, error) {
 	f, err := excelize.OpenFile(filePath)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("打开Excel文件失败: %v", err)
+		return SampleInfo{}, fmt.Errorf("打开Excel文件失败: %v", err)
 	}
 	defer f.Close()
 
 	rows, err := f.GetRows("Sheet1")
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("读取Sheet1失败: %v", err)
+		return SampleInfo{}, fmt.Errorf("读取Sheet1失败: %v", err)
 	}
 	if len(rows) < 2 {
-		return nil, nil, nil, nil, fmt.Errorf("Excel文件至少需要表头和一行数据")
+		return SampleInfo{}, fmt.Errorf("Excel文件至少需要表头和一行数据")
 	}
 
 	// 解析表头，找到各列索引
@@ -47,22 +47,24 @@ func readExcelSampleOrder(filePath string) ([]string, map[string]string, map[str
 
 	// 检查必需列
 	if nameCol == -1 {
-		return nil, nil, nil, nil, fmt.Errorf("未找到'样品名称'列")
+		return SampleInfo{}, fmt.Errorf("未找到'样品名称'列")
 	}
 	if targetCol == -1 {
-		return nil, nil, nil, nil, fmt.Errorf("未找到'靶标序列'列")
+		return SampleInfo{}, fmt.Errorf("未找到'靶标序列'列")
 	}
 	if synthCol == -1 {
-		return nil, nil, nil, nil, fmt.Errorf("未找到'合成序列'列")
+		return SampleInfo{}, fmt.Errorf("未找到'合成序列'列")
 	}
 	if postCol == -1 {
-		return nil, nil, nil, nil, fmt.Errorf("未找到'后靶标'列")
+		return SampleInfo{}, fmt.Errorf("未找到'后靶标'列")
 	}
 
-	var samples []string
-	fullSeqs := make(map[string]string)
-	headCuts := make(map[string]int)
-	tailCuts := make(map[string]int)
+	sampleInfo := SampleInfo{
+		Order:    []string{},
+		FullSeqs: make(map[string]string),
+		HeadCuts: make(map[string]int),
+		TailCuts: make(map[string]int),
+	}
 
 	// 遍历数据行（从第二行开始）
 	for i := 1; i < len(rows); i++ {
@@ -83,15 +85,15 @@ func readExcelSampleOrder(filePath string) ([]string, map[string]string, map[str
 		}
 
 		fullSeq := strings.ToUpper(targetSeq + synthSeq + postSeq)
-		fullSeqs[sampleName] = fullSeq
-		headCuts[sampleName] = len(targetSeq) // 头切除长度 = 靶标序列长度
-		tailCuts[sampleName] = len(postSeq)   // 尾切除长度 = 后靶标长度
-		samples = append(samples, sampleName)
+		sampleInfo.FullSeqs[sampleName] = fullSeq
+		sampleInfo.HeadCuts[sampleName] = len(targetSeq) // 头切除长度 = 靶标序列长度
+		sampleInfo.TailCuts[sampleName] = len(postSeq)   // 尾切除长度 = 后靶标长度
+		sampleInfo.Order = append(sampleInfo.Order, sampleName)
 	}
 
-	if len(samples) == 0 {
-		return nil, nil, nil, nil, fmt.Errorf("没有有效的数据行")
+	if len(sampleInfo.Order) == 0 {
+		return SampleInfo{}, fmt.Errorf("没有有效的数据行")
 	}
 
-	return samples, fullSeqs, headCuts, tailCuts, nil
+	return sampleInfo, nil
 }

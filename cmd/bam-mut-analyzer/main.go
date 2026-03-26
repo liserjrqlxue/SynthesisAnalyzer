@@ -8,24 +8,27 @@ import (
 	"path/filepath"
 )
 
+// 样本信息结构体
+type SampleInfo struct {
+	Order    []string          // 样本顺序列表
+	FullSeqs map[string]string // 样本名->全长参考序列
+	HeadCuts map[string]int    // 样本名->头切除长度
+	TailCuts map[string]int    // 样本名->尾切除长度
+}
+
 // 全局变量，用于存储命令行参数
 var (
-	inputDir    string
-	outputDir   string
-	excelFile   string
-	sampleOrder []string // 样本顺序列表
+	inputDir   string
+	outputDir  string
+	excelFile  string
+	sampleInfo SampleInfo
 
 	headCut  int
 	tailCut  int
 	nMerSize int
 
-	maxSubstitutions int // 最大替换个数阈值
+	maxSubstitutions int    // 最大替换个数阈值
 	logLevel         string // 日志级别
-
-	// fullLengths map[string]int
-	fullSeqs = make(map[string]string)
-	headCuts map[string]int
-	tailCuts map[string]int
 )
 
 func init() {
@@ -65,13 +68,29 @@ func main() {
 	if excelFile != "" {
 		fmt.Printf("读取Excel文件: %s\n", excelFile)
 		var err error
-		sampleOrder, fullSeqs, headCuts, tailCuts, err = readExcelSampleOrder(excelFile)
+		sampleInfo, err = readExcelSampleOrder(excelFile)
 		if err != nil {
 			fmt.Printf("错误: 读取Excel文件失败: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("从Excel读取到 %d 个样本\n", len(sampleOrder))
+		fmt.Printf("从Excel读取到 %d 个样本\n", len(sampleInfo.Order))
+	} else {
+		// 初始化样本信息
+		sampleInfo = SampleInfo{
+			Order:    []string{},
+			FullSeqs: make(map[string]string),
+			HeadCuts: make(map[string]int),
+			TailCuts: make(map[string]int),
+		}
 	}
+
+	// 查找所有BAM文件
+	bamFiles, err := findBAMFiles(inputDir, sampleInfo)
+	if err != nil {
+		fmt.Printf("查找BAM文件失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("找到 %d 个BAM文件\n", len(bamFiles))
 
 	// 创建输出目录
 	if outputDir == "" {
@@ -82,16 +101,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 查找所有BAM文件
-	bamFiles, err := findBAMFiles(inputDir, fullSeqs)
-	if err != nil {
-		fmt.Printf("查找BAM文件失败: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("找到 %d 个BAM文件\n", len(bamFiles))
-
 	// 统计处理
-	var stats = processBAMFiles(bamFiles)
+	var stats = processBAMFiles(bamFiles, sampleInfo)
 
 	fmt.Println("\n开始生成统计文件...")
 
