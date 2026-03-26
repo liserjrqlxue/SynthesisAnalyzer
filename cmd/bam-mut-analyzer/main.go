@@ -103,7 +103,6 @@ func run(cfg *Config) error {
 		}
 		slog.Info("从Excel读取样本", "count", len(sampleInfo.Order))
 	}
-	fmt.Printf("从Excel读取到 %d 个样本\n", len(sampleInfo.Order))
 
 	// 查找所有BAM文件
 	if err := sampleInfo.FindBAMFiles(); err != nil {
