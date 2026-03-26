@@ -14,6 +14,7 @@ import (
 // Config 存放所有命令行参数及派生配置
 type Config struct {
 	InputDir         string
+	InputSheet       string
 	OutputDir        string
 	ExcelFile        string
 	LogLevel         string
@@ -32,6 +33,7 @@ func parseFlags() *Config {
 	defaultMaxThreads := max(runtime.NumCPU()/8, 8)
 
 	flag.StringVar(&cfg.InputDir, "d", "", "输入目录，包含样本子目录")
+	flag.StringVar(&cfg.InputSheet, "s", "Sheet1", "输入Sheet名称，默认Sheet1")
 	flag.StringVar(&cfg.OutputDir, "o", "", "输出目录，默认输入目录/mutation_stats")
 	flag.StringVar(&cfg.ExcelFile, "i", "", "可选参数：输入Excel文件，包含样本顺序")
 	flag.IntVar(&cfg.HeadCut, "head", 27, "头切除长度")
@@ -90,6 +92,7 @@ func run(cfg *Config) error {
 	// 初始化样本信息
 	sampleInfo := stats.NewSampleInfo()
 	sampleInfo.InputExcel = cfg.ExcelFile
+	sampleInfo.InputSheet = cfg.InputSheet
 	sampleInfo.InputDir = cfg.InputDir
 	sampleInfo.HeadCuts = cfg.HeadCut
 	sampleInfo.TailCuts = cfg.TailCut
@@ -124,7 +127,7 @@ func run(cfg *Config) error {
 
 	// 统计处理
 	mutationStats := stats.NewMutationStats()
-	mutationStats.SampleInfo = sampleInfo
+	mutationStats.BatchInfo = sampleInfo
 	if err := mutationStats.ProcessBAMFiles(); err != nil {
 		return fmt.Errorf("处理BAM文件失败: %w", err)
 	}

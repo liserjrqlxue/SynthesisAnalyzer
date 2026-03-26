@@ -108,13 +108,13 @@ func writeSampleMutationStats(stats *MutationStats, outputDir string) error {
 
 		// 收集所有突变
 		var mutations []string
-		for mut := range sampleStats.Mutations {
+		for mut := range sampleStats.SubstitutionCount {
 			mutations = append(mutations, mut)
 		}
 		sort.Strings(mutations)
 
 		for _, mut := range mutations {
-			count := sampleStats.Mutations[mut]
+			count := sampleStats.SubstitutionCount[mut]
 			fmt.Fprintf(writer, "%s,%s,%d,%d,%d,%d\n",
 				sampleName, mut, count,
 				sampleStats.ReadCounts, sampleStats.AlignedReads, sampleStats.ReadsWithMutations,
@@ -143,7 +143,7 @@ func writeTotalMutationStats(stats *MutationStats, outputDir string) error {
 
 	// 收集所有突变
 	var mutations []string
-	for mut := range stats.TotalMutations {
+	for mut := range stats.SubstitutionCount {
 		mutations = append(mutations, mut)
 	}
 	sort.Strings(mutations)
@@ -153,7 +153,7 @@ func writeTotalMutationStats(stats *MutationStats, outputDir string) error {
 	totalReadsWithMuts := stats.TotalReadsWithMuts
 
 	for _, mut := range mutations {
-		count := stats.TotalMutations[mut]
+		count := stats.SubstitutionCount[mut]
 		fmt.Fprintf(writer, "%s,%d,%d,%d\n",
 			mut, count, totalReads, totalReadsWithMuts)
 	}
@@ -180,7 +180,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	allMutations := make(map[string]bool)
 	for _, sampleStats := range stats.Samples {
 		sampleStats.RLock()
-		for mut := range sampleStats.Mutations {
+		for mut := range sampleStats.SubstitutionCount {
 			allMutations[mut] = true
 		}
 		sampleStats.RUnlock()
@@ -217,10 +217,10 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 			sampleStats.AlignedReads,
 			sampleStats.GoodAlignedReads,
 			sampleStats.ReadsWithMutations,
-			sampleStats.TotalMutations,
+			sampleStats.TotalSubstitution,
 		)
 		for _, mut := range mutationTypes {
-			count := sampleStats.Mutations[mut]
+			count := sampleStats.SubstitutionCount[mut]
 			fmt.Fprintf(&row, ",%d", count)
 		}
 		writer.WriteString(row.String() + "\n")
@@ -248,7 +248,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	}
 
 	var mutationCounts []mutationCount
-	for mut, count := range stats.TotalMutations {
+	for mut, count := range stats.SubstitutionCount {
 		mutationCounts = append(mutationCounts, mutationCount{mut, count})
 	}
 
@@ -258,7 +258,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	})
 
 	totalMutations := 0
-	for _, count := range stats.TotalMutations {
+	for _, count := range stats.SubstitutionCount {
 		totalMutations += count
 	}
 
@@ -286,7 +286,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 
 	// 分析突变类型
 	var transitions, transversions, other int
-	for mut, count := range stats.TotalMutations {
+	for mut, count := range stats.SubstitutionCount {
 		if len(mut) >= 3 && mut[1] == '>' {
 			ref := mut[0]
 			alt := mut[2]
@@ -424,11 +424,11 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	totalVarReads := stats.TotalInsertReads + stats.TotalDeleteReads + stats.TotalSubstitutionReads
 	totalEvents := stats.TotalInsertEventCount + stats.TotalDeleteEventCount + stats.TotalSubstitutionEventCount
 	totalBases := stats.TotalInsertBaseTotal + stats.TotalDeleteBaseTotal + stats.TotalSubstitutionBaseTotal
-	totalDel1 := lo.Sum(lo.Values(stats.TotalDel1BaseCounts))
+	totalDel1 := lo.Sum(lo.Values(stats.Del1BaseCounts))
 
 	// a. 原有read类型统计
 	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
-		write1line(writer, ReadTypeNames[rt], stats.TotalReadTypeCounts[rt], readsCount, alignedReads, totalReads)
+		write1line(writer, ReadTypeNames[rt], stats.ReadTypeCounts[rt], readsCount, alignedReads, totalReads)
 	}
 
 	writer.WriteString("\n变异大类统计（非互斥）:\n")
@@ -469,12 +469,12 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	// 替换个数分布
 	writer.WriteString("\n替换个数分布:\n")
 	var counts []int
-	for c := range stats.TotalSubstitutionCountDist {
+	for c := range stats.SubstitutionCountDist {
 		counts = append(counts, c)
 	}
 	sort.Ints(counts)
 	for _, c := range counts {
-		n := stats.TotalSubstitutionCountDist[c]
+		n := stats.SubstitutionCountDist[c]
 		pct := float64(n) / float64(alignedReads) * 100
 		fmt.Fprintf(writer, "%d,%d,%.4f%%\n", c, n, pct)
 	}
@@ -621,7 +621,7 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	writer.WriteString("\nDel1缺失碱基分布:\n")
 	for _, base := range bases {
 		name := "Del1_" + string(base)
-		write1line(writer, name, stats.TotalDel1BaseCounts[base], readsCount, baseCount, totalDel1)
+		write1line(writer, name, stats.Del1BaseCounts[base], readsCount, baseCount, totalDel1)
 	}
 	writer.WriteString("\nDel1缺失碱基分布(样品算术平均):\n")
 	for _, base := range bases {
@@ -644,7 +644,7 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 		for _, base := range []byte{'A', 'C', 'G', 'T'} {
 			cnt := stats.TotalRefACGTCounts[base]
 			pct := float64(cnt) / float64(totalBases)
-			totalDel1Fix += float64(stats.TotalDel1BaseCounts[base]) / pct
+			totalDel1Fix += float64(stats.Del1BaseCounts[base]) / pct
 			acgtPct[base] = pct
 			fmt.Fprintf(writer, "%c_pct,%.4f%%\n", base, pct*100)
 		}
@@ -652,7 +652,7 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 		writer.WriteString("\nDel1缺失事件数及按碱基归一化率:\n")
 		for _, base := range bases {
 			name := "Del1_" + string(base)
-			delCnt := stats.TotalDel1BaseCounts[base] // 假设已统计
+			delCnt := stats.Del1BaseCounts[base] // 假设已统计
 			readsRatio := float64(delCnt) * 100 / float64(readsCount) / acgtPct[base]
 			baseRatio := float64(delCnt) * 100 / float64(baseCount) / acgtPct[base]
 			ratio := float64(delCnt) * 100 / float64(totalDel1Fix) / acgtPct[base]
@@ -690,7 +690,7 @@ func writeDetailedStats(stats *MutationStats, outputDir string) error {
 	}
 
 	for _, length := range []int{1, 2, 3, 4} {
-		totalCount := stats.TotalInsertLengthDist[length]
+		totalCount := stats.InsertLengthDist[length]
 		totalPercentage := 0.0
 		if stats.TotalAlignedReads > 0 {
 			totalPercentage = float64(totalCount) / float64(stats.TotalAlignedReads) * 100
@@ -738,7 +738,7 @@ func writeDetailedStats(stats *MutationStats, outputDir string) error {
 	writer.WriteString("DeleteLength,SampleCount,TotalCount,SamplePercentage,TotalPercentage\n")
 
 	for _, length := range []int{1, 2, 3, 4} {
-		totalCount := stats.TotalDeleteLengthDist[length]
+		totalCount := stats.DeleteLengthDist[length]
 		totalPercentage := 0.0
 		if stats.TotalAlignedReads > 0 {
 			totalPercentage = float64(totalCount) / float64(stats.TotalAlignedReads) * 100
@@ -795,7 +795,7 @@ func writeDetailedStats(stats *MutationStats, outputDir string) error {
 		alignedReads := sampleStats.AlignedReads
 		readsWithMuts := sampleStats.ReadsWithMutations
 		// 计算总突变数
-		totalMutations := sampleStats.TotalMutations
+		totalMutations := sampleStats.TotalSubstitution
 
 		alignmentRate := 0.0
 		mutationReadRate := 0.0
@@ -825,7 +825,7 @@ func writeDetailedStats(stats *MutationStats, outputDir string) error {
 		totalAlignmentRate = float64(stats.TotalAlignedReads) / float64(stats.TotalReadCount) * 100
 	}
 	totalMutations := 0
-	for _, count := range stats.TotalMutations {
+	for _, count := range stats.SubstitutionCount {
 		totalMutations += count
 	}
 	if stats.TotalAlignedReads > 0 {
@@ -988,7 +988,7 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 
 	// 收集所有插入序列
 	allInsertSeqs := make(map[string]bool)
-	for seq := range stats.TotalInsertBaseCounts {
+	for seq := range stats.InsertBaseCounts {
 		allInsertSeqs[seq] = true
 	}
 
@@ -1011,7 +1011,7 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 	}
 
 	for _, seq := range insertSeqs {
-		totalCount := stats.TotalInsertBaseCounts[seq]
+		totalCount := stats.InsertBaseCounts[seq]
 
 		// 各样本计数
 		sampleCounts := []string{}
@@ -1114,7 +1114,7 @@ func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 	}
 
 	var totalPositions []totalPositionInfo
-	for posKey, totalCount := range stats.TotalDeletePositionCounts {
+	for posKey, totalCount := range stats.DeletePositionCounts {
 		if totalCount > 0 {
 			// 收集各样本的计数
 			var sampleCounts []string
@@ -1197,7 +1197,7 @@ func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 
 	// 收集所有位置
 	allPositions := make(map[int]bool)
-	for posKey := range stats.TotalDeletePositionCounts {
+	for posKey := range stats.DeletePositionCounts {
 		if pos := extractPosition(posKey); pos > 0 {
 			allPositions[pos] = true
 		}
@@ -1232,7 +1232,7 @@ func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 		// 总计数据
 		for _, base := range bases {
 			posKey := fmt.Sprintf("%d:%s", position, base)
-			count := stats.TotalDeletePositionCounts[posKey]
+			count := stats.DeletePositionCounts[posKey]
 			row += fmt.Sprintf(",%d", count)
 		}
 
@@ -1279,7 +1279,7 @@ func extractPosition(posKey string) int {
 }
 
 func (stats *MutationStats) MainWrite() {
-	outputDir := stats.SampleInfo.OutputDir
+	outputDir := stats.BatchInfo.OutputDir
 	// 写入各bam各位置各碱基变化组合的个数分布统计
 	if err := writePositionStats(stats, outputDir); err != nil {
 		fmt.Printf("写入位置统计失败: %v\n", err)
@@ -1345,7 +1345,7 @@ func (stats *MutationStats) MainPrint() {
 	fmt.Printf("  总reads数: %d\n", stats.TotalReadCount)
 	fmt.Printf("  细分类统计:\n")
 	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
-		count := stats.TotalReadTypeCounts[rt]
+		count := stats.ReadTypeCounts[rt]
 		if count > 0 {
 			percentage := float64(count) / float64(stats.TotalReadCount) * 100
 			fmt.Printf("    %s: %d (%.2f%%)\n", ReadTypeNames[rt], count, percentage)
@@ -1410,28 +1410,28 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 	// 汇总行
 	writer.WriteString("Total,,,,,\n")
 	// 缺失汇总
-	for st, cnt := range stats.TotalDeleteSubtypeReads {
+	for st, cnt := range stats.DeleteSubtypeReads {
 		var subtypeName = DeleteNames[st]
 		fmt.Fprintf(writer, "Total,Deletion,%s,%d,%d,%d,%d,%d\n",
 			subtypeName, cnt,
-			stats.TotalDeleteSubtypeEvents[st],
-			stats.TotalDeleteSubtypeBases[st],
+			stats.DeleteSubtypeEvents[st],
+			stats.DeleteSubtypeBases[st],
 			stats.TotalAlignedReads, stats.TotalReadCount)
 	}
 	// 插入汇总
-	for st, cnt := range stats.TotalInsertSubtypeReads {
+	for st, cnt := range stats.InsertSubtypeReads {
 		fmt.Fprintf(writer, "Total,Insertion,%s,%d,%d,%d,%d,%d\n",
 			InsertNames[st], cnt,
-			stats.TotalInsertSubtypeEvents[st],
-			stats.TotalInsertSubtypeBases[st],
+			stats.InsertSubtypeEvents[st],
+			stats.InsertSubtypeBases[st],
 			stats.TotalAlignedReads, stats.TotalReadCount)
 	}
 	// 替换汇总
-	for st, cnt := range stats.TotalSubstitutionSubtypeReads {
+	for st, cnt := range stats.SubstitutionSubtypeReads {
 		fmt.Fprintf(writer, "Total,Substitution,%s,%d,%d,%d,%d,%d\n",
 			SubstNames[st], cnt,
-			stats.TotalSubstitutionSubtypeEvents[st],
-			stats.TotalSubstitutionSubtypeBases[st],
+			stats.SubstitutionSubtypeEvents[st],
+			stats.SubstitutionSubtypeBases[st],
 			stats.TotalAlignedReads, stats.TotalReadCount)
 	}
 
@@ -1524,7 +1524,7 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 	// 汇总行
 	writer.WriteString("Total,Del3PrevBase,,\n") // 占位
 	for _, base := range bases {
-		cnt := stats.TotalDel3PrevBaseCounts[base]
+		cnt := stats.Del3PrevBaseCounts[base]
 		if cnt > 0 {
 			fmt.Fprintf(writer, "Total,Del3PrevBase,%c,%d,%d,%d,%d,%d\n",
 				base, 0, cnt, 0, stats.TotalAlignedReads, stats.TotalReadCount)
@@ -1532,7 +1532,7 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 	}
 	writer.WriteString("Total,Del3FirstBase,,\n")
 	for _, base := range bases {
-		cnt := stats.TotalDel3FirstBaseCounts[base]
+		cnt := stats.Del3FirstBaseCounts[base]
 		if cnt > 0 {
 			fmt.Fprintf(writer, "Total,Del3FirstBase,%c,%d,%d,%d,%d,%d\n",
 				base, 0, cnt, 0, stats.TotalAlignedReads, stats.TotalReadCount)
@@ -1544,7 +1544,7 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 	for _, b1 := range bases {
 		for _, b2 := range bases {
 			key := fmt.Sprintf("%c>%c", b1, b2)
-			cnt := stats.TotalDel3PrevFirstCombCounts[key]
+			cnt := stats.Del3PrevFirstCombCounts[key]
 			if cnt == 0 {
 				continue
 			}
@@ -1566,7 +1566,7 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 
 	// 总维度
 	for _, base := range bases {
-		cnt := stats.TotalDel3PrevBaseCounts[base]
+		cnt := stats.Del3PrevBaseCounts[base]
 		if cnt > 0 && totalRefLen > 0 {
 			baseCnt := totalRefCounts[base]
 			if baseCnt > 0 {
@@ -1577,7 +1577,7 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 		}
 	}
 	for _, base := range bases {
-		cnt := stats.TotalDel3FirstBaseCounts[base]
+		cnt := stats.Del3FirstBaseCounts[base]
 		if cnt > 0 && totalRefLen > 0 {
 			baseCnt := totalRefCounts[base]
 			if baseCnt > 0 {
@@ -1615,7 +1615,7 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 	}
 
 	// 汇总组合统计
-	for comb, cnt := range stats.TotalSubtypeCombinationCounts {
+	for comb, cnt := range stats.SubtypeCombinationCounts {
 		fmt.Fprintf(writer, "%s,Total,%d,%d,%d\n",
 			comb, cnt, stats.TotalAlignedReads, stats.TotalReadCount)
 	}
@@ -1637,9 +1637,9 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 		sampleStats := stats.Samples[sampleName]
 		sampleStats.RLock()
 
-		refLength := sampleStats.RefLength
-		headCut := sampleStats.HeadCut
-		tailCut := sampleStats.TailCut
+		refLength := sampleStats.Sample.RefLength
+		headCut := sampleStats.Sample.HeadCut
+		tailCut := sampleStats.Sample.TailCut
 		// 计算有效区间（1-based）
 		minPos := 1
 		maxPos := int(^uint(0) >> 1)
@@ -1753,7 +1753,7 @@ func writeNMerStats(stats *MutationStats, outputDir string) error {
 		sampleStats.RLock()
 
 		// 使用完整的参考序列
-		fullSeq := sampleStats.RefSeqFull
+		fullSeq := sampleStats.Sample.RefSeqFull
 		/* 		if fullSeq == "" {
 			fmt.Printf("  警告: 样本 %s 无参考序列，跳过 N-mer 统计\n", sampleName)
 			sampleStats.RUnlock()
@@ -1761,9 +1761,9 @@ func writeNMerStats(stats *MutationStats, outputDir string) error {
 		} */
 
 		// 确定有效位置范围（切除头尾后）
-		refLen := sampleStats.RefLength
-		headCut := sampleStats.HeadCut
-		tailCut := sampleStats.TailCut
+		refLen := sampleStats.Sample.RefLength
+		headCut := sampleStats.Sample.HeadCut
+		tailCut := sampleStats.Sample.TailCut
 		minPos := 1
 		maxPos := int(^uint(0) >> 1)
 		if refLen > 0 {
@@ -1794,10 +1794,10 @@ func writeNMerStats(stats *MutationStats, outputDir string) error {
 			prefix := "NNNN"
 			base := "N"
 
-			if rawPos > stats.SampleInfo.NMerSize {
+			if rawPos > stats.BatchInfo.NMerSize {
 				// 提取前缀：原始序列中 [rawPos-N, rawPos-1] 区间
-				startIdx := rawPos - stats.SampleInfo.NMerSize - 1 // 0-based 起始
-				endIdx := rawPos - 2                               // 0-based 结束（包含）
+				startIdx := rawPos - stats.BatchInfo.NMerSize - 1 // 0-based 起始
+				endIdx := rawPos - 2                              // 0-based 结束（包含）
 				if len(fullSeq) >= rawPos {
 					prefix = fullSeq[startIdx : endIdx+1]
 					base = fullSeq[rawPos-1 : rawPos] // 当前碱基
@@ -1833,7 +1833,7 @@ func writeSubstitutionStats(stats *MutationStats, outputDir string) error {
 	for _, sampleName := range sampleNames {
 		sampleStats := stats.Samples[sampleName]
 		sampleStats.RLock()
-		for mut := range sampleStats.Mutations {
+		for mut := range sampleStats.SubstitutionCount {
 			allMuts[mut] = true
 		}
 		sampleStats.RUnlock()
@@ -1875,7 +1875,7 @@ func writeSubstitutionStats(stats *MutationStats, outputDir string) error {
 			totalRefBase += c
 
 		}
-		for mut, cnt := range sampleStats.Mutations {
+		for mut, cnt := range sampleStats.SubstitutionCount {
 			// 只统计替换（突变类型长度>2且中间是>，且 ref/alt 都是ACGTN，其实所有 mutation 都是替换）
 			if len(mut) == 3 && mut[1] == '>' {
 				data.subCounts[mut] = cnt

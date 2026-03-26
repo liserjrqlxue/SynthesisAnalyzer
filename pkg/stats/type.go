@@ -90,7 +90,7 @@ func (stats *MutationStats) WriteSubtype(writer io.Writer) {
 	// 缺失
 	for st := Del1; st <= Del3; st++ {
 		name := "D:" + DeleteNames[st]
-		count := stats.TotalDeleteSubtypeEvents[st]
+		count := stats.DeleteSubtypeEvents[st]
 		write1line(writer, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
 	}
 
@@ -100,14 +100,14 @@ func (stats *MutationStats) WriteSubtype(writer io.Writer) {
 			continue
 		}
 		name := "I:" + InsertNames[st]
-		count := stats.TotalInsertSubtypeEvents[st]
+		count := stats.InsertSubtypeEvents[st]
 		write1line(writer, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
 	}
 
 	// 替换
 	for st := DupDel; st <= OtherMismatch; st++ {
 		var name = "X:" + SubstNames[st]
-		var count = stats.TotalSubstitutionSubtypeEvents[st]
+		var count = stats.SubstitutionSubtypeEvents[st]
 		write1line(writer, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)
 	}
 
