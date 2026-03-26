@@ -12,6 +12,8 @@ import (
 
 	"github.com/biogo/hts/bam"
 	"github.com/biogo/hts/sam"
+
+	. "SynthesisAnalyzer/pkg/stats"
 )
 
 // processBAMFile 处理单个BAM文件 - 优化版本
@@ -29,7 +31,7 @@ func processBAMFile(bamPath, sampleName string, stats *MutationStats, refLenFrom
 	defer br.Close()
 
 	// 初始化样本统计
-	sampleStats := stats.getOrCreateSampleStats(sampleName)
+	sampleStats := stats.GetOrCreateSampleStats(sampleName)
 
 	// 预计算参考序列信息
 	if fullSeqFromExcel != "" {
@@ -601,6 +603,8 @@ func processBAMFiles(bamFiles []string) (stats *MutationStats) {
 
 	// 等待所有goroutine完成
 	wg.Wait()
+
+	stats.SortSampleNames(excelFile, sampleOrder)
 
 	return stats
 }

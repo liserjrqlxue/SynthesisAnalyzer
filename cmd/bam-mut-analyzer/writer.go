@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/samber/lo"
+
+	. "SynthesisAnalyzer/pkg/stats"
 )
 
 // 更新输出函数以使用新的数据结构
@@ -551,7 +553,7 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	stats.WriteSubtype(writer)
 
 	// ===== 新增：样品平均比例计算 =====
-	sortedNames := getSortedSampleNames(stats) // 使用已有的排序函数
+	sortedNames := stats.SampleNames // 使用已有的排序函数
 
 	sums := make(map[string]*SumPct)
 
@@ -586,19 +588,19 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 			pctGood := float64(count) / float64(good) * 100
 			pctAligned := float64(count) / float64(aligned) * 100
 			pctTotal := float64(count) / float64(total) * 100
-			sums[ReadTypeNames[rt]].sumGood += pctGood
-			sums[ReadTypeNames[rt]].sumAligned += pctAligned
-			sums[ReadTypeNames[rt]].sumTotal += pctTotal
-			sums[ReadTypeNames[rt]].count++
+			sums[ReadTypeNames[rt]].SumGood += pctGood
+			sums[ReadTypeNames[rt]].SumAligned += pctAligned
+			sums[ReadTypeNames[rt]].SumTotal += pctTotal
+			sums[ReadTypeNames[rt]].Count++
 		}
 
 		bases := []byte{'A', 'C', 'G', 'T'}
 		for _, base := range bases {
 			name := "Del1_" + string(base)
-			sums[name].sumGood += float64(sampleStats.Del1BaseCounts[base]) / float64(good) * 100
-			sums[name].sumAligned += float64(sampleStats.Del1BaseCounts[base]) / float64(aligned) * 100
-			sums[name].sumTotal += float64(sampleStats.Del1BaseCounts[base]) / float64(total) * 100
-			sums[name].count++
+			sums[name].SumGood += float64(sampleStats.Del1BaseCounts[base]) / float64(good) * 100
+			sums[name].SumAligned += float64(sampleStats.Del1BaseCounts[base]) / float64(aligned) * 100
+			sums[name].SumTotal += float64(sampleStats.Del1BaseCounts[base]) / float64(total) * 100
+			sums[name].Count++
 		}
 
 		// reads维度变异统计比例
@@ -606,46 +608,46 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 		pctGood := float64(sampleStats.InsertReads) / float64(good) * 100
 		pctAligned := float64(sampleStats.InsertReads) / float64(aligned) * 100
 		pctTotal := float64(sampleStats.InsertReads) / float64(total) * 100
-		sums["InsertReads"].sumGood += pctGood
-		sums["InsertReads"].sumAligned += pctAligned
-		sums["InsertReads"].sumTotal += pctTotal
-		sums["InsertReads"].count++
+		sums["InsertReads"].SumGood += pctGood
+		sums["InsertReads"].SumAligned += pctAligned
+		sums["InsertReads"].SumTotal += pctTotal
+		sums["InsertReads"].Count++
 
 		// DeleteReads
 		pctGood = float64(sampleStats.DeleteReads) / float64(good) * 100
 		pctAligned = float64(sampleStats.DeleteReads) / float64(aligned) * 100
 		pctTotal = float64(sampleStats.DeleteReads) / float64(total) * 100
-		sums["DeleteReads"].sumGood += pctGood
-		sums["DeleteReads"].sumAligned += pctAligned
-		sums["DeleteReads"].sumTotal += pctTotal
-		sums["DeleteReads"].count++
+		sums["DeleteReads"].SumGood += pctGood
+		sums["DeleteReads"].SumAligned += pctAligned
+		sums["DeleteReads"].SumTotal += pctTotal
+		sums["DeleteReads"].Count++
 
 		// SubstitutionReads
 		pctGood = float64(sampleStats.SubstitutionReads) / float64(good) * 100
 		pctAligned = float64(sampleStats.SubstitutionReads) / float64(aligned) * 100
 		pctTotal = float64(sampleStats.SubstitutionReads) / float64(total) * 100
-		sums["SubstitutionReads"].sumGood += pctGood
-		sums["SubstitutionReads"].sumAligned += pctAligned
-		sums["SubstitutionReads"].sumTotal += pctTotal
-		sums["SubstitutionReads"].count++
+		sums["SubstitutionReads"].SumGood += pctGood
+		sums["SubstitutionReads"].SumAligned += pctAligned
+		sums["SubstitutionReads"].SumTotal += pctTotal
+		sums["SubstitutionReads"].Count++
 
 		// ReadsWithMutations
 		pctGood = float64(sampleStats.ReadsWithMutations) / float64(good) * 100
 		pctAligned = float64(sampleStats.ReadsWithMutations) / float64(aligned) * 100
 		pctTotal = float64(sampleStats.ReadsWithMutations) / float64(total) * 100
-		sums["ReadsWithMutations"].sumGood += pctGood
-		sums["ReadsWithMutations"].sumAligned += pctAligned
-		sums["ReadsWithMutations"].sumTotal += pctTotal
-		sums["ReadsWithMutations"].count++
+		sums["ReadsWithMutations"].SumGood += pctGood
+		sums["ReadsWithMutations"].SumAligned += pctAligned
+		sums["ReadsWithMutations"].SumTotal += pctTotal
+		sums["ReadsWithMutations"].Count++
 
 		// GoodAlignedReads
 		pctGood = float64(sampleStats.GoodAlignedReads) / float64(good) * 100
 		pctAligned = float64(sampleStats.GoodAlignedReads) / float64(aligned) * 100
 		pctTotal = float64(sampleStats.GoodAlignedReads) / float64(total) * 100
-		sums["GoodAlignedReads"].sumGood += pctGood
-		sums["GoodAlignedReads"].sumAligned += pctAligned
-		sums["GoodAlignedReads"].sumTotal += pctTotal
-		sums["GoodAlignedReads"].count++
+		sums["GoodAlignedReads"].SumGood += pctGood
+		sums["GoodAlignedReads"].SumAligned += pctAligned
+		sums["GoodAlignedReads"].SumTotal += pctTotal
+		sums["GoodAlignedReads"].Count++
 
 		sampleStats.RUnlock()
 	}
@@ -673,12 +675,12 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 
 	for _, name := range order {
 		s := sums[name]
-		if s == nil || s.count == 0 {
+		if s == nil || s.Count == 0 {
 			continue
 		}
-		meanGood := s.sumGood / float64(s.count)
-		meanAligned := s.sumAligned / float64(s.count)
-		meanTotal := s.sumTotal / float64(s.count)
+		meanGood := s.SumGood / float64(s.Count)
+		meanAligned := s.SumAligned / float64(s.Count)
+		meanTotal := s.SumTotal / float64(s.Count)
 		fmt.Fprintf(writer, "%s,%.4f%%,%.4f%%,%.4f%%\n", name, meanGood, meanAligned, meanTotal)
 	}
 
@@ -692,13 +694,13 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	for _, base := range bases {
 		name := "Del1_" + string(base)
 		s := sums[name]
-		if s == nil || s.count == 0 {
+		if s == nil || s.Count == 0 {
 			continue
 		}
-		meanGood := s.sumGood / float64(s.count)
-		meanAligned := s.sumAligned / float64(s.count)
-		meanTotal := s.sumTotal / float64(s.count)
-		fmt.Fprintf(writer, "%s_mean,%.4f,%.4f%%,%.4f%%,%.4f%%\n", name, s.sumGood, meanGood, meanAligned, meanTotal)
+		meanGood := s.SumGood / float64(s.Count)
+		meanAligned := s.SumAligned / float64(s.Count)
+		meanTotal := s.SumTotal / float64(s.Count)
+		fmt.Fprintf(writer, "%s_mean,%.4f,%.4f%%,%.4f%%,%.4f%%\n", name, s.SumGood, meanGood, meanAligned, meanTotal)
 	}
 	// 输出切除后参考序列 ACGT 组成及修正的 Del1 缺失率
 	if stats.TotalRefLengthAfterTrim > 0 {
@@ -1465,7 +1467,7 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 	writer.WriteString("Sample,Category,Subtype,Reads,Events,Bases,AlignedReads,TotalReads\n")
 
 	// 获取排序后的样本名列表
-	sampleNames := getSortedSampleNames(stats)
+	sampleNames := stats.SampleNames
 
 	for _, sampleName := range sampleNames {
 		sampleStats := stats.Samples[sampleName]
@@ -1723,42 +1725,9 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 	return nil
 }
 
-// 辅助函数：获取排序后的样本名列表
-func getSortedSampleNames(stats *MutationStats) []string {
-	var names []string
-	for name := range stats.Samples {
-		names = append(names, name)
-	}
-	if excelFile != "" && len(sampleOrder) > 0 {
-		// 按 Excel 顺序排序
-		orderMap := make(map[string]int)
-		for i, n := range sampleOrder {
-			orderMap[n] = i
-		}
-		sort.Slice(names, func(i, j int) bool {
-			// 如果两个都在 sampleOrder 中，按顺序比较；否则按字母序
-			oi, ei := orderMap[names[i]]
-			oj, ej := orderMap[names[j]]
-			if ei && ej {
-				return oi < oj
-			}
-			if ei {
-				return true
-			}
-			if ej {
-				return false
-			}
-			return names[i] < names[j]
-		})
-	} else {
-		sort.Strings(names)
-	}
-	return names
-}
-
 // ========== 新增输出函数：样品-位置详细统计 ==========
 func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
-	sampleNames := getSortedSampleNames(stats)
+	sampleNames := stats.SampleNames
 
 	// 汇总数据结构：修正后位置 -> TotalPositionDetail
 	totalPosStats := make(map[int]*PositionDetail)
@@ -1877,7 +1846,7 @@ func writePositionDetailedStats(stats *MutationStats, outputDir string) error {
 }
 
 func writeNMerStats(stats *MutationStats, outputDir string) error {
-	sampleNames := getSortedSampleNames(stats)
+	sampleNames := stats.SampleNames
 	for _, sampleName := range sampleNames {
 		sampleStats := stats.Samples[sampleName]
 		sampleStats.RLock()
@@ -1956,7 +1925,7 @@ func writeNMerStats(stats *MutationStats, outputDir string) error {
 
 // writeSubstitutionStats 输出替换突变的样品维度和总体统计
 func writeSubstitutionStats(stats *MutationStats, outputDir string) error {
-	sampleNames := getSortedSampleNames(stats)
+	sampleNames := stats.SampleNames
 
 	// 收集所有突变类型（从所有样本中）
 	allMuts := make(map[string]bool)

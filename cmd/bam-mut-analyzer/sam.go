@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/biogo/hts/sam"
+
+	. "SynthesisAnalyzer/pkg/stats"
 )
 
 // parseMutationsWithMD 使用参考序列和MD标签解析突变
