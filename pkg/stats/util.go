@@ -1,8 +1,11 @@
 package stats
 
 import (
+	"bufio"
 	"fmt"
 	"io"
+	"os"
+	"strings"
 )
 
 func write1line(w io.Writer, name string, count, reads, base, total int) {
@@ -15,4 +18,27 @@ func write1line(w io.Writer, name string, count, reads, base, total int) {
 		float64(count)/float64(base)*100,
 		float64(count)/float64(total)*100,
 	)
+}
+
+// readRefFasta 读取FASTA文件，返回第一条序列的序列字符串（忽略标题行）
+func readRefFasta(fastaPath string) (string, error) {
+	file, err := os.Open(fastaPath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	var seq strings.Builder
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, ">") {
+			continue
+		}
+		seq.WriteString(strings.TrimSpace(line))
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return seq.String(), nil
 }

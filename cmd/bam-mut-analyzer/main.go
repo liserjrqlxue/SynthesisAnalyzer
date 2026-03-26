@@ -6,36 +6,22 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+
+	stats "SynthesisAnalyzer/pkg/stats"
 )
-
-// 样本结构体
-type Sample struct {
-	Name     string // 样本名称
-	FullSeqs string // 全长参考序列
-	BamFile  string // BAM文件路径
-	HeadCuts int    // 头切除长度
-	TailCuts int    // 尾切除长度
-}
-
-// 样本信息结构体
-type SampleInfo struct {
-	Order   []string           // 样本顺序列表
-	Samples map[string]*Sample // 样本名->样本信息
-}
 
 // 全局变量，用于存储命令行参数
 var (
-	inputDir   string
-	outputDir  string
-	excelFile  string
-	sampleInfo SampleInfo
+	inputDir  string
+	outputDir string
+	excelFile string
+	logLevel  string // 日志级别
 
-	headCut  int
-	tailCut  int
-	nMerSize int
+	headCut int
+	tailCut int
 
-	maxSubstitutions int    // 最大替换个数阈值
-	logLevel         string // 日志级别
+	nMerSize         int
+	maxSubstitutions int // 最大替换个数阈值
 )
 
 func init() {
@@ -71,26 +57,30 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 如果指定了Excel文件，读取样本顺序
-	if excelFile != "" {
-		fmt.Printf("读取Excel文件: %s\n", excelFile)
-		var err error
-		sampleInfo, err = readExcelSampleOrder(excelFile)
-		if err != nil {
-			fmt.Printf("错误: 读取Excel文件失败: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("从Excel读取到 %d 个样本\n", len(sampleInfo.Order))
-	} else {
-		// 初始化样本信息
-		sampleInfo = SampleInfo{
-			Order:   []string{},
-			Samples: make(map[string]*Sample),
-		}
+	// 初始化样本信息
+	sampleInfo := stats.NewSampleInfo()
+	sampleInfo.InputExcel = excelFile
+	sampleInfo.InputDir = inputDir
+	sampleInfo.HeadCuts = headCut
+	sampleInfo.TailCuts = tailCut
+	sampleInfo.NMerSize = nMerSize
+	sampleInfo.MaxSubstitutions = maxSubstitutions
+
+	sampleInfo.OutputDir = outputDir
+	if sampleInfo.OutputDir == "" {
+		sampleInfo.OutputDir = filepath.Join(sampleInfo.InputDir, "mutation_stats")
 	}
 
+	// 如果指定了Excel文件，读取样本顺序
+	err := sampleInfo.ReadExcel()
+	if err != nil {
+		slog.Error("读取Excel文件失败", "error", err)
+		os.Exit(1)
+	}
+	fmt.Printf("从Excel读取到 %d 个样本\n", len(sampleInfo.Order))
+
 	// 查找所有BAM文件
-	err := findBAMFiles(inputDir, sampleInfo)
+	err = sampleInfo.FindBAMFiles()
 	if err != nil {
 		fmt.Printf("查找BAM文件失败: %v\n", err)
 		os.Exit(1)
@@ -98,28 +88,24 @@ func main() {
 	fmt.Printf("找到 %d 个BAM文件\n", len(sampleInfo.Order))
 
 	// 创建输出目录
-	if outputDir == "" {
-		outputDir = filepath.Join(inputDir, "mutation_stats")
-	}
-	if err = os.MkdirAll(outputDir, 0755); err != nil {
+	if err = os.MkdirAll(sampleInfo.OutputDir, 0755); err != nil {
 		fmt.Printf("创建输出目录失败: %v\n", err)
 		os.Exit(1)
 	}
 
 	// 统计处理
-	stats, err := processBAMFiles(sampleInfo)
+	mutationStats := stats.NewMutationStats()
+	mutationStats.SampleInfo = sampleInfo
+	err = mutationStats.ProcessBAMFiles()
 	if err != nil {
 		fmt.Printf("处理BAM文件失败: %v\n", err)
 		os.Exit(1)
 	}
 
 	fmt.Println("\n开始生成统计文件...")
-
-	stats.SortSampleNames(sampleInfo.Order)
-
-	mainWrite(outputDir, stats)
-
-	mainPrint(stats)
+	mutationStats.SortSampleNames()
+	mainWrite(mutationStats)
+	mainPrint(mutationStats)
 }
 
 // setLogLevel 设置slog日志级别

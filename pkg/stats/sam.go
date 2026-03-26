@@ -1,4 +1,4 @@
-package main
+package stats
 
 import (
 	"log"
@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/biogo/hts/sam"
-
-	. "SynthesisAnalyzer/pkg/stats"
 )
 
 // parseMutationsWithMD 使用参考序列和MD标签解析突变
@@ -81,6 +79,43 @@ func parseMutationsWithMD(read *sam.Record, refSeq string, mdMap map[int]string)
 	return
 }
 
+// isBase 判断字符是否为有效碱基
+func isBase(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+}
+
+// checkMismatchInMD 检查MD字符串中是否有错配和删除
+func checkMismatchInMD(mdStr string) (bool, bool) {
+	hasDelete := false
+	hasSubstitution := false
+
+	i := 0
+	for i < len(mdStr) {
+		if isDigit(mdStr[i]) {
+			// 跳过数字
+			i++
+			for i < len(mdStr) && isDigit(mdStr[i]) {
+				i++
+			}
+		} else if mdStr[i] == '^' {
+			hasDelete = true
+			i++
+			// 跳过所有非数字字符（删除的碱基）
+			for i < len(mdStr) && !isDigit(mdStr[i]) {
+				i++
+			}
+		} else if isBase(mdStr[i]) {
+			// 不是数字也不是'^'，就是错配碱基
+			hasSubstitution = true
+			i++
+		} else {
+			i++
+		}
+	}
+
+	return hasDelete, hasSubstitution
+}
+
 // parseMDToMap 解析MD字符串，返回位置(0-based)->参考碱基的映射（只包含错配）
 func parseMDToMap(mdStr string, refStart int) map[int]string {
 	result := make(map[int]string)
@@ -139,43 +174,6 @@ func parseMDToMap(mdStr string, refStart int) map[int]string {
 	}
 
 	return result
-}
-
-// isBase 判断字符是否为有效碱基
-func isBase(c byte) bool {
-	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
-}
-
-// checkMismatchInMD 检查MD字符串中是否有错配和删除
-func checkMismatchInMD(mdStr string) (bool, bool) {
-	hasDelete := false
-	hasSubstitution := false
-
-	i := 0
-	for i < len(mdStr) {
-		if isDigit(mdStr[i]) {
-			// 跳过数字
-			i++
-			for i < len(mdStr) && isDigit(mdStr[i]) {
-				i++
-			}
-		} else if mdStr[i] == '^' {
-			hasDelete = true
-			i++
-			// 跳过所有非数字字符（删除的碱基）
-			for i < len(mdStr) && !isDigit(mdStr[i]) {
-				i++
-			}
-		} else if isBase(mdStr[i]) {
-			// 不是数字也不是'^'，就是错配碱基
-			hasSubstitution = true
-			i++
-		} else {
-			i++
-		}
-	}
-
-	return hasDelete, hasSubstitution
 }
 
 // analyzeReadType 分析read的类型 - 更新版本，考虑M操作中的错配
