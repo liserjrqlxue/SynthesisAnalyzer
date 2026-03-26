@@ -2,22 +2,23 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/biogo/hts/bam"
 	"github.com/biogo/hts/sam"
+	"golang.org/x/sync/errgroup"
 
 	. "SynthesisAnalyzer/pkg/stats"
 )
 
 // processBAMFile 处理单个BAM文件 - 优化版本
-func processBAMFile(sample *Sample, stats *MutationStats) error {
+func processBAMFile(ctx context.Context, sample *Sample, stats *MutationStats) error {
 	f, err := os.Open(sample.BamFile)
 	if err != nil {
 		return fmt.Errorf("打开BAM文件失败: %v", err)
@@ -99,6 +100,13 @@ func processBAMFile(sample *Sample, stats *MutationStats) error {
 
 	// 遍历所有记录
 	for {
+		// 检查取消信号
+		select {
+		case <-ctx.Done():
+			return ctx.Err() // 返回取消错误
+		default:
+		}
+
 		read, err := br.Read()
 		if err != nil {
 			break
@@ -556,8 +564,11 @@ func processBAMFiles(sampleInfo SampleInfo) (stats *MutationStats, err error) {
 	// 初始化统计
 	stats = NewMutationStats()
 
-	// 使用WaitGroup处理并发
-	var wg sync.WaitGroup
+	// 创建可取消的上下文
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // 确保所有资源释放
+
+	g, ctx := errgroup.WithContext(ctx)
 
 	// 处理每个BAM文件
 	for _, sampleName := range sampleInfo.Order {
@@ -568,24 +579,13 @@ func processBAMFiles(sampleInfo SampleInfo) (stats *MutationStats, err error) {
 			return
 		}
 
-		wg.Add(1)
-
-		go func(sample *Sample) {
-			defer wg.Done()
-
-			// 处理BAM文件
-			if err = processBAMFile(sample, stats); err != nil {
-				fmt.Printf("处理文件 %s 失败: %v\n", sample.BamFile, err)
-			}
-		}(sample)
+		g.Go(func() error {
+			return processBAMFile(ctx, sample, stats)
+		})
 	}
 
-	// 等待所有goroutine完成
-	wg.Wait()
-
-	stats.SortSampleNames(sampleInfo.Order)
-
-	return stats, err
+	// 等待所有 goroutine 完成，返回第一个错误
+	return stats, g.Wait()
 }
 
 // findBAMFiles 查找所有BAM文件，并尝试补充参考序列

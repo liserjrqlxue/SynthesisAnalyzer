@@ -101,7 +101,7 @@ func main() {
 	if outputDir == "" {
 		outputDir = filepath.Join(inputDir, "mutation_stats")
 	}
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	if err = os.MkdirAll(outputDir, 0755); err != nil {
 		fmt.Printf("创建输出目录失败: %v\n", err)
 		os.Exit(1)
 	}
@@ -114,6 +114,8 @@ func main() {
 	}
 
 	fmt.Println("\n开始生成统计文件...")
+
+	stats.SortSampleNames(sampleInfo.Order)
 
 	mainWrite(outputDir, stats)
 
