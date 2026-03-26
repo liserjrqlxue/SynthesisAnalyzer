@@ -10,125 +10,143 @@ import (
 	stats "SynthesisAnalyzer/pkg/stats"
 )
 
-// 全局变量，用于存储命令行参数
-var (
-	inputDir  string
-	outputDir string
-	excelFile string
-	logLevel  string // 日志级别
-
-	headCut int
-	tailCut int
-
-	nMerSize         int
-	maxSubstitutions int // 最大替换个数阈值
-)
-
-func init() {
-	// 定义命令行参数
-	flag.StringVar(&inputDir, "d", "", "输入目录，包含样本子目录")
-	flag.StringVar(&outputDir, "o", "", "输出目录, 默认输入目录/mutation_stats")
-	flag.StringVar(&excelFile, "i", "", "可选参数：输入Excel文件，包含样本顺序")
-	flag.IntVar(&headCut, "head", 27, "头切除长度")
-	flag.IntVar(&tailCut, "tail", 20, "尾切除长度")
-	flag.IntVar(&maxSubstitutions, "max-sub", 5, "最大替换个数阈值，用于定义比对良好reads")
-	flag.IntVar(&nMerSize, "n", 4, "N-mer 统计的 N 值（默认4，即统计5-mer准确率）")
-	flag.StringVar(&logLevel, "log-level", "info", "日志级别 (debug, info, warn, error)")
+// Config 存放所有命令行参数及派生配置
+type Config struct {
+	InputDir         string
+	OutputDir        string
+	ExcelFile        string
+	LogLevel         string
+	HeadCut          int
+	TailCut          int
+	NMerSize         int
+	MaxSubstitutions int
 }
 
-func main() {
-	// 解析命令行参数
+// parseFlags 解析命令行参数，返回配置对象
+func parseFlags() *Config {
+	cfg := &Config{}
+
+	flag.StringVar(&cfg.InputDir, "d", "", "输入目录，包含样本子目录")
+	flag.StringVar(&cfg.OutputDir, "o", "", "输出目录，默认输入目录/mutation_stats")
+	flag.StringVar(&cfg.ExcelFile, "i", "", "可选参数：输入Excel文件，包含样本顺序")
+	flag.IntVar(&cfg.HeadCut, "head", 27, "头切除长度")
+	flag.IntVar(&cfg.TailCut, "tail", 20, "尾切除长度")
+	flag.IntVar(&cfg.MaxSubstitutions, "max-sub", 5, "最大替换个数阈值，用于定义比对良好reads")
+	flag.IntVar(&cfg.NMerSize, "n", 4, "N-mer 统计的 N 值（默认4，即统计5-mer准确率）")
+	flag.StringVar(&cfg.LogLevel, "log-level", "info", "日志级别 (debug, info, warn, error)")
+
 	flag.Parse()
+	return cfg
+}
 
-	// 设置日志级别
-	setLogLevel(logLevel)
+// validateConfig 验证配置合法性，返回错误
+func validateConfig(cfg *Config) error {
+	if cfg.InputDir == "" {
+		return fmt.Errorf("必需参数缺失，请使用 -d 指定输入目录")
+	}
+	info, err := os.Stat(cfg.InputDir)
+	if err != nil {
+		return fmt.Errorf("输入目录不存在: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("输入路径不是目录: %s", cfg.InputDir)
+	}
+	return nil
+}
 
-	// 验证必需参数
-	if inputDir == "" {
-		fmt.Println("错误: 必需参数缺失")
-		fmt.Println("使用方法:")
-		flag.PrintDefaults()
-		os.Exit(1)
+// setLogLevel 设置slog日志级别
+func setupLogger(levelStr string) {
+	var level slog.Level
+	switch levelStr {
+	case "debug":
+		level = slog.LevelDebug
+	case "info":
+		level = slog.LevelInfo
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
 	}
 
-	// 检查输入目录是否存在
-	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
-		fmt.Printf("错误: 输入目录不存在: %s\n", inputDir)
-		os.Exit(1)
-	}
+	// 创建新的logger配置
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: level,
+	}))
 
+	// 设置全局logger
+	slog.SetDefault(logger)
+}
+
+// run 执行核心业务逻辑，返回错误
+func run(cfg *Config) error {
 	// 初始化样本信息
 	sampleInfo := stats.NewSampleInfo()
-	sampleInfo.InputExcel = excelFile
-	sampleInfo.InputDir = inputDir
-	sampleInfo.HeadCuts = headCut
-	sampleInfo.TailCuts = tailCut
-	sampleInfo.NMerSize = nMerSize
-	sampleInfo.MaxSubstitutions = maxSubstitutions
+	sampleInfo.InputExcel = cfg.ExcelFile
+	sampleInfo.InputDir = cfg.InputDir
+	sampleInfo.HeadCuts = cfg.HeadCut
+	sampleInfo.TailCuts = cfg.TailCut
+	sampleInfo.NMerSize = cfg.NMerSize
+	sampleInfo.MaxSubstitutions = cfg.MaxSubstitutions
 
-	sampleInfo.OutputDir = outputDir
+	// 设置输出目录
+	sampleInfo.OutputDir = cfg.OutputDir
 	if sampleInfo.OutputDir == "" {
 		sampleInfo.OutputDir = filepath.Join(sampleInfo.InputDir, "mutation_stats")
 	}
 
-	// 如果指定了Excel文件，读取样本顺序
-	err := sampleInfo.ReadExcel()
-	if err != nil {
-		slog.Error("读取Excel文件失败", "error", err)
-		os.Exit(1)
+	// 读取 Excel 样本顺序（如果提供）
+	if cfg.ExcelFile != "" {
+		if err := sampleInfo.ReadExcel(); err != nil {
+			return fmt.Errorf("读取Excel文件失败: %w", err)
+		}
+		slog.Info("从Excel读取样本", "count", len(sampleInfo.Order))
 	}
 	fmt.Printf("从Excel读取到 %d 个样本\n", len(sampleInfo.Order))
 
 	// 查找所有BAM文件
-	err = sampleInfo.FindBAMFiles()
-	if err != nil {
-		fmt.Printf("查找BAM文件失败: %v\n", err)
-		os.Exit(1)
+	if err := sampleInfo.FindBAMFiles(); err != nil {
+		return fmt.Errorf("查找BAM文件失败: %w", err)
 	}
-	fmt.Printf("找到 %d 个BAM文件\n", len(sampleInfo.Order))
+	slog.Info("找到BAM文件", "count", len(sampleInfo.Order))
 
 	// 创建输出目录
-	if err = os.MkdirAll(sampleInfo.OutputDir, 0755); err != nil {
-		fmt.Printf("创建输出目录失败: %v\n", err)
-		os.Exit(1)
+	if err := os.MkdirAll(sampleInfo.OutputDir, 0755); err != nil {
+		return fmt.Errorf("创建输出目录失败: %w", err)
 	}
 
 	// 统计处理
 	mutationStats := stats.NewMutationStats()
 	mutationStats.SampleInfo = sampleInfo
-	err = mutationStats.ProcessBAMFiles()
-	if err != nil {
-		fmt.Printf("处理BAM文件失败: %v\n", err)
-		os.Exit(1)
+	if err := mutationStats.ProcessBAMFiles(); err != nil {
+		return fmt.Errorf("处理BAM文件失败: %w", err)
 	}
 
-	fmt.Println("\n开始生成统计文件...")
+	slog.Info("开始生成统计文件...")
 	mutationStats.SortSampleNames()
 	mutationStats.MainWrite()
 	mutationStats.MainPrint()
+
+	return nil
 }
 
-// setLogLevel 设置slog日志级别
-func setLogLevel(level string) {
-	var logLevel slog.Level
-	switch level {
-	case "debug":
-		logLevel = slog.LevelDebug
-	case "info":
-		logLevel = slog.LevelInfo
-	case "warn":
-		logLevel = slog.LevelWarn
-	case "error":
-		logLevel = slog.LevelError
-	default:
-		logLevel = slog.LevelInfo
+func main() {
+	// 解析命令行参数
+	cfg := parseFlags()
+
+	// 先设置日志，以便后续错误也能输出
+	setupLogger(cfg.LogLevel)
+
+	// 验证配置
+	if err := validateConfig(cfg); err != nil {
+		slog.Error("配置验证失败", "error", err)
+		os.Exit(1)
 	}
 
-	// 创建新的logger配置
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: logLevel,
-	}))
-
-	// 设置全局logger
-	slog.SetDefault(logger)
+	// 执行核心业务逻辑
+	if err := run(cfg); err != nil {
+		slog.Error("运行失败", "error", err)
+		os.Exit(1)
+	}
 }
