@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/biogo/hts/bam"
@@ -302,17 +301,7 @@ func (sampleStats *SampleStats) ProcessSamRecord(read *sam.Record, NMerSize, Max
 	sampleStats.AlignedReads++
 
 	// 获取MD字符串并缓存解析结果
-	mdTag, hasMD := read.Tag([]byte{'M', 'D'})
-	var mdStr string
-	if hasMD {
-		mdStr = mdTag.String()
-		if len(mdStr) > 5 && mdStr[4] == ':' {
-			mdStr = mdStr[5:]
-		} else {
-			mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
-		}
-	}
-
+	mdStr, hasMD := getMD(read)
 	refStart := int(read.Pos)
 	mdMap := parseMDToMap(mdStr, refStart)
 

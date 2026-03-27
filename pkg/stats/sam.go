@@ -10,21 +10,27 @@ import (
 	"github.com/biogo/hts/sam"
 )
 
+func getMD(read *sam.Record) (mdStr string, hasMD bool) {
+	var mdTag sam.Aux
+	mdTag, hasMD = read.Tag([]byte{'M', 'D'})
+	if hasMD {
+		mdStr = mdTag.String()
+		if len(mdStr) > 5 && mdStr[4] == ':' {
+			mdStr = mdStr[5:]
+		} else {
+			mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
+		}
+	}
+
+	return
+}
+
 // parseMutationsWithMD 使用参考序列和MD标签解析突变
 func parseMutationsWithMD(read *sam.Record, refSeq string, mdMap map[int]string) (mutations []Mutation) {
 	refStart := int(read.Pos)
 	seq := read.Seq.Expand()
 	if len(seq) == 0 {
 		return
-	}
-
-	mdTag, hasMD := read.Tag([]byte{'M', 'D'})
-	var mdStr string
-	if hasMD {
-		mdStr = mdTag.String()
-		if len(mdStr) > 5 && mdStr[4] == ':' {
-			mdStr = mdStr[5:]
-		}
 	}
 
 	refPos := refStart
@@ -197,15 +203,8 @@ func analyzeReadType(read *sam.Record) ReadType {
 	}
 
 	// 2. 检查MD标签中的错配（包括M操作中的错配）
-	mdTag, hasMD := read.Tag([]byte{'M', 'D'})
+	mdStr, hasMD := getMD(read)
 	if hasMD {
-		mdStr := mdTag.String()
-		if len(mdStr) > 5 && mdStr[4] == ':' {
-			mdStr = mdStr[5:]
-		} else {
-			mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
-		}
-
 		// 解析MD字符串检查错配
 		mdHasDelete, mdHasSubstitution := checkMismatchInMD(mdStr)
 		if mdHasDelete {
