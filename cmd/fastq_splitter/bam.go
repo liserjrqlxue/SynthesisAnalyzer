@@ -3,22 +3,27 @@ package main
 import (
 	"fmt"
 	"log/slog"
-	"os/exec"
-	"strconv"
+	"os"
 	"strings"
+
+	"github.com/biogo/hts/bam"
 )
 
 // 分析BAM文件，统计合成成功率
 func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *SampleInfo) (*SampleAlignment, error) {
-	// 读取BAM文件
-	cmd := exec.Command("samtools", "view", bamFile)
-	output, err := cmd.Output()
+	// 打开BAM文件
+	f, err := os.Open(bamFile)
 	if err != nil {
-		return nil, fmt.Errorf("读取BAM文件失败: %v", err)
+		return nil, fmt.Errorf("打开BAM文件失败: %v", err)
 	}
+	defer f.Close()
 
-	// 解析SAM行
-	lines := strings.Split(string(output), "\n")
+	// 创建BAM读取器
+	br, err := bam.NewReader(f, 0)
+	if err != nil {
+		return nil, fmt.Errorf("创建BAM读取器失败: %v", err)
+	}
+	defer br.Close()
 
 	// 初始化位置统计
 	positionStats := make([]PositionStat, sample.ReferenceLen)
@@ -34,41 +39,40 @@ func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *SampleInfo) (
 	totalMismatches := int64(0)
 	totalMatches := int64(0)
 
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-
-		fields := strings.Split(line, "\t")
-		if len(fields) < 11 {
-			continue
+	// 遍历BAM记录
+	for {
+		read, err := br.Read()
+		if err != nil {
+			break // 读取完成
 		}
 
 		totalReads++
 
 		// 检查比对质量
-		mapq, _ := strconv.Atoi(fields[4])
-		if mapq < a.config.MapQThreshold {
+		if int(read.MapQ) < a.config.MapQThreshold {
 			continue
 		}
 
 		mappedReads++
 
 		// 解析CIGAR和MD标签
-		cigar := fields[5]
+		cigar := read.Cigar.String()
 		mdTag := ""
 
 		// 查找MD标签
-		for i := 11; i < len(fields); i++ {
-			if strings.HasPrefix(fields[i], "MD:Z:") {
-				mdTag = fields[i][5:]
-				break
+		if mdTagValue, ok := read.Tag([]byte("MD")); ok {
+			mdTag = mdTagValue.String()
+			// 移除 "MD:Z:"
+			if len(mdTag) > 5 && mdTag[4] == ':' {
+				mdTag = mdTag[5:]
+			} else {
+				mdTag = strings.TrimPrefix(mdTag, "MD:Z:")
 			}
 		}
 
 		// 解析比对结果并获取错误类型
 		errorFlags := a.parseAlignmentWithErrors(
-			cigar, mdTag, fields[9], sample,
+			cigar, mdTag, string(read.Seq.Seq), sample,
 			&positionStats, &totalMatches, &totalMismatches,
 		)
 
