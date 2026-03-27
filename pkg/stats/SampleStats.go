@@ -262,14 +262,6 @@ func (sampleStats *SampleStats) ProcessBAMFile(ctx context.Context, NMerSize, Ma
 
 // ProcessBAMReader 处理BAM读取器中的记录
 func (sampleStats *SampleStats) ProcessBAMReader(ctx context.Context, br *bam.Reader, NMerSize, MaxSubstitutions int) error {
-	defer br.Close()
-	sample := sampleStats.Sample
-
-	// 预分配临时映射和切片，减少每次循环中的内存分配
-	var insertSubtypes = make(map[InsertionSubtype]bool)
-	var deleteSubtypes = make(map[DeletionSubtype]bool)
-	var substSubtypes = make(map[SubstitutionSubtype]bool)
-
 	// 遍历所有记录
 	for {
 		// 检查取消信号
@@ -283,307 +275,310 @@ func (sampleStats *SampleStats) ProcessBAMReader(ctx context.Context, br *bam.Re
 		if err != nil {
 			break
 		}
-
-		sampleStats.ReadCounts++
-
-		// 跳过未比对记录
-		if read.Flags&sam.Unmapped != 0 {
-			continue
+		err = sampleStats.ProcessSamRecord(read, NMerSize, MaxSubstitutions)
+		if err != nil {
+			return err
 		}
-		sampleStats.AlignedReads++
+	}
+	return nil
+}
 
-		alignedBasesThisRead := 0
+// ProcessSamRecord 处理单挑SAM记录
+func (sampleStats *SampleStats) ProcessSamRecord(read *sam.Record, NMerSize, MaxSubstitutions int) error {
+	sampleStats.ReadCounts++
 
-		// 获取MD字符串并缓存解析结果
-		mdTag, hasMD := read.Tag([]byte{'M', 'D'})
-		var mdStr string
-		if hasMD {
-			mdStr = mdTag.String()
-			if len(mdStr) > 5 && mdStr[4] == ':' {
-				mdStr = mdStr[5:]
-			} else {
-				mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
+	var (
+		insertSubtypes = make(map[InsertionSubtype]bool)
+		deleteSubtypes = make(map[DeletionSubtype]bool)
+		substSubtypes  = make(map[SubstitutionSubtype]bool)
+
+		alignedBasesThisRead = 0
+	)
+
+	// 跳过未比对记录
+	if read.Flags&sam.Unmapped != 0 {
+		return nil
+	}
+	sampleStats.AlignedReads++
+
+	// 获取MD字符串并缓存解析结果
+	mdTag, hasMD := read.Tag([]byte{'M', 'D'})
+	var mdStr string
+	if hasMD {
+		mdStr = mdTag.String()
+		if len(mdStr) > 5 && mdStr[4] == ':' {
+			mdStr = mdStr[5:]
+		} else {
+			mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
+		}
+	}
+
+	refStart := int(read.Pos)
+	mdMap := parseMDToMap(mdStr, refStart)
+
+	// 预计算位置范围，减少边界检查
+	consecutiveMatch := 0
+	refPos := refStart
+	readPos := 0
+	readIsPerfect := true
+	perfectUptoNow := true
+	cigarOps := read.Cigar
+	cigarLen := len(cigarOps)
+
+	// 第一次遍历：收集位置统计和突变信息
+
+	for ci := range cigarLen {
+		cigarOp := cigarOps[ci]
+		op := cigarOp.Type()
+		length := cigarOp.Len()
+
+		switch op {
+		case 0, 7, 8: // M, =, X
+			alignedBasesThisRead += length
+			isMismatchOp := (op == 8)
+
+			for j := range length {
+				currentPos := refPos + j + 1
+				isMismatch := isMismatchOp
+				if !isMismatch && hasMD {
+					_, isMismatch = mdMap[refPos+j]
+				}
+
+				// 检查下一个操作是否为插入
+				hasInsertAfter := (j == length-1 && ci+1 < cigarLen && cigarOps[ci+1].Type() == 1)
+
+				// 使用预定义的位置统计
+				if posStats, ok := sampleStats.PositionStats[currentPos]; ok {
+					posStats.Depth++
+
+					if perfectUptoNow && !isMismatch && !hasInsertAfter {
+						posStats.PerfectUptoPosCount++
+					}
+
+					if hasInsertAfter {
+						if isMismatch {
+							posStats.MismatchWithIns++
+						} else {
+							posStats.MatchWithIns++
+						}
+						posStats.Insertion++
+					} else {
+						if isMismatch {
+							posStats.MismatchPure++
+						} else {
+							posStats.MatchPure++
+						}
+					}
+
+					// N-mer统计
+					if consecutiveMatch >= NMerSize {
+						posStats.NCorrect++
+						if !isMismatch {
+							posStats.N1Correct++
+						}
+					}
+				}
+
+				if !isMismatch {
+					consecutiveMatch++
+				} else {
+					consecutiveMatch = 0
+				}
+
+				if isMismatch || hasInsertAfter {
+					readIsPerfect = false
+					perfectUptoNow = false
+				}
 			}
+			refPos += length
+			readPos += length
+
+		case 2, 3: // D, N
+			alignedBasesThisRead += length
+			for j := range length {
+				pos := refPos + j + 1
+				if posStats, ok := sampleStats.PositionStats[pos]; ok {
+					posStats.Depth++
+					posStats.Deletion++
+					if length == 1 {
+						posStats.Del1++
+					}
+				}
+			}
+			readIsPerfect = false
+			perfectUptoNow = false
+			consecutiveMatch = 0
+			refPos += length
+
+		case 1: // I
+			readPos += length
+			readIsPerfect = false
+			perfectUptoNow = false
+			consecutiveMatch = 0
+		case 4: // S
+			readPos += length
+			consecutiveMatch = 0
 		}
+	}
 
-		refStart := int(read.Pos)
-		mdMap := parseMDToMap(mdStr, refStart)
-
-		// 预计算位置范围，减少边界检查
-		consecutiveMatch := 0
-		refPos := refStart
-		readPos := 0
-		readIsPerfect := true
-		perfectUptoNow := true
-		cigarOps := read.Cigar
-		cigarLen := len(cigarOps)
-
-		// 清空临时映射和切片，重用内存
-		for k := range insertSubtypes {
-			delete(insertSubtypes, k)
-		}
-		for k := range deleteSubtypes {
-			delete(deleteSubtypes, k)
-		}
-		for k := range substSubtypes {
-			delete(substSubtypes, k)
-		}
-
-		// 第一次遍历：收集位置统计和突变信息
-
+	// 第二次遍历：如果是完美read，收集需要更新PerfectReadsCount的位置
+	if readIsPerfect {
+		refPos = refStart
 		for ci := range cigarLen {
 			cigarOp := cigarOps[ci]
 			op := cigarOp.Type()
 			length := cigarOp.Len()
 
 			switch op {
-			case 0, 7, 8: // M, =, X
-				alignedBasesThisRead += length
-				isMismatchOp := (op == 8)
-
-				for j := range length {
-					currentPos := refPos + j + 1
-					isMismatch := isMismatchOp
-					if !isMismatch && hasMD {
-						_, isMismatch = mdMap[refPos+j]
-					}
-
-					// 检查下一个操作是否为插入
-					hasInsertAfter := (j == length-1 && ci+1 < cigarLen && cigarOps[ci+1].Type() == 1)
-
-					// 使用预定义的位置统计
-					if posStats, ok := sampleStats.PositionStats[currentPos]; ok {
-						posStats.Depth++
-
-						if perfectUptoNow && !isMismatch && !hasInsertAfter {
-							posStats.PerfectUptoPosCount++
-						}
-
-						if hasInsertAfter {
-							if isMismatch {
-								posStats.MismatchWithIns++
-							} else {
-								posStats.MatchWithIns++
-							}
-							posStats.Insertion++
-						} else {
-							if isMismatch {
-								posStats.MismatchPure++
-							} else {
-								posStats.MatchPure++
-							}
-						}
-
-						// N-mer统计
-						if consecutiveMatch >= NMerSize {
-							posStats.NCorrect++
-							if !isMismatch {
-								posStats.N1Correct++
-							}
-						}
-					}
-
-					if !isMismatch {
-						consecutiveMatch++
-					} else {
-						consecutiveMatch = 0
-					}
-
-					if isMismatch || hasInsertAfter {
-						readIsPerfect = false
-						perfectUptoNow = false
-					}
-				}
-				refPos += length
-				readPos += length
-
-			case 2, 3: // D, N
-				alignedBasesThisRead += length
+			case 0, 7, 8:
 				for j := range length {
 					pos := refPos + j + 1
 					if posStats, ok := sampleStats.PositionStats[pos]; ok {
-						posStats.Depth++
-						posStats.Deletion++
-						if length == 1 {
-							posStats.Del1++
-						}
+						posStats.PerfectReadsCount++
 					}
 				}
-				readIsPerfect = false
-				perfectUptoNow = false
-				consecutiveMatch = 0
 				refPos += length
-
-			case 1: // I
-				readPos += length
-				readIsPerfect = false
-				perfectUptoNow = false
-				consecutiveMatch = 0
-			case 4: // S
-				readPos += length
-				consecutiveMatch = 0
+			case 2, 3:
+				refPos += length
 			}
 		}
+	}
 
-		// 第二次遍历：如果是完美read，收集需要更新PerfectReadsCount的位置
-		if readIsPerfect {
-			refPos = refStart
-			for ci := range cigarLen {
-				cigarOp := cigarOps[ci]
-				op := cigarOp.Type()
-				length := cigarOp.Len()
+	// 分析详细的read类型
+	readInfo := analyzeReadDetailedInfo(read, mdMap, mdStr, sampleStats.Sample.RefSeqFull)
+	sampleStats.ReadTypeCounts[readInfo.MainType]++
 
-				switch op {
-				case 0, 7, 8:
-					for j := range length {
-						pos := refPos + j + 1
-						if posStats, ok := sampleStats.PositionStats[pos]; ok {
-							posStats.PerfectReadsCount++
-						}
-					}
-					refPos += length
-				case 2, 3:
-					refPos += length
+	mutationCount := len(readInfo.Mutations)
+	sampleStats.SubstitutionCountDist[mutationCount]++
+	sampleStats.AlignedBases += alignedBasesThisRead
+
+	// 跳过非良好比对
+	if mutationCount > MaxSubstitutions {
+		return nil
+	}
+	sampleStats.GoodAlignedReads++
+
+	// 统计插入信息
+	if readInfo.InsertSub != nil && len(readInfo.InsertSub.Insertions) > 0 {
+		sampleStats.InsertReads++
+
+		for _, insertion := range readInfo.InsertSub.Insertions {
+			sampleStats.InsertEventCount++
+			sampleStats.InsertBaseTotal += insertion.Length
+			sampleStats.MutationBaseCounts["insertion"] += insertion.Length
+
+			length := insertion.Length
+			if length > 3 {
+				length = 4
+			}
+			sampleStats.InsertLengthDist[length]++
+
+			if insertion.Bases != "" {
+				sampleStats.InsertBaseCounts[insertion.Bases]++
+			}
+
+			st := insertion.Subtype
+			sampleStats.InsertSubtypeEvents[st]++
+			sampleStats.InsertSubtypeBases[st] += insertion.Length
+			insertSubtypes[st] = true
+		}
+		// 修复：InsertSubtypeReads 应该基于 Read 维度，每个 Read 只计数一次
+		for st := range insertSubtypes {
+			sampleStats.InsertSubtypeReads[st]++
+		}
+	}
+
+	// 统计突变信息
+	if mutationCount > 0 {
+		sampleStats.ReadsWithMutations++
+		sampleStats.SubstitutionReads++
+		sampleStats.SubstitutionEventCount += mutationCount
+		sampleStats.SubstitutionBaseTotal += mutationCount
+		sampleStats.MutationBaseCounts["substitution"] += mutationCount
+
+		for _, mut := range readInfo.Mutations {
+			posKey := strconv.Itoa(mut.Position)
+			mutKey := mut.Ref + ">" + mut.Alt
+			posMutKey := posKey + "_" + mutKey
+
+			if _, ok := sampleStats.PositionDetails[posKey]; !ok {
+				sampleStats.PositionDetails[posKey] = make(map[string]int)
+			}
+			sampleStats.PositionDetails[posKey][mutKey]++
+			sampleStats.SubstitutionCount[mutKey]++
+			sampleStats.PositionMutations[posMutKey]++
+		}
+	}
+
+	// 缺失细分类统计
+	if readInfo.DeleteSub != nil {
+		if len(readInfo.DeleteSub.Deletions) > 0 {
+			sampleStats.DeleteReads++
+		}
+		for _, del := range readInfo.DeleteSub.Deletions {
+			sampleStats.DeleteEventCount++
+			sampleStats.DeleteBaseTotal += del.Length
+			sampleStats.MutationBaseCounts["deletion"] += del.Length
+
+			length := del.Length
+			if length > 3 {
+				length = 4
+			}
+			sampleStats.DeleteLengthDist[length]++
+
+			st := del.Subtype
+			sampleStats.DeleteSubtypeEvents[st]++
+			sampleStats.DeleteSubtypeBases[st] += del.Length
+			deleteSubtypes[st] = true
+
+			if st == Del1 && len(del.Bases) == 1 {
+				base := del.Bases[0]
+				sampleStats.Del1BaseCounts[base]++
+				posKey := fmt.Sprintf("%d:%c", del.Position, base)
+				sampleStats.DeletePositionCounts[posKey]++
+			}
+
+			// Del3 统计
+			if st == Del3 && sampleStats.Sample.RefSeqFull != "" {
+				pos := del.Position
+				var prevBase byte
+				var firstBase byte
+				if pos-1 >= 1 && pos-1 <= len(sampleStats.Sample.RefSeqFull) {
+					prevBase = sampleStats.Sample.RefSeqFull[pos-2]
+					sampleStats.Del3PrevBaseCounts[prevBase]++
 				}
-			}
-		}
-
-		// 分析详细的read类型
-		readInfo := analyzeReadDetailedInfo(read, mdMap, mdStr, sample.RefSeqFull)
-		sampleStats.ReadTypeCounts[readInfo.MainType]++
-
-		mutationCount := len(readInfo.Mutations)
-		sampleStats.SubstitutionCountDist[mutationCount]++
-		sampleStats.AlignedBases += alignedBasesThisRead
-
-		// 跳过非良好比对
-		if mutationCount > MaxSubstitutions {
-			continue
-		}
-		sampleStats.GoodAlignedReads++
-
-		// 统计插入信息
-		if readInfo.InsertSub != nil && len(readInfo.InsertSub.Insertions) > 0 {
-			sampleStats.InsertReads++
-
-			for _, insertion := range readInfo.InsertSub.Insertions {
-				sampleStats.InsertEventCount++
-				sampleStats.InsertBaseTotal += insertion.Length
-				sampleStats.MutationBaseCounts["insertion"] += insertion.Length
-
-				length := insertion.Length
-				if length > 3 {
-					length = 4
+				if len(del.Bases) > 0 {
+					firstBase = del.Bases[0]
+					sampleStats.Del3FirstBaseCounts[firstBase]++
 				}
-				sampleStats.InsertLengthDist[length]++
-
-				if insertion.Bases != "" {
-					sampleStats.InsertBaseCounts[insertion.Bases]++
-				}
-
-				st := insertion.Subtype
-				sampleStats.InsertSubtypeEvents[st]++
-				sampleStats.InsertSubtypeBases[st] += insertion.Length
-				insertSubtypes[st] = true
-			}
-			// 修复：InsertSubtypeReads 应该基于 Read 维度，每个 Read 只计数一次
-			for st := range insertSubtypes {
-				sampleStats.InsertSubtypeReads[st]++
+				combKey := fmt.Sprintf("%c>%c", prevBase, firstBase)
+				sampleStats.Del3PrevFirstCombCounts[combKey]++
 			}
 		}
-
-		// 统计突变信息
-		if mutationCount > 0 {
-			sampleStats.ReadsWithMutations++
-			sampleStats.SubstitutionReads++
-			sampleStats.SubstitutionEventCount += mutationCount
-			sampleStats.SubstitutionBaseTotal += mutationCount
-			sampleStats.MutationBaseCounts["substitution"] += mutationCount
-
-			for _, mut := range readInfo.Mutations {
-				posKey := strconv.Itoa(mut.Position)
-				mutKey := mut.Ref + ">" + mut.Alt
-				posMutKey := posKey + "_" + mutKey
-
-				if _, ok := sampleStats.PositionDetails[posKey]; !ok {
-					sampleStats.PositionDetails[posKey] = make(map[string]int)
-				}
-				sampleStats.PositionDetails[posKey][mutKey]++
-				sampleStats.SubstitutionCount[mutKey]++
-				sampleStats.PositionMutations[posMutKey]++
-			}
+		// 修复：DeleteSubtypeReads 应该基于 Read 维度，每个 Read 只计数一次
+		for st := range deleteSubtypes {
+			sampleStats.DeleteSubtypeReads[st]++
 		}
+	}
 
-		// 缺失细分类统计
-		if readInfo.DeleteSub != nil {
-			if len(readInfo.DeleteSub.Deletions) > 0 {
-				sampleStats.DeleteReads++
-			}
-			for _, del := range readInfo.DeleteSub.Deletions {
-				sampleStats.DeleteEventCount++
-				sampleStats.DeleteBaseTotal += del.Length
-				sampleStats.MutationBaseCounts["deletion"] += del.Length
-
-				length := del.Length
-				if length > 3 {
-					length = 4
-				}
-				sampleStats.DeleteLengthDist[length]++
-
-				st := del.Subtype
-				sampleStats.DeleteSubtypeEvents[st]++
-				sampleStats.DeleteSubtypeBases[st] += del.Length
-				deleteSubtypes[st] = true
-
-				if st == Del1 && len(del.Bases) == 1 {
-					base := del.Bases[0]
-					sampleStats.Del1BaseCounts[base]++
-					posKey := fmt.Sprintf("%d:%c", del.Position, base)
-					sampleStats.DeletePositionCounts[posKey]++
-				}
-
-				// Del3 统计
-				if st == Del3 && sample.RefSeqFull != "" {
-					pos := del.Position
-					var prevBase byte
-					var firstBase byte
-					if pos-1 >= 1 && pos-1 <= len(sample.RefSeqFull) {
-						prevBase = sample.RefSeqFull[pos-2]
-						sampleStats.Del3PrevBaseCounts[prevBase]++
-					}
-					if len(del.Bases) > 0 {
-						firstBase = del.Bases[0]
-						sampleStats.Del3FirstBaseCounts[firstBase]++
-					}
-					combKey := fmt.Sprintf("%c>%c", prevBase, firstBase)
-					sampleStats.Del3PrevFirstCombCounts[combKey]++
-				}
-			}
-			// 修复：DeleteSubtypeReads 应该基于 Read 维度，每个 Read 只计数一次
-			for st := range deleteSubtypes {
-				sampleStats.DeleteSubtypeReads[st]++
-			}
+	// 替换细分类统计
+	if len(readInfo.Mutations) > 0 {
+		for _, sub := range readInfo.Mutations {
+			st := sub.Subtype
+			sampleStats.SubstitutionSubtypeEvents[st]++
+			sampleStats.SubstitutionSubtypeBases[st]++
+			substSubtypes[st] = true
 		}
-
-		// 替换细分类统计
-		if len(readInfo.Mutations) > 0 {
-			for _, sub := range readInfo.Mutations {
-				st := sub.Subtype
-				sampleStats.SubstitutionSubtypeEvents[st]++
-				sampleStats.SubstitutionSubtypeBases[st]++
-				substSubtypes[st] = true
-			}
-			// 修复：SubstitutionSubtypeReads 应该基于 Read 维度，每个 Read 只计数一次
-			for st := range substSubtypes {
-				sampleStats.SubstitutionSubtypeReads[st]++
-			}
+		// 修复：SubstitutionSubtypeReads 应该基于 Read 维度，每个 Read 只计数一次
+		for st := range substSubtypes {
+			sampleStats.SubstitutionSubtypeReads[st]++
 		}
+	}
 
-		// 细分类组合统计
-		if len(insertSubtypes) > 0 || len(deleteSubtypes) > 0 || len(substSubtypes) > 0 {
-			combKey := buildSubtypeCombinationKey(insertSubtypes, deleteSubtypes, substSubtypes)
-			sampleStats.SubtypeCombinationCounts[combKey]++
-		}
+	// 细分类组合统计
+	if len(insertSubtypes) > 0 || len(deleteSubtypes) > 0 || len(substSubtypes) > 0 {
+		combKey := buildSubtypeCombinationKey(insertSubtypes, deleteSubtypes, substSubtypes)
+		sampleStats.SubtypeCombinationCounts[combKey]++
 	}
 	return nil
 }
