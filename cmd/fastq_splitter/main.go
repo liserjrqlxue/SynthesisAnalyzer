@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -515,8 +516,7 @@ func (s *EnhancedSplitter) loadSamplesFromExcel() error {
 
 		s.samples = append(s.samples, sample)
 
-		fmt.Printf("  读取样品: %s, R1: %s, R2: %s\n",
-			sample.Name, filepath.Base(sample.R1Path), filepath.Base(sample.R2Path))
+		slog.Debug("读取样品", "name", sample.Name, "R1", filepath.Base(sample.R1Path), "R2", filepath.Base(sample.R2Path))
 	}
 
 	fmt.Printf("  成功读取 %d 个样品\n", len(s.samples))
