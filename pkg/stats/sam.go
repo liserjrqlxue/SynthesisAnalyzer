@@ -228,7 +228,7 @@ func analyzeReadDetailedInfo(read *sam.Record, mdMap map[int]string, mdStr, refS
 	}
 
 	// 解析突变
-	info.Substitutions = analyzeSubstitutionSubtype(read, refSeq, mdMap).Substitutions
+	info.SubstituteSub = analyzeSubstitutionSubtype(read, refSeq, mdMap)
 	return info
 }
 

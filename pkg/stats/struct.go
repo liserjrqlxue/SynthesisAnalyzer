@@ -139,7 +139,7 @@ type ReadDetailedInfo struct {
 	MainType       ReadType
 	InsertSub      *InsertSubtype
 	DeleteSub      *DeleteSubtype
-	Substitutions  []SubstitutionInfo // 该read中的所有突变，兼容替换细分类列表
+	SubstituteSub  *SubstituteSubtype // 该read中的所有突变，兼容替换细分类列表
 	SubtypeTags    []string           // 该read的所有细分类标签（去重后排序用）
 	CombinationKey string             // 细分类组合唯一键（排序后拼接）
 }

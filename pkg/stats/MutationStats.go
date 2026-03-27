@@ -211,7 +211,7 @@ func (stats *MutationStats) UpdateStatsFromSampleStats(sampleStats *SampleStats)
 
 	stats.TotalReadCount += sampleStats.ReadCounts
 	stats.TotalAlignedReads += sampleStats.AlignedReads
-	stats.TotalReadsWithMuts += sampleStats.ReadsWithMutations
+	stats.TotalReadsWithMuts += sampleStats.SubstitutionReads
 
 	// 合并 ACGT 统计
 	if sampleStats.Sample.RefSeqFull != "" {

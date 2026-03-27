@@ -68,13 +68,13 @@ func writePositionStats(stats *MutationStats, outputDir string) error {
 				count := sampleStats.PositionDetails[pos][mut]
 				fmt.Fprintf(writer, "%s,%s,%s,%d,%d,%d,%d\n",
 					sampleName, pos, mut, count,
-					sampleStats.ReadCounts, sampleStats.AlignedReads, sampleStats.ReadsWithMutations,
+					sampleStats.ReadCounts, sampleStats.AlignedReads, sampleStats.SubstitutionReads,
 				)
 				count2 += count
 			}
 			fmt.Fprintf(writer2, "%s,%s,%d,%d,%d,%d\n",
 				sampleName, pos, count2,
-				sampleStats.ReadCounts, sampleStats.AlignedReads, sampleStats.ReadsWithMutations,
+				sampleStats.ReadCounts, sampleStats.AlignedReads, sampleStats.SubstitutionReads,
 			)
 		}
 
@@ -117,7 +117,7 @@ func writeSampleMutationStats(stats *MutationStats, outputDir string) error {
 			count := sampleStats.SubstitutionCount[mut]
 			fmt.Fprintf(writer, "%s,%s,%d,%d,%d,%d\n",
 				sampleName, mut, count,
-				sampleStats.ReadCounts, sampleStats.AlignedReads, sampleStats.ReadsWithMutations,
+				sampleStats.ReadCounts, sampleStats.AlignedReads, sampleStats.SubstitutionReads,
 			)
 		}
 
@@ -216,7 +216,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 			sampleStats.ReadCounts,
 			sampleStats.AlignedReads,
 			sampleStats.GoodAlignedReads,
-			sampleStats.ReadsWithMutations,
+			sampleStats.SubstitutionReads,
 			sampleStats.TotalSubstitution,
 		)
 		for _, mut := range mutationTypes {
@@ -368,7 +368,7 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 		totalReads := sampleStats.ReadCounts
 		alignedReads := sampleStats.AlignedReads
 		goodAlignedReads := sampleStats.GoodAlignedReads
-		readsWithMuts := sampleStats.ReadsWithMutations
+		readsWithMuts := sampleStats.SubstitutionReads
 
 		row := fmt.Sprintf("%s,%d,%d,%d,%d", sampleName, totalReads, alignedReads, goodAlignedReads, readsWithMuts)
 
@@ -565,9 +565,9 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 		sums["SubstitutionReads"].Count++
 
 		// ReadsWithMutations
-		pctGood = float64(sampleStats.ReadsWithMutations) / float64(good) * 100
-		pctAligned = float64(sampleStats.ReadsWithMutations) / float64(aligned) * 100
-		pctTotal = float64(sampleStats.ReadsWithMutations) / float64(total) * 100
+		pctGood = float64(sampleStats.SubstitutionReads) / float64(good) * 100
+		pctAligned = float64(sampleStats.SubstitutionReads) / float64(aligned) * 100
+		pctTotal = float64(sampleStats.SubstitutionReads) / float64(total) * 100
 		sums["ReadsWithMutations"].SumGood += pctGood
 		sums["ReadsWithMutations"].SumAligned += pctAligned
 		sums["ReadsWithMutations"].SumTotal += pctTotal
@@ -793,7 +793,7 @@ func writeDetailedStats(stats *MutationStats, outputDir string) error {
 
 		totalReads := sampleStats.ReadCounts
 		alignedReads := sampleStats.AlignedReads
-		readsWithMuts := sampleStats.ReadsWithMutations
+		readsWithMuts := sampleStats.SubstitutionReads
 		// 计算总突变数
 		totalMutations := sampleStats.TotalSubstitution
 
@@ -876,9 +876,9 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 		alignedReads := sampleStats.AlignedReads
 
 		// 获取碱基计数
-		substitutionBases := sampleStats.MutationBaseCounts["substitution"]
-		insertionBases := sampleStats.MutationBaseCounts["insertion"]
-		deletionBases := sampleStats.MutationBaseCounts["deletion"]
+		substitutionBases := sampleStats.SubstitutionBaseTotal
+		insertionBases := sampleStats.InsertBaseTotal
+		deletionBases := sampleStats.DeleteBaseTotal
 
 		totalSubstitution += substitutionBases
 		totalInsertion += insertionBases
@@ -897,10 +897,10 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 			deletionRate = float64(deletionBases) / float64(alignedReads) * 1000
 		}
 
-		writer.WriteString(fmt.Sprintf("%s,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f\n",
+		fmt.Fprintf(writer, "%s,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f\n",
 			sampleName, totalReads, alignedReads,
 			substitutionBases, insertionBases, deletionBases,
-			substitutionRate, insertionRate, deletionRate))
+			substitutionRate, insertionRate, deletionRate)
 
 		sampleStats.RUnlock()
 	}

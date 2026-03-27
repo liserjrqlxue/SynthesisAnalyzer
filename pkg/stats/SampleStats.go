@@ -26,21 +26,20 @@ type SampleStats struct {
 	InsertLengthDist map[int]int    // 插入长度 -> count
 	InsertBaseCounts map[string]int // 插入序列 -> count
 
-	DeleteLengthDist     map[int]int        // 缺失长度 -> count
-	DeletePositionCounts map[string]int     // "位置:碱基" -> count
-	MutationBaseCounts   map[string]int     // 碱基维度变异统计
-	MutationList         []SubstitutionInfo // 所有突变列表（可选，用于调试）
+	DeleteLengthDist     map[int]int    // 缺失长度 -> count
+	DeletePositionCounts map[string]int // "位置:碱基" -> count
 
-	ReadCounts         int // 总reads数
-	AlignedReads       int // 比对上的reads数
-	ReadsWithMutations int // 包含突变的reads数
+	ReadCounts   int // 总reads数
+	AlignedReads int // 比对上的reads数
 
 	// 新增：reads维度的变异统计
 	InsertReads       int // 包含插入的reads数
 	DeleteReads       int // 包含缺失的reads数
 	SubstitutionReads int // 包含替换的reads数
+	// ReadsWithMutations int // 包含突变的reads数
 
 	TotalSubstitution int //总突变数
+
 	// 新增：变异事件个数维度
 	InsertEventCount       int // 插入事件个数（多条插入算多个）
 	DeleteEventCount       int // 缺失事件个数（多条缺失算多个）
@@ -104,7 +103,6 @@ func NewSampleStats() *SampleStats {
 		DeleteLengthDist:     make(map[int]int),
 		InsertBaseCounts:     make(map[string]int),
 		DeletePositionCounts: make(map[string]int),
-		MutationBaseCounts:   make(map[string]int),
 
 		// 细分类统计初始化
 		DeleteSubtypeReads:        make(map[DeletionSubtype]int),
@@ -287,10 +285,6 @@ func (sampleStats *SampleStats) ProcessSamRecord(read *sam.Record, NMerSize, Max
 	sampleStats.ReadCounts++
 
 	var (
-		insertSubtypes = make(map[InsertionSubtype]bool)
-		deleteSubtypes = make(map[DeletionSubtype]bool)
-		substSubtypes  = make(map[SubstitutionSubtype]bool)
-
 		alignedBasesThisRead = 0
 	)
 
@@ -436,133 +430,22 @@ func (sampleStats *SampleStats) ProcessSamRecord(read *sam.Record, NMerSize, Max
 	// 分析详细的read类型
 	readInfo := analyzeReadDetailedInfo(read, mdMap, mdStr, sampleStats.Sample.RefSeqFull)
 	sampleStats.ReadTypeCounts[readInfo.MainType]++
-
-	mutationCount := len(readInfo.Substitutions)
-	sampleStats.SubstitutionCountDist[mutationCount]++
 	sampleStats.AlignedBases += alignedBasesThisRead
 
+	substitutionCount := len(readInfo.SubstituteSub.Substitutions)
+	sampleStats.SubstitutionCountDist[substitutionCount]++
 	// 跳过非良好比对
-	if mutationCount > MaxSubstitutions {
+	if substitutionCount > MaxSubstitutions {
 		return nil
 	}
 	sampleStats.GoodAlignedReads++
 
-	// 统计插入信息
-	if readInfo.InsertSub != nil && len(readInfo.InsertSub.Insertions) > 0 {
-		sampleStats.InsertReads++
-
-		for _, insertion := range readInfo.InsertSub.Insertions {
-			sampleStats.InsertEventCount++
-			sampleStats.InsertBaseTotal += insertion.Length
-			sampleStats.MutationBaseCounts["insertion"] += insertion.Length
-
-			length := insertion.Length
-			if length > 3 {
-				length = 4
-			}
-			sampleStats.InsertLengthDist[length]++
-
-			if insertion.Bases != "" {
-				sampleStats.InsertBaseCounts[insertion.Bases]++
-			}
-
-			st := insertion.Subtype
-			sampleStats.InsertSubtypeEvents[st]++
-			sampleStats.InsertSubtypeBases[st] += insertion.Length
-			insertSubtypes[st] = true
-		}
-		// 修复：InsertSubtypeReads 应该基于 Read 维度，每个 Read 只计数一次
-		for st := range insertSubtypes {
-			sampleStats.InsertSubtypeReads[st]++
-		}
-	}
-
-	// 统计突变信息
-	if mutationCount > 0 {
-		sampleStats.ReadsWithMutations++
-		sampleStats.SubstitutionReads++
-		sampleStats.SubstitutionEventCount += mutationCount
-		sampleStats.SubstitutionBaseTotal += mutationCount
-		sampleStats.MutationBaseCounts["substitution"] += mutationCount
-
-		for _, mut := range readInfo.Substitutions {
-			posKey := strconv.Itoa(mut.Position)
-			mutKey := mut.Ref + ">" + mut.Alt
-			posMutKey := posKey + "_" + mutKey
-
-			if _, ok := sampleStats.PositionDetails[posKey]; !ok {
-				sampleStats.PositionDetails[posKey] = make(map[string]int)
-			}
-			sampleStats.PositionDetails[posKey][mutKey]++
-			sampleStats.SubstitutionCount[mutKey]++
-			sampleStats.PositionMutations[posMutKey]++
-		}
-	}
-
-	// 缺失细分类统计
-	if readInfo.DeleteSub != nil {
-		if len(readInfo.DeleteSub.Deletions) > 0 {
-			sampleStats.DeleteReads++
-		}
-		for _, del := range readInfo.DeleteSub.Deletions {
-			sampleStats.DeleteEventCount++
-			sampleStats.DeleteBaseTotal += del.Length
-			sampleStats.MutationBaseCounts["deletion"] += del.Length
-
-			length := del.Length
-			if length > 3 {
-				length = 4
-			}
-			sampleStats.DeleteLengthDist[length]++
-
-			st := del.Subtype
-			sampleStats.DeleteSubtypeEvents[st]++
-			sampleStats.DeleteSubtypeBases[st] += del.Length
-			deleteSubtypes[st] = true
-
-			if st == Del1 && len(del.Bases) == 1 {
-				base := del.Bases[0]
-				sampleStats.Del1BaseCounts[base]++
-				posKey := fmt.Sprintf("%d:%c", del.Position, base)
-				sampleStats.DeletePositionCounts[posKey]++
-			}
-
-			// Del3 统计
-			if st == Del3 && sampleStats.Sample.RefSeqFull != "" {
-				pos := del.Position
-				var prevBase byte
-				var firstBase byte
-				if pos-1 >= 1 && pos-1 <= len(sampleStats.Sample.RefSeqFull) {
-					prevBase = sampleStats.Sample.RefSeqFull[pos-2]
-					sampleStats.Del3PrevBaseCounts[prevBase]++
-				}
-				if len(del.Bases) > 0 {
-					firstBase = del.Bases[0]
-					sampleStats.Del3FirstBaseCounts[firstBase]++
-				}
-				combKey := fmt.Sprintf("%c>%c", prevBase, firstBase)
-				sampleStats.Del3PrevFirstCombCounts[combKey]++
-			}
-		}
-		// 修复：DeleteSubtypeReads 应该基于 Read 维度，每个 Read 只计数一次
-		for st := range deleteSubtypes {
-			sampleStats.DeleteSubtypeReads[st]++
-		}
-	}
-
-	// 替换细分类统计
-	if len(readInfo.Substitutions) > 0 {
-		for _, sub := range readInfo.Substitutions {
-			st := sub.Subtype
-			sampleStats.SubstitutionSubtypeEvents[st]++
-			sampleStats.SubstitutionSubtypeBases[st]++
-			substSubtypes[st] = true
-		}
-		// 修复：SubstitutionSubtypeReads 应该基于 Read 维度，每个 Read 只计数一次
-		for st := range substSubtypes {
-			sampleStats.SubstitutionSubtypeReads[st]++
-		}
-	}
+	// 更新插入细分类统计
+	insertSubtypes := sampleStats.UpdateInsertionSubtypeStats(readInfo.InsertSub)
+	// 更新缺失细分类统计
+	deleteSubtypes := sampleStats.UpdateDeletetionSubtypeStats(readInfo.DeleteSub)
+	// 更新替换细分类统计
+	substSubtypes := sampleStats.UpdateSubstitutionSubtypeStats(readInfo.SubstituteSub)
 
 	// 细分类组合统计
 	if len(insertSubtypes) > 0 || len(deleteSubtypes) > 0 || len(substSubtypes) > 0 {
@@ -570,4 +453,128 @@ func (sampleStats *SampleStats) ProcessSamRecord(read *sam.Record, NMerSize, Max
 		sampleStats.SubtypeCombinationCounts[combKey]++
 	}
 	return nil
+}
+
+// UpdateInsertionSubtypeStats 更新插入细分类统计
+// 返回插入细分类的映射
+func (sampleStats *SampleStats) UpdateInsertionSubtypeStats(subtype *InsertSubtype) map[InsertionSubtype]bool {
+	var insertSubtypes = make(map[InsertionSubtype]bool)
+	if len(subtype.Insertions) == 0 {
+		return insertSubtypes
+	}
+	sampleStats.InsertReads++
+
+	for _, insertion := range subtype.Insertions {
+		sampleStats.InsertEventCount++
+		sampleStats.InsertBaseTotal += insertion.Length
+
+		st := insertion.Subtype
+		sampleStats.InsertSubtypeEvents[st]++
+		sampleStats.InsertSubtypeBases[st] += insertion.Length
+		insertSubtypes[st] = true
+
+		length := min(insertion.Length, 4)
+		sampleStats.InsertLengthDist[length]++
+
+		if insertion.Bases != "" {
+			sampleStats.InsertBaseCounts[insertion.Bases]++
+		}
+	}
+	for st := range insertSubtypes {
+		sampleStats.InsertSubtypeReads[st]++
+	}
+
+	return insertSubtypes
+}
+
+// UpdateDeletetionSubtypeStats 更新缺失细分类统计
+// 返回缺失细分类的映射
+func (sampleStats *SampleStats) UpdateDeletetionSubtypeStats(subtype *DeleteSubtype) map[DeletionSubtype]bool {
+	var deletSubtypes = make(map[DeletionSubtype]bool)
+
+	if len(subtype.Deletions) == 0 {
+		return deletSubtypes
+	}
+	sampleStats.DeleteReads++
+
+	for _, del := range subtype.Deletions {
+		sampleStats.DeleteEventCount++
+		sampleStats.DeleteBaseTotal += del.Length
+
+		st := del.Subtype
+		sampleStats.DeleteSubtypeEvents[st]++
+		sampleStats.DeleteSubtypeBases[st]++
+		deletSubtypes[st] = true
+
+		length := min(del.Length, 4)
+		sampleStats.DeleteLengthDist[length]++
+
+		// 统计 Del1 统计
+		if st == Del1 && len(del.Bases) == 1 {
+			base := del.Bases[0]
+			sampleStats.Del1BaseCounts[base]++
+			posKey := fmt.Sprintf("%d:%c", del.Position, base)
+			sampleStats.DeletePositionCounts[posKey]++
+		}
+
+		// Del3 统计
+		if st == Del3 && sampleStats.Sample.RefSeqFull != "" {
+			pos := del.Position
+			var prevBase byte
+			var firstBase byte
+			if pos-1 >= 1 && pos-1 <= len(sampleStats.Sample.RefSeqFull) {
+				prevBase = sampleStats.Sample.RefSeqFull[pos-2]
+				sampleStats.Del3PrevBaseCounts[prevBase]++
+			}
+			if len(del.Bases) > 0 {
+				firstBase = del.Bases[0]
+				sampleStats.Del3FirstBaseCounts[firstBase]++
+			}
+			combKey := fmt.Sprintf("%c>%c", prevBase, firstBase)
+			sampleStats.Del3PrevFirstCombCounts[combKey]++
+		}
+	}
+	for st := range deletSubtypes {
+		sampleStats.DeleteSubtypeReads[st]++
+	}
+
+	return deletSubtypes
+}
+
+// UpdateSubstitutionSubtypeStats 更新替换细分类统计
+// 返回替换细分类的映射
+func (sampleStats *SampleStats) UpdateSubstitutionSubtypeStats(subtype *SubstituteSubtype) map[SubstitutionSubtype]bool {
+	var substSubtypes = make(map[SubstitutionSubtype]bool)
+
+	substitutionCount := len(subtype.Substitutions)
+	if substitutionCount == 0 {
+		return substSubtypes
+	}
+
+	sampleStats.SubstitutionReads++
+	sampleStats.SubstitutionEventCount += substitutionCount
+	sampleStats.SubstitutionBaseTotal += substitutionCount
+
+	for _, sub := range subtype.Substitutions {
+		st := sub.Subtype
+		sampleStats.SubstitutionSubtypeEvents[st]++
+		sampleStats.SubstitutionSubtypeBases[st]++
+		substSubtypes[st] = true
+
+		posKey := strconv.Itoa(sub.Position)
+		mutKey := sub.Ref + ">" + sub.Alt
+		posMutKey := posKey + "_" + mutKey
+
+		if _, ok := sampleStats.PositionDetails[posKey]; !ok {
+			sampleStats.PositionDetails[posKey] = make(map[string]int)
+		}
+		sampleStats.PositionDetails[posKey][mutKey]++
+		sampleStats.SubstitutionCount[mutKey]++
+		sampleStats.PositionMutations[posMutKey]++
+	}
+	for st := range substSubtypes {
+		sampleStats.SubstitutionSubtypeReads[st]++
+	}
+
+	return substSubtypes
 }
