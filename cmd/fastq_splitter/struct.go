@@ -10,11 +10,12 @@ import (
 
 // 配置结构
 type Config struct {
-	ExcelFile string
-	OutputDir string
-	FastqDir  string
-	Threads   int
-	UseRC     bool // 是否使用反向互补
+	ExcelFile        string
+	OutputDir        string
+	FastqDir         string
+	Threads          int
+	UseRC            bool // 是否使用反向互补
+	SampleNameSuffix string // 样品名称后缀列
 
 	// 匹配参数
 	SearchWindow int // 搜索窗口大小（从头、从尾搜索的距离）

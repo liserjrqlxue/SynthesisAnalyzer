@@ -39,6 +39,11 @@ var (
 		"",
 		"[Fastq目录]",
 	)
+	suffixCol = flag.String(
+		"suffix-col",
+		"",
+		"可选参数：样品名称后缀列，若指定则将该列值拼接到样品名称后",
+	)
 	overlap = flag.Int(
 		"m",
 		30,
@@ -109,13 +114,14 @@ func main() {
 
 	// 创建配置
 	config := &Config{
-		ExcelFile:    *excelFile,
-		OutputDir:    output,
-		FastqDir:     fastq,
-		Threads:      runtime.NumCPU(),
-		SearchWindow: 200, // 从头/尾搜索50bp
-		Quality:      20,
-		MergeLen:     80,
+		ExcelFile:        *excelFile,
+		OutputDir:        output,
+		FastqDir:         fastq,
+		Threads:          runtime.NumCPU(),
+		SampleNameSuffix: *suffixCol,
+		SearchWindow:     200, // 从头/尾搜索50bp
+		Quality:          20,
+		MergeLen:         80,
 
 		UseRC:         true, // 启用反向互补匹配
 		SkipExisting:  true, // 默认跳过已存在文件
@@ -453,20 +459,52 @@ func (s *EnhancedSplitter) loadSamplesFromExcel() error {
 		}
 	}
 
-	// 读取数据行
-	for row := 1; row < sheet.MaxRow; row++ {
-		sample := &SampleInfo{
-			Name:          sheet.Cell(row, headerMap["样品名称"]).Value,
-			TargetSeq:     strings.ToUpper(sheet.Cell(row, headerMap["靶标序列"]).Value),
-			SynthesisSeq:  strings.ToUpper(sheet.Cell(row, headerMap["合成序列"]).Value),
-			PostTargetSeq: strings.ToUpper(sheet.Cell(row, headerMap["后靶标"]).Value),
-			R1Path:        sheet.Cell(row, headerMap["路径-R1"]).Value,
-			R2Path:        sheet.Cell(row, headerMap["路径-R2"]).Value,
+	// 检查后缀列
+	var suffixColIndex int = -1
+	if s.config.SampleNameSuffix != "" {
+		if idx, ok := headerMap[s.config.SampleNameSuffix]; ok {
+			suffixColIndex = idx
+		} else {
+			return fmt.Errorf("未找到指定的后缀列: %s", s.config.SampleNameSuffix)
 		}
+	}
+
+	// 读取数据行
+	seenSampleNames := make(map[string]bool)
+	for row := 1; row < sheet.MaxRow; row++ {
+		sampleName := sheet.Cell(row, headerMap["样品名称"]).Value
+		targetSeq := strings.ToUpper(sheet.Cell(row, headerMap["靶标序列"]).Value)
+		synthSeq := strings.ToUpper(sheet.Cell(row, headerMap["合成序列"]).Value)
+		postSeq := strings.ToUpper(sheet.Cell(row, headerMap["后靶标"]).Value)
+		r1Path := sheet.Cell(row, headerMap["路径-R1"]).Value
+		r2Path := sheet.Cell(row, headerMap["路径-R2"]).Value
 
 		// 检查必需字段
-		if sample.Name == "" {
+		if sampleName == "" {
 			continue // 跳过空行
+		}
+
+		// 拼接后缀列到样品名称
+		if s.config.SampleNameSuffix != "" && suffixColIndex != -1 {
+			suffix := strings.TrimSpace(sheet.Cell(row, suffixColIndex).Value)
+			if suffix != "" {
+				sampleName = sampleName + "." + suffix
+			}
+		}
+
+		// 检查样品名称是否重复
+		if seenSampleNames[sampleName] {
+			return fmt.Errorf("第 %d 行样品名称重复: %s", row+1, sampleName)
+		}
+		seenSampleNames[sampleName] = true
+
+		sample := &SampleInfo{
+			Name:          sampleName,
+			TargetSeq:     targetSeq,
+			SynthesisSeq:  synthSeq,
+			PostTargetSeq: postSeq,
+			R1Path:        r1Path,
+			R2Path:        r2Path,
 		}
 
 		// 创建输出目录
