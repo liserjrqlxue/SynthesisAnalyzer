@@ -17,6 +17,7 @@ type Config struct {
 	InputSheet       string
 	OutputDir        string
 	ExcelFile        string
+	SampleNameSuffix string // 样品名称后缀列
 	LogLevel         string
 	HeadCut          int
 	TailCut          int
@@ -36,6 +37,7 @@ func parseFlags() *Config {
 	flag.StringVar(&cfg.InputSheet, "s", "Sheet1", "输入Sheet名称，默认Sheet1")
 	flag.StringVar(&cfg.OutputDir, "o", "", "输出目录，默认输入目录/mutation_stats")
 	flag.StringVar(&cfg.ExcelFile, "i", "", "可选参数：输入Excel文件，包含样本顺序")
+	flag.StringVar(&cfg.SampleNameSuffix, "suffix-col", "", "可选参数：样品名称后缀列，若指定则将该列值拼接到样品名称后")
 	flag.IntVar(&cfg.HeadCut, "head", 27, "头切除长度")
 	flag.IntVar(&cfg.TailCut, "tail", 20, "尾切除长度")
 	flag.IntVar(&cfg.MaxSubstitutions, "max-sub", 5, "最大替换个数阈值，用于定义比对良好reads")
@@ -94,6 +96,7 @@ func run(cfg *Config) error {
 	sampleInfo.InputExcel = cfg.ExcelFile
 	sampleInfo.InputSheet = cfg.InputSheet
 	sampleInfo.InputDir = cfg.InputDir
+	sampleInfo.SampleNameSuffix = cfg.SampleNameSuffix
 	sampleInfo.HeadCuts = cfg.HeadCut
 	sampleInfo.TailCuts = cfg.TailCut
 	sampleInfo.NMerSize = cfg.NMerSize

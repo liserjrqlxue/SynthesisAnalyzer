@@ -80,10 +80,11 @@ func (sample *Sample) NewSampleStats() *SampleStats {
 
 // 样本信息结构体
 type BatchInfo struct {
-	InputExcel string // 输入Excel文件路径
-	InputSheet string // 输入Sheet名称
-	InputDir   string // 输入目录路径
-	OutputDir  string // 输出目录路径
+	InputExcel       string // 输入Excel文件路径
+	InputSheet       string // 输入Sheet名称
+	InputDir         string // 输入目录路径
+	OutputDir        string // 输出目录路径
+	SampleNameSuffix string // 样品名称后缀列
 
 	HeadCuts         int // 头切除长度
 	TailCuts         int // 尾切除长度
@@ -131,6 +132,7 @@ func (s *BatchInfo) ReadExcel() error {
 	targetCol := -1
 	synthCol := -1
 	postCol := -1
+	suffixCol := -1
 
 	for i, colName := range header {
 		trimmed := strings.TrimSpace(colName)
@@ -143,6 +145,10 @@ func (s *BatchInfo) ReadExcel() error {
 			synthCol = i
 		case "后靶标":
 			postCol = i
+		default:
+			if s.SampleNameSuffix != "" && trimmed == s.SampleNameSuffix {
+				suffixCol = i
+			}
 		}
 	}
 
@@ -159,6 +165,10 @@ func (s *BatchInfo) ReadExcel() error {
 	if postCol == -1 {
 		return fmt.Errorf("未找到'后靶标'列")
 	}
+	// 检查后缀列
+	if s.SampleNameSuffix != "" && suffixCol == -1 {
+		return fmt.Errorf("未找到指定的后缀列: %s", s.SampleNameSuffix)
+	}
 
 	// 遍历数据行（从第二行开始）
 	for i := 1; i < len(rows); i++ {
@@ -166,6 +176,11 @@ func (s *BatchInfo) ReadExcel() error {
 		// 确保行长度足够
 		if len(row) <= nameCol || len(row) <= targetCol || len(row) <= synthCol || len(row) <= postCol {
 			fmt.Printf("警告: 第 %d 行缺少必要的列数据，跳过\n", i+1)
+			continue
+		}
+		// 检查后缀列长度
+		if s.SampleNameSuffix != "" && len(row) <= suffixCol {
+			fmt.Printf("警告: 第 %d 行缺少后缀列数据，跳过\n", i+1)
 			continue
 		}
 		sampleName := strings.TrimSpace(row[nameCol])
@@ -176,6 +191,19 @@ func (s *BatchInfo) ReadExcel() error {
 		if sampleName == "" {
 			fmt.Printf("警告: 第 %d 行样品名称为空，跳过\n", i+1)
 			continue
+		}
+
+		// 拼接后缀列到样品名称
+		if s.SampleNameSuffix != "" {
+			suffix := strings.TrimSpace(row[suffixCol])
+			if suffix != "" {
+				sampleName = sampleName + "." + suffix
+			}
+		}
+
+		// 检查样品名称是否重复
+		if _, exists := s.Samples[sampleName]; exists {
+			return fmt.Errorf("第 %d 行样品名称重复: %s", i+1, sampleName)
 		}
 
 		fullSeq := strings.ToUpper(targetSeq + synthSeq + postSeq)
