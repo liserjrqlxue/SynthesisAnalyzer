@@ -269,7 +269,6 @@ func (sampleStats *SampleStats) ProcessBAMReader(ctx context.Context, br *bam.Re
 	var insertSubtypes = make(map[InsertionSubtype]bool)
 	var deleteSubtypes = make(map[DeletionSubtype]bool)
 	var substSubtypes = make(map[SubstitutionSubtype]bool)
-	var deleteList []DeletionInfo
 
 	// 遍历所有记录
 	for {
@@ -329,7 +328,6 @@ func (sampleStats *SampleStats) ProcessBAMReader(ctx context.Context, br *bam.Re
 		for k := range substSubtypes {
 			delete(substSubtypes, k)
 		}
-		deleteList = deleteList[:0]
 
 		// 第一次遍历：收集位置统计和突变信息
 
@@ -536,7 +534,6 @@ func (sampleStats *SampleStats) ProcessBAMReader(ctx context.Context, br *bam.Re
 				sampleStats.DeleteSubtypeEvents[st]++
 				sampleStats.DeleteSubtypeBases[st] += del.Length
 				deleteSubtypes[st] = true
-				deleteList = append(deleteList, del)
 
 				if st == Del1 && len(del.Bases) == 1 {
 					base := del.Bases[0]
