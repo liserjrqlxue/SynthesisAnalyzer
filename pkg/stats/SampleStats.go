@@ -26,10 +26,10 @@ type SampleStats struct {
 	InsertLengthDist map[int]int    // 插入长度 -> count
 	InsertBaseCounts map[string]int // 插入序列 -> count
 
-	DeleteLengthDist     map[int]int    // 缺失长度 -> count
-	DeletePositionCounts map[string]int // "位置:碱基" -> count
-	MutationBaseCounts   map[string]int // 碱基维度变异统计
-	MutationList         []Mutation     // 所有突变列表（可选，用于调试）
+	DeleteLengthDist     map[int]int        // 缺失长度 -> count
+	DeletePositionCounts map[string]int     // "位置:碱基" -> count
+	MutationBaseCounts   map[string]int     // 碱基维度变异统计
+	MutationList         []SubstitutionInfo // 所有突变列表（可选，用于调试）
 
 	ReadCounts         int // 总reads数
 	AlignedReads       int // 比对上的reads数
@@ -437,7 +437,7 @@ func (sampleStats *SampleStats) ProcessSamRecord(read *sam.Record, NMerSize, Max
 	readInfo := analyzeReadDetailedInfo(read, mdMap, mdStr, sampleStats.Sample.RefSeqFull)
 	sampleStats.ReadTypeCounts[readInfo.MainType]++
 
-	mutationCount := len(readInfo.Mutations)
+	mutationCount := len(readInfo.Substitutions)
 	sampleStats.SubstitutionCountDist[mutationCount]++
 	sampleStats.AlignedBases += alignedBasesThisRead
 
@@ -485,7 +485,7 @@ func (sampleStats *SampleStats) ProcessSamRecord(read *sam.Record, NMerSize, Max
 		sampleStats.SubstitutionBaseTotal += mutationCount
 		sampleStats.MutationBaseCounts["substitution"] += mutationCount
 
-		for _, mut := range readInfo.Mutations {
+		for _, mut := range readInfo.Substitutions {
 			posKey := strconv.Itoa(mut.Position)
 			mutKey := mut.Ref + ">" + mut.Alt
 			posMutKey := posKey + "_" + mutKey
@@ -551,8 +551,8 @@ func (sampleStats *SampleStats) ProcessSamRecord(read *sam.Record, NMerSize, Max
 	}
 
 	// 替换细分类统计
-	if len(readInfo.Mutations) > 0 {
-		for _, sub := range readInfo.Mutations {
+	if len(readInfo.Substitutions) > 0 {
+		for _, sub := range readInfo.Substitutions {
 			st := sub.Subtype
 			sampleStats.SubstitutionSubtypeEvents[st]++
 			sampleStats.SubstitutionSubtypeBases[st]++

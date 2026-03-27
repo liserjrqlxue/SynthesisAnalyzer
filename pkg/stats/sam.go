@@ -2,7 +2,6 @@ package stats
 
 import (
 	"log"
-	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,17 +24,17 @@ func getMD(read *sam.Record) (mdStr string, hasMD bool) {
 	return
 }
 
-// parseMutationsWithMD 使用参考序列和MD标签解析突变
-func parseMutationsWithMD(read *sam.Record, refSeq string, mdMap map[int]string) (mutations []Mutation) {
+// analyzeSubstitutionSubtype 使用参考序列和MD标签解析突变
+func analyzeSubstitutionSubtype(read *sam.Record, refSeq string, mdMap map[int]string) *SubstituteSubtype {
+	subtype := &SubstituteSubtype{}
 	refStart := int(read.Pos)
-	seq := read.Seq.Expand()
+	seq := string(read.Seq.Expand())
 	if len(seq) == 0 {
-		return
+		return subtype
 	}
 
 	refPos := refStart
 	readPos := 0
-	refSeqLen := len(refSeq)
 
 	for _, cigarOp := range read.Cigar {
 		op := cigarOp.Type()
@@ -43,35 +42,7 @@ func parseMutationsWithMD(read *sam.Record, refSeq string, mdMap map[int]string)
 
 		switch op {
 		case sam.CigarMatch, sam.CigarEqual, sam.CigarMismatch:
-			for i := range length {
-				refBase := byte('N')
-				currentRefPos := refPos + i
-
-				if refSeq != "" && currentRefPos >= 0 && currentRefPos < refSeqLen {
-					refBase = refSeq[currentRefPos]
-				} else if mdMap != nil {
-					if base, ok := mdMap[currentRefPos]; ok {
-						refBase = base[0]
-					}
-				}
-
-				altBase := byte('N')
-				currentReadPos := readPos + i
-				if currentReadPos < len(seq) {
-					altBase = seq[currentReadPos]
-				}
-
-				if op == sam.CigarMismatch || refBase != altBase {
-					mutation := Mutation{
-						Position: currentRefPos + 1,
-						Ref:      string(refBase),
-						Alt:      string(altBase),
-					}
-					mutation.Subtype = mutation.ClassifySubstitution(refSeq)
-					mutations = append(mutations, mutation)
-					slog.Debug("mutation", "position", mutation.Position, "ref", mutation.Ref, "alt", mutation.Alt, "subtype", mutation.Subtype)
-				}
-			}
+			subtype.Classify(read, mdMap, refSeq, seq, refPos, readPos, length, op)
 
 			refPos += length
 			readPos += length
@@ -82,7 +53,7 @@ func parseMutationsWithMD(read *sam.Record, refSeq string, mdMap map[int]string)
 		}
 	}
 
-	return
+	return subtype
 }
 
 // isBase 判断字符是否为有效碱基
@@ -244,45 +215,27 @@ func analyzeReadDetailedInfo(read *sam.Record, mdMap map[int]string, mdStr, refS
 	// 基本类型分析
 	info.MainType = analyzeReadType(read)
 
+	hasInsertion, hasDelete, _ := CheckCigar(read)
+
 	// 分析插入子类型
-	if hasInsertInCigar(read) {
+	if hasInsertion {
 		info.InsertSub = analyzeInsertSubtype(read, refSeq)
 	}
 
 	// 分析缺失子类型
-	if hasDeleteInCigar(read) {
+	if hasDelete {
 		info.DeleteSub = analyzeDeleteSubtype(read, mdStr)
 	}
 
 	// 解析突变
-	info.Mutations = parseMutationsWithMD(read, refSeq, mdMap)
+	info.Substitutions = analyzeSubstitutionSubtype(read, refSeq, mdMap).Substitutions
 	return info
-}
-
-// hasInsertInCigar 检查CIGAR中是否有插入
-func hasInsertInCigar(read *sam.Record) bool {
-	for _, cigarOp := range read.Cigar {
-		if cigarOp.Type() == 1 { // I: 插入
-			return true
-		}
-	}
-	return false
-}
-
-// hasDeleteInCigar 检查CIGAR中是否有缺失
-func hasDeleteInCigar(read *sam.Record) bool {
-	for _, cigarOp := range read.Cigar {
-		if cigarOp.Type() == 2 || cigarOp.Type() == 3 { // D, N: 缺失
-			return true
-		}
-	}
-	return false
 }
 
 // analyzeInsertSubtype 分析插入子类型，使用参考序列
 func analyzeInsertSubtype(read *sam.Record, refSeq string) *InsertSubtype {
 	subtype := &InsertSubtype{}
-	seq := read.Seq.Expand()
+	seq := string(read.Seq.Expand())
 	refPos := int(read.Pos) // 0-basedd
 	readPos := 0
 
@@ -290,39 +243,16 @@ func analyzeInsertSubtype(read *sam.Record, refSeq string) *InsertSubtype {
 		op := cigarOp.Type()
 		length := cigarOp.Len()
 
-		if op == sam.CigarInsertion { // I: 插入
-		}
-
 		// 更新位置
 		switch op {
 		case sam.CigarMatch, sam.CigarEqual, sam.CigarMismatch: // M, =, X
 			refPos += length
 			readPos += length
 		case sam.CigarInsertion: // I
-			insertionSubtype := classifyInsertion(seq, readPos, length, refSeq, refPos)
-			// DupDup 转换为 2个Dup1
-			if insertionSubtype == DupDup {
-				insertion1 := InsertionInfo{
-					Bases:   string(seq[readPos:min(readPos+1, len(seq))]),
-					Length:  1,
-					Subtype: Dup1,
-				}
-				insertion2 := InsertionInfo{
-					Bases:   string(seq[readPos+1 : min(readPos+2, len(seq))]),
-					Length:  1,
-					Subtype: Dup1,
-				}
-				subtype.Insertions = append(subtype.Insertions, insertion1, insertion2)
-			} else {
-				insertion := InsertionInfo{
-					Bases:   string(seq[readPos:min(readPos+length, len(seq))]),
-					Length:  length,
-					Subtype: insertionSubtype,
-				}
-				subtype.Insertions = append(subtype.Insertions, insertion)
-			}
+			subtype.Classify(read, refSeq, seq, refPos, readPos, length)
+
 			readPos += length
-		case sam.CigarSoftClipped: // I, S
+		case sam.CigarSoftClipped: // S
 			readPos += length
 		case sam.CigarDeletion, sam.CigarSkipped: // D, N
 			refPos += length
@@ -354,16 +284,6 @@ func analyzeDeleteSubtype(read *sam.Record, mdStr string) *DeleteSubtype {
 		op := cigarOp.Type()
 		length := cigarOp.Len()
 
-		if op == sam.CigarDeletion || op == sam.CigarSkipped { // D, N: 缺失
-			// 记录缺失长度
-			deletion := DeletionInfo{
-				Length:   length,
-				Position: refPos + 1, // 转换为1-based
-				Subtype:  classifyDeletion(length),
-			}
-			subtype.Deletions = append(subtype.Deletions, deletion)
-		}
-
 		// 更新位置
 		switch op {
 		case sam.CigarMatch, sam.CigarEqual, sam.CigarMismatch: // M, =, X
@@ -371,6 +291,7 @@ func analyzeDeleteSubtype(read *sam.Record, mdStr string) *DeleteSubtype {
 		case sam.CigarInsertion, sam.CigarSoftClipped: // I, S
 			// 插入，不增加参考位置
 		case sam.CigarDeletion, sam.CigarSkipped: // D, N
+			subtype.Classify(read, refPos, length)
 			refPos += length
 		}
 	}
@@ -460,7 +381,7 @@ func isDigit(c byte) bool {
 
 // classifyInsertion 判定插入细分类
 // 依赖 参考序列上下文（-1/+1位置）
-func classifyInsertion(seq []byte, readPos int, length int, refSeq string, refPos int) InsertionSubtype {
+func classifyInsertion(refSeq, seq string, refPos, readPos, length int) InsertionSubtype {
 	// refPos 是插入前的参考位置（0-based）
 	// 获取-1和+1位置的碱基（如果存在）
 	leftBase := byte('N')
@@ -513,4 +434,21 @@ func classifyDeletion(length int) DeletionSubtype {
 	default: // >2
 		return Del3
 	}
+}
+
+// CheckCigar 检查CIGAR中是否有插入、缺失、替换
+func CheckCigar(read *sam.Record) (hasInsertion bool, hasDelete bool, hasSubstitution bool) {
+	for _, cigarOp := range read.Cigar {
+		op := cigarOp.Type()
+
+		switch op {
+		case sam.CigarInsertion: // I
+			hasInsertion = true
+		case sam.CigarDeletion, sam.CigarSkipped: // D, N: 缺失
+			hasDelete = true
+		case sam.CigarMismatch: // X: 替换
+			hasSubstitution = true
+		}
+	}
+	return
 }

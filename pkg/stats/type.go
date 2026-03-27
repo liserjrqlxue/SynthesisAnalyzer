@@ -114,7 +114,7 @@ func (stats *MutationStats) WriteSubtype(writer io.Writer) {
 }
 
 // ClassifySubstitution 使用参考序列判定替换细分类
-func (mutation Mutation) ClassifySubstitution(refSeq string) SubstitutionSubtype {
+func (mutation SubstitutionInfo) ClassifySubstitution(refSeq string) SubstitutionSubtype {
 	var (
 		// pos 是 1-based 位置
 		pos       = mutation.Position
