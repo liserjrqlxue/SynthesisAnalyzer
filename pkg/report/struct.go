@@ -1,5 +1,10 @@
 package report
 
+import (
+	"fmt"
+	"strings"
+)
+
 // ------------------------------------------------------------
 // 数据结构定义（与 JSON 一一对应）
 // ------------------------------------------------------------
@@ -134,6 +139,7 @@ type ReportData struct {
 	BatchID string
 
 	Wells map[string]*Well `json:"wells"` // 所有孔的映射，key为位置
+	Plate [12][8]*Well     `json:"plate"` // 合成板位数据
 	// 错误统计的参考值（仅用于输出参考列，数据由程序计算）
 	ErrorStatsRef []ErrorStatRef `json:"error_stats_ref"`
 	// 位置统计数据（用于合成轮次分析）
@@ -144,6 +150,83 @@ type ReportData struct {
 	// PlateAnalysis PlateAnalysis `json:"plate_analysis"`
 	CycleAnalysis CycleAnalysis `json:"cycle_analysis"`
 	Appendix      Appendix      `json:"appendix"`
+}
+
+// 定义常量
+const (
+	Rows = 12 // 12行
+	Cols = 8  // 8列
+)
+
+// 列字母到索引的映射
+var colIndex = map[string]int{
+	"H": 0, "G": 1, "F": 2, "E": 3,
+	"D": 4, "C": 5, "B": 6, "A": 7,
+}
+
+// 列名称列表
+var colName = []string{
+	"H", "G", "F", "E",
+	"D", "C", "B", "A",
+}
+
+// buildWellPlate 构建二维孔索引
+func (r *ReportData) buildWellPlate() {
+	var plate [Rows][Cols]*Well
+	for _, well := range r.Wells {
+		if well.Row >= 1 && well.Row <= Rows {
+			if col, ok := colIndex[well.ColLetter]; ok && col >= 0 && col < Cols {
+				plate[well.Row-1][col] = well
+			}
+		}
+	}
+	r.Plate = plate
+}
+
+// makeBatchID 生成 batchID (合成日期+仪器号，仅保留字母数字)，并更新到 BatchID 字段
+func (r *ReportData) makeBatchID() {
+	if r.BatchID != "" {
+		return // 已存在则不重新生成
+	}
+	s := strings.ReplaceAll(r.SynthesisDate, ".", "") + r.InstrumentID
+	var out strings.Builder
+	for _, char := range s {
+		if (char >= '0' && char <= '9') || (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') {
+			out.WriteRune(char)
+		}
+	}
+	r.BatchID = out.String()
+}
+
+// extractFieldPlate 从孔板提取指定字段的值
+func (r *ReportData) extractFieldPlate(field string) [Rows][Cols]any {
+	plate := r.Plate
+	var result [Rows][Cols]any
+	for i := range Rows {
+		for j := range Cols {
+			if well := plate[i][j]; well != nil {
+				switch field {
+				case "name":
+					result[i][j] = well.Name
+				case "predicted_yield":
+					result[i][j] = fmt.Sprintf("%.2f%%", well.PredictedYield)
+				case "yield":
+					result[i][j] = fmt.Sprintf("%.2f%%", well.Yield)
+				case "deletion":
+					result[i][j] = fmt.Sprintf("%.2f%%", well.Deletion)
+				case "mutation":
+					result[i][j] = fmt.Sprintf("%.2f%%", well.Mutation)
+				case "insertion":
+					result[i][j] = fmt.Sprintf("%.2f%%", well.Insertion)
+				default:
+					result[i][j] = ""
+				}
+			} else {
+				result[i][j] = ""
+			}
+		}
+	}
+	return result
 }
 
 // ErrorStatRef 错误统计参考值

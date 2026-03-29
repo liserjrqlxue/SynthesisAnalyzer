@@ -48,23 +48,21 @@ func (g *Generator) GenerateHTML(data *ReportData) string {
 	g.writeHTMLHeader(b, data.ReportTitle)
 
 	// 构建二维孔索引
-	plate := g.buildWellPlate(data.Wells)
-	batchID := data.BatchID
-	if batchID == "" {
-		batchID = g.makeBatchID(data.SynthesisDate, data.InstrumentID)
-	}
+	data.buildWellPlate()
+	// 生成并更新 batchID
+	data.makeBatchID()
 
 	// 1. Summary
-	g.writeSummarySection(b, data, plate, batchID)
+	g.writeSummarySection(b, data)
 
 	// 2. 合成板位分析
-	g.writePlateAnalysisSection(b, data, plate, batchID)
+	g.writePlateAnalysisSection(b, data)
 
 	// 3. 合成轮次分析
 	g.writeCycleAnalysisSection(b, data, outputDir)
 
 	// 4. 附录
-	g.writeAppendixSection(b, data, batchID)
+	g.writeAppendixSection(b, data)
 
 	// HTML 尾部
 	g.writeHTMLFooter(b)
@@ -199,7 +197,7 @@ func (g *Generator) writeHTMLFooter(b *strings.Builder) {
 }
 
 // writeSummarySection 写入摘要部分
-func (g *Generator) writeSummarySection(b *strings.Builder, data *ReportData, plate [Rows][Cols]*Well, batchID string) {
+func (g *Generator) writeSummarySection(b *strings.Builder, data *ReportData) {
 	b.WriteString("<h2>1. Summary</h2>\n")
 
 	// 基本信息
@@ -285,14 +283,14 @@ func (g *Generator) writeSummarySection(b *strings.Builder, data *ReportData, pl
 }
 
 // writePlateAnalysisSection 写入板位分析部分
-func (g *Generator) writePlateAnalysisSection(b *strings.Builder, data *ReportData, plate [Rows][Cols]*Well, batchID string) {
+func (g *Generator) writePlateAnalysisSection(b *strings.Builder, data *ReportData) {
 	b.WriteString("<h2>2. 合成板位分析</h2>\n")
 
 	// 构建重合矩阵（仅在合成排板时需要）
 	var overlapMatrix [Rows][Cols]bool
 	for i := range Rows {
 		for j := range Cols {
-			w := plate[i][j]
+			w := data.Plate[i][j]
 			if w != nil && w.IsOverlap {
 				overlapMatrix[i][j] = true
 			}
@@ -300,43 +298,43 @@ func (g *Generator) writePlateAnalysisSection(b *strings.Builder, data *ReportDa
 	}
 
 	// 2.1 合成排板
-	namePlate := g.extractFieldPlate(plate, "name")
-	g.printPlateTableHTML(b, "2.1 合成排板", "", "标黄引物为重合序列", batchID, namePlate, &overlapMatrix)
+	namePlate := data.extractFieldPlate("name")
+	g.printPlateTableHTML(b, "2.1 合成排板", "", "标黄引物为重合序列", data.BatchID, namePlate, &overlapMatrix)
 
 	// 2.2 预测合成收率
-	predVals := g.extractValues(plate, "predicted_yield")
+	predVals := g.extractValues(data.Plate, "predicted_yield")
 	meanPred, stdPred := stat.MeanStdDev(predVals, nil)
 	predTitle := fmt.Sprintf("2.2 预测合成收率 (%.2f%%±%.2f%%)", meanPred, stdPred)
-	predPlate := g.extractFieldPlate(plate, "predicted_yield")
-	g.printPlateTableHTML(b, predTitle, "", "", batchID, predPlate, nil)
+	predPlate := data.extractFieldPlate("predicted_yield")
+	g.printPlateTableHTML(b, predTitle, "", "", data.BatchID, predPlate, nil)
 
 	// 2.3 收率板位统计
-	yieldVals := g.extractValues(plate, "yield")
+	yieldVals := g.extractValues(data.Plate, "yield")
 	meanYield, stdYield2 := stat.MeanStdDev(yieldVals, nil)
 	yieldTitle := fmt.Sprintf("2.3 收率板位统计 (%.2f%%±%.2f%%)", meanYield, stdYield2)
-	yieldPlate := g.extractFieldPlate(plate, "yield")
-	g.printPlateTableHTML(b, yieldTitle, "", "", batchID, yieldPlate, nil)
+	yieldPlate := data.extractFieldPlate("yield")
+	g.printPlateTableHTML(b, yieldTitle, "", "", data.BatchID, yieldPlate, nil)
 
 	// 2.4 缺失板位统计
-	delVals := g.extractValues(plate, "deletion")
+	delVals := g.extractValues(data.Plate, "deletion")
 	meanDel, stdDel := stat.MeanStdDev(delVals, nil)
 	delTitle := fmt.Sprintf("2.4 缺失板位统计 (%.2f%%±%.2f%%)", meanDel, stdDel)
-	delPlate := g.extractFieldPlate(plate, "deletion")
-	g.printPlateTableHTML(b, delTitle, "", "", batchID, delPlate, nil)
+	delPlate := data.extractFieldPlate("deletion")
+	g.printPlateTableHTML(b, delTitle, "", "", data.BatchID, delPlate, nil)
 
 	// 2.5 突变板位统计
-	mutVals := g.extractValues(plate, "mutation")
+	mutVals := g.extractValues(data.Plate, "mutation")
 	meanMut, stdMut := stat.MeanStdDev(mutVals, nil)
 	mutTitle := fmt.Sprintf("2.5 突变板位统计 (%.2f%%±%.2f%%)", meanMut, stdMut)
-	mutPlate := g.extractFieldPlate(plate, "mutation")
-	g.printPlateTableHTML(b, mutTitle, "", "", batchID, mutPlate, nil)
+	mutPlate := data.extractFieldPlate("mutation")
+	g.printPlateTableHTML(b, mutTitle, "", "", data.BatchID, mutPlate, nil)
 
 	// 2.6 插入板位统计
-	insVals := g.extractValues(plate, "insertion")
+	insVals := g.extractValues(data.Plate, "insertion")
 	meanIns, stdIns := stat.MeanStdDev(insVals, nil)
 	insTitle := fmt.Sprintf("2.6 插入板位统计 (%.2f%%±%.2f%%)", meanIns, stdIns)
-	insPlate := g.extractFieldPlate(plate, "insertion")
-	g.printPlateTableHTML(b, insTitle, "", "", batchID, insPlate, nil)
+	insPlate := data.extractFieldPlate("insertion")
+	g.printPlateTableHTML(b, insTitle, "", "", data.BatchID, insPlate, nil)
 }
 
 // writeCycleAnalysisSection 写入轮次分析部分
@@ -451,73 +449,32 @@ func (g *Generator) generateHeatmapSection(b *strings.Builder, data *ReportData,
 }
 
 // writeAppendixSection 写入附录部分
-func (g *Generator) writeAppendixSection(b *strings.Builder, data *ReportData, batchID string) {
+func (g *Generator) writeAppendixSection(b *strings.Builder, data *ReportData) {
 	b.WriteString("<h2>4. 附录</h2>\n")
 
 	// 4.1 单孔单轮信息——收率
 	b.WriteString(`<div class="section">` + "\n")
 	b.WriteString("<h3>4.1 单孔单轮信息——收率</h3>\n")
-	g.printWellPositionTableHTML(b, data, "yield", batchID)
+	g.printWellPositionTableHTML(b, data, "yield", data.BatchID)
 	b.WriteString("</div>\n") // 结束section
 
 	// 4.2 单孔单轮信息——缺失
 	b.WriteString(`<div class="section" style="page-break-before: always;">` + "\n")
 	b.WriteString("<h3>4.2 单孔单轮信息——缺失</h3>\n")
-	g.printWellPositionTableHTML(b, data, "deletion", batchID)
+	g.printWellPositionTableHTML(b, data, "deletion", data.BatchID)
 	b.WriteString("</div>\n") // 结束section
 
 	// 4.3 单孔单轮信息——插入
 	b.WriteString(`<div class="section" style="page-break-before: always;">` + "\n")
 	b.WriteString("<h3>4.3 单孔单轮信息——插入</h3>\n")
-	g.printWellPositionTableHTML(b, data, "insertion", batchID)
+	g.printWellPositionTableHTML(b, data, "insertion", data.BatchID)
 	b.WriteString("</div>\n") // 结束section
 
 	// 4.4 单孔单轮信息——突变
 	b.WriteString(`<div class="section" style="page-break-before: always;">` + "\n")
 	b.WriteString("<h3>4.4 单孔单轮信息——突变</h3>\n")
-	g.printWellPositionTableHTML(b, data, "mutation", batchID)
+	g.printWellPositionTableHTML(b, data, "mutation", data.BatchID)
 	b.WriteString("</div>\n") // 结束section
-}
-
-// 常量和辅助函数
-const (
-	Rows = 12
-	Cols = 8
-)
-
-// 列字母到索引的映射
-var colIndex = map[string]int{
-	"H": 0, "G": 1, "F": 2, "E": 3,
-	"D": 4, "C": 5, "B": 6, "A": 7,
-}
-var colName = []string{
-	"H", "G", "F", "E",
-	"D", "C", "B", "A",
-}
-
-// 辅助函数
-func (g *Generator) buildWellPlate(wells map[string]*Well) [Rows][Cols]*Well {
-	var plate [Rows][Cols]*Well
-	for _, well := range wells {
-		if well.Row >= 1 && well.Row <= Rows {
-			if col, ok := colIndex[well.ColLetter]; ok && col >= 0 && col < Cols {
-				plate[well.Row-1][col] = well
-			}
-		}
-	}
-	return plate
-}
-
-// 生成 batchID (合成日期+仪器号，仅保留字母数字)
-func (g *Generator) makeBatchID(synthesisDate, instrumentID string) string {
-	s := strings.ReplaceAll(synthesisDate, ".", "") + instrumentID
-	var out strings.Builder
-	for _, r := range s {
-		if (r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-			out.WriteRune(r)
-		}
-	}
-	return out.String()
 }
 
 // 从孔板提取非零数值列表（过滤零值？根据需求，收率可能为0，我们保留所有值）
@@ -544,35 +501,6 @@ func (g *Generator) extractValues(plate [Rows][Cols]*Well, field string) []float
 		}
 	}
 	return values
-}
-
-func (g *Generator) extractFieldPlate(plate [Rows][Cols]*Well, field string) [Rows][Cols]interface{} {
-	var result [Rows][Cols]interface{}
-	for i := 0; i < Rows; i++ {
-		for j := 0; j < Cols; j++ {
-			if well := plate[i][j]; well != nil {
-				switch field {
-				case "name":
-					result[i][j] = well.Name
-				case "predicted_yield":
-					result[i][j] = fmt.Sprintf("%.2f%%", well.PredictedYield) // 这里假设Yield是预测收率
-				case "yield":
-					result[i][j] = fmt.Sprintf("%.2f%%", well.Yield)
-				case "deletion":
-					result[i][j] = fmt.Sprintf("%.2f%%", well.Deletion)
-				case "mutation":
-					result[i][j] = fmt.Sprintf("%.2f%%", well.Mutation)
-				case "insertion":
-					result[i][j] = fmt.Sprintf("%.2f%%", well.Insertion)
-				default:
-					result[i][j] = ""
-				}
-			} else {
-				result[i][j] = ""
-			}
-		}
-	}
-	return result
 }
 
 // 格式化单元格（通用）
