@@ -86,7 +86,7 @@ func (p *Processor) loadJSON() (*ReportData, error) {
 			BarcodeReads:        0,
 			FilteredReads:       0,
 			MatchedReads:        0,
-			Wells:               []*Well{},
+			Wells:               map[string]*Well{},
 			ErrorStatsRef:       []ErrorStatRef{},
 			Summary: Summary{
 				BasicInfo: BasicInfo{
@@ -147,42 +147,20 @@ func (p *Processor) validateReportData(report *ReportData) error {
 
 // updateWellInfo 根据BOM文件更新孔位信息
 func (p *Processor) updateWellInfo(report *ReportData) error {
-	// 清空现有的孔位信息
-	report.Wells = []*Well{}
-
-	wellMap, err := ReadBOMFile(p.config.BomFile, p.config.SuffixCol)
+	// 从BOM文件读取孔位信息
+	wells, err := p.ReadBOMFile()
 	if err != nil {
 		return err
 	}
+	report.Wells = wells
 
 	// 计算序列长度的最大值
 	maxSequenceLength := 0
-
-	// 根据BOM文件创建新的孔位信息
-	for _, well := range wellMap {
-		// 解析位置信息，如 "A1" -> 行1，列字母A
-		row, colLetter, err := parseWellPosition(well.Position)
-		if err != nil {
-			continue
-		}
-
-		// 计算序列长度
+	for _, well := range report.Wells {
 		sequenceLength := len(well.Sequence)
 		if sequenceLength > maxSequenceLength {
 			maxSequenceLength = sequenceLength
 		}
-
-		// 设置行和列信息
-		well.Row = row
-		well.ColLetter = colLetter
-
-		// 初始化收率和错误数据
-		well.Yield = 0     // 默认收率为0
-		well.Deletion = 0  // 默认缺失为0
-		well.Mutation = 0  // 默认突变为0
-		well.Insertion = 0 // 默认插入为0
-
-		report.Wells = append(report.Wells, well)
 	}
 
 	// 更新well_count为实际well个数
@@ -350,7 +328,7 @@ func (p *Processor) updatePositionStats(report *ReportData, mutationStatsDir str
 }
 
 // calculateBatchMeanPositionStats 计算批次均值位置统计数据
-func (p *Processor) calculateBatchMeanPositionStats(wells []*Well) []PositionStats {
+func (p *Processor) calculateBatchMeanPositionStats(wells map[string]*Well) []PositionStats {
 	if len(wells) == 0 {
 		return nil
 	}
@@ -404,9 +382,11 @@ func (p *Processor) calculateBatchMeanPositionStats(wells []*Well) []PositionSta
 }
 
 // ReadBOMFile 从BOM.xlsx文件读取孔位信息
-func ReadBOMFile(bomFile string, suffixCol string) (map[string]*Well, error) {
+func (p *Processor) ReadBOMFile() (map[string]*Well, error) {
 	var (
 		sheetName = "引物订购单"
+		bomFile   = p.config.BomFile
+		suffixCol = p.config.SuffixCol
 	)
 
 	// 打开Excel文件
@@ -483,6 +463,10 @@ func ReadBOMFile(bomFile string, suffixCol string) (map[string]*Well, error) {
 				Position:  position,
 				Name:      primerName,
 				IsOverlap: false, // 默认值
+				Yield:     0,     // 默认收率为0
+				Deletion:  0,     // 默认缺失为0
+				Mutation:  0,     // 默认突变为0
+				Insertion: 0,     // 默认插入为0
 			}
 
 			// 读取是否重合列
@@ -508,6 +492,11 @@ func ReadBOMFile(bomFile string, suffixCol string) (map[string]*Well, error) {
 			// 读取序列列
 			if _, ok := headerMap["序列"]; ok && len(row) > sequenceIndex {
 				well.Sequence = strings.TrimSpace(row[sequenceIndex])
+			}
+
+			// 解析位置信息，如 "A1" -> 行1，列字母A
+			if err := well.parseWellPosition(); err != nil {
+				return nil, fmt.Errorf("解析孔位位置失败 [%s]: %w", position, err)
 			}
 
 			wellMap[position] = well
@@ -946,30 +935,34 @@ func CalculateYieldStatistics(yields []float64) (float64, float64, float64, floa
 }
 
 // parseWellPosition 解析孔位位置，如 "A1" -> 行1，列字母A
-func parseWellPosition(position string) (int, string, error) {
+func (w *Well) parseWellPosition() error {
 	// 提取列字母和行号
 	var colLetter string
 	var rowStr string
 
-	for i, r := range position {
+	for i, r := range w.Position {
 		if (r >= 'A' && r <= 'H') || (r >= 'a' && r <= 'h') {
 			colLetter = string(r)
-			rowStr = position[i+1:]
+			rowStr = w.Position[i+1:]
 			break
 		}
 	}
 
 	if colLetter == "" || rowStr == "" {
-		return 0, "", fmt.Errorf("无效的孔位位置: %s", position)
+		return fmt.Errorf("无效的孔位位置: %s", w.Position)
 	}
 
 	row, err := strconv.Atoi(rowStr)
 	if err != nil {
-		return 0, "", fmt.Errorf("无效的行号: %s", rowStr)
+		return fmt.Errorf("无效的行号: %s", rowStr)
 	}
 
 	// 转换为大写字母
 	colLetter = strings.ToUpper(colLetter)
 
-	return row, colLetter, nil
+	// 更新 Well 结构体的字段
+	w.Row = row
+	w.ColLetter = colLetter
+
+	return nil
 }

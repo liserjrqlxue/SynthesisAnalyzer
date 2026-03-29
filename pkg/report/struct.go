@@ -133,7 +133,7 @@ type ReportData struct {
 
 	BatchID string
 
-	Wells []*Well `json:"wells"` // 所有孔的列表
+	Wells map[string]*Well `json:"wells"` // 所有孔的映射，key为位置
 	// 错误统计的参考值（仅用于输出参考列，数据由程序计算）
 	ErrorStatsRef []ErrorStatRef `json:"error_stats_ref"`
 	// 位置统计数据（用于合成轮次分析）

@@ -496,7 +496,7 @@ var colName = []string{
 }
 
 // 辅助函数
-func (g *Generator) buildWellPlate(wells []*Well) [Rows][Cols]*Well {
+func (g *Generator) buildWellPlate(wells map[string]*Well) [Rows][Cols]*Well {
 	var plate [Rows][Cols]*Well
 	for _, well := range wells {
 		if well.Row >= 1 && well.Row <= Rows {
