@@ -91,7 +91,7 @@ func (p *Processor) loadJSON() (*ReportData, error) {
 			Summary: Summary{
 				BasicInfo: BasicInfo{
 					SynthesisProcessVer: "V3.0",
-					SEC1ProcessVer:      "SECV1.0",
+					SEC1ProcessVer:      "SECV2.0",
 				},
 				Statistics: SummaryStats{},
 				ErrorStats: []ErrorStat{},
@@ -150,7 +150,7 @@ func (p *Processor) updateWellInfo(report *ReportData) error {
 	// 清空现有的孔位信息
 	report.Wells = []*Well{}
 
-	wellMap, err := ReadBOMFile(p.config.BomFile)
+	wellMap, err := ReadBOMFile(p.config.BomFile, p.config.SuffixCol)
 	if err != nil {
 		return err
 	}
@@ -404,7 +404,7 @@ func (p *Processor) calculateBatchMeanPositionStats(wells []*Well) []PositionSta
 }
 
 // ReadBOMFile 从BOM.xlsx文件读取孔位信息
-func ReadBOMFile(bomFile string) (map[string]*Well, error) {
+func ReadBOMFile(bomFile string, suffixCol string) (map[string]*Well, error) {
 	var (
 		sheetName = "引物订购单"
 	)
@@ -428,33 +428,29 @@ func ReadBOMFile(bomFile string) (map[string]*Well, error) {
 
 	wellMap := make(map[string]*Well) // key: 位置, value: 孔位信息
 
-	// 读取表头，确定各列的索引
-	var positionIndex, primerNameIndex, isOverlapIndex, predictedYieldIndex, sequenceIndex int
-	positionIndex = -1
-	primerNameIndex = -1
-	isOverlapIndex = -1
-	predictedYieldIndex = -1
-	sequenceIndex = -1
-
+	// 读取表头，构建列名到索引的映射
+	headerMap := make(map[string]int)
 	headers := rows[0]
 	for i, header := range headers {
-		switch strings.TrimSpace(header) {
-		case "位置":
-			positionIndex = i
-		case "引物名称":
-			primerNameIndex = i
-		case "是否重合":
-			isOverlapIndex = i
-		case "预测收率":
-			predictedYieldIndex = i
-		case "序列":
-			sequenceIndex = i
-		}
+		headerMap[strings.TrimSpace(header)] = i
 	}
 
+	// 从 map 中提取各列的索引
+	positionIndex, hasPosition := headerMap["位置"]
+	primerNameIndex, hasPrimerName := headerMap["引物名称"]
+	isOverlapIndex, _ := headerMap["是否重合"]
+	predictedYieldIndex, _ := headerMap["预测收率"]
+	sequenceIndex, _ := headerMap["序列"]
+	suffixColIndex, hasSuffixCol := headerMap[suffixCol]
+
 	// 检查是否找到必要的列
-	if positionIndex == -1 || primerNameIndex == -1 {
+	if !hasPosition || !hasPrimerName {
 		return nil, fmt.Errorf("在BOM文件中未找到'位置'或'引物名称'列")
+	}
+
+	// 检查后缀列
+	if suffixCol != "" && !hasSuffixCol {
+		return nil, fmt.Errorf("在BOM文件中未找到指定的后缀列: %s", suffixCol)
 	}
 
 	// 读取数据行
@@ -474,6 +470,14 @@ func ReadBOMFile(bomFile string) (map[string]*Well, error) {
 			continue
 		}
 
+		// 拼接后缀列到引物名称
+		if suffixCol != "" && hasSuffixCol && len(row) > suffixColIndex {
+			suffix := strings.TrimSpace(row[suffixColIndex])
+			if suffix != "" {
+				primerName = primerName + "." + suffix
+			}
+		}
+
 		if position != "" && primerName != "" {
 			well := &Well{
 				Position:  position,
@@ -482,15 +486,16 @@ func ReadBOMFile(bomFile string) (map[string]*Well, error) {
 			}
 
 			// 读取是否重合列
-			if isOverlapIndex != -1 && len(row) > isOverlapIndex {
+			if _, ok := headerMap["是否重合"]; ok && len(row) > isOverlapIndex {
 				isOverlapStr := strings.TrimSpace(row[isOverlapIndex])
 				if isOverlapStr == "是" || isOverlapStr == "1" || isOverlapStr == "true" {
 					well.IsOverlap = true
+					slog.Warn("标黄引物为重合序列", "孔位", position, "引物名称", primerName)
 				}
 			}
 
 			// 读取预测收率列
-			if predictedYieldIndex != -1 && len(row) > predictedYieldIndex {
+			if _, ok := headerMap["预测收率"]; ok && len(row) > predictedYieldIndex {
 				predictedYieldStr := strings.TrimSpace(row[predictedYieldIndex])
 				if predictedYieldStr != "" {
 					predictedYield, err := strconv.ParseFloat(predictedYieldStr, 64)
@@ -501,7 +506,7 @@ func ReadBOMFile(bomFile string) (map[string]*Well, error) {
 			}
 
 			// 读取序列列
-			if sequenceIndex != -1 && len(row) > sequenceIndex {
+			if _, ok := headerMap["序列"]; ok && len(row) > sequenceIndex {
 				well.Sequence = strings.TrimSpace(row[sequenceIndex])
 			}
 
