@@ -35,8 +35,8 @@ func (g *Generator) GenerateHTML(data *ReportData) string {
 
 	// 获取输出目录
 	outputDir := "."
-	if g.config.OutputFile != "" {
-		outputDir = filepath.Dir(g.config.OutputFile)
+	if g.config.Prefix != "" {
+		outputDir = filepath.Dir(g.config.Prefix)
 	}
 
 	// 确保输出目录存在
@@ -1025,4 +1025,72 @@ func (g *Generator) getTextColor(val, min, max float64) string {
 	} else {
 		return "white"
 	}
+}
+
+// GenerateTXT 生成TXT报告
+func (g *Generator) GenerateTXT(data *ReportData) string {
+	b := &strings.Builder{}
+
+	// 1. 基本信息
+	b.WriteString("基本信息\n")
+	b.WriteString("========\n")
+	b.WriteString(fmt.Sprintf("合成日期: %s\n", data.SynthesisDate))
+	b.WriteString(fmt.Sprintf("仪器号: %s\n", data.InstrumentID))
+	b.WriteString(fmt.Sprintf("合成孔数: %d\n", data.WellCount))
+	b.WriteString(fmt.Sprintf("合成长度: %dnt\n", data.SynthesisLength))
+	b.WriteString(fmt.Sprintf("合成工艺版本: %s\n", data.SynthesisProcessVer))
+	b.WriteString(fmt.Sprintf("SEC1工艺版本: %s\n", data.SEC1ProcessVer))
+	b.WriteString(fmt.Sprintf("测序日期: %s\n", data.SequencingDate))
+	b.WriteString(fmt.Sprintf("总处理reads数: %d\n", data.BarcodeReads))
+	b.WriteString(fmt.Sprintf("过滤拼接后reads数: %d\n", data.FilteredReads))
+	b.WriteString(fmt.Sprintf("成功匹配reads数: %d\n", data.MatchedReads))
+
+	// 统计概要
+	stats := data.Summary.Statistics
+
+	// 建立参考值映射
+	refMap := make(map[string]*float64)
+	for _, ref := range data.ErrorStatsRef {
+		refMap[ref.ErrorType] = ref.Reference
+	}
+
+	// 平均收率
+	if refVal, ok := refMap["平均收率"]; ok && refVal != nil && *refVal > 0 {
+		b.WriteString(fmt.Sprintf("平均收率: %.2f%% (参考值%.2f%%)\n", stats.AvgYield, *refVal))
+	} else {
+		b.WriteString(fmt.Sprintf("平均收率: %.2f%%\n", stats.AvgYield))
+	}
+	// 收率标准差
+	if refVal, ok := refMap["收率标准差"]; ok && refVal != nil && *refVal > 0 {
+		b.WriteString(fmt.Sprintf("收率标准差: %.2f%% (参考值%.2f%%)\n", stats.YieldStddev, *refVal))
+	} else {
+		b.WriteString(fmt.Sprintf("收率标准差: %.2f%%\n", stats.YieldStddev))
+	}
+
+	b.WriteString(fmt.Sprintf("收率中位数: %.2f%%\n", stats.YieldMedian))
+	b.WriteString(fmt.Sprintf("收率四分位数: %.2f%%\n", stats.YieldQuartile))
+	b.WriteString(fmt.Sprintf("收率<1%%片段个数: %d\n", stats.YieldLt1Count))
+	b.WriteString(fmt.Sprintf("收率<5%%片段个数: %d\n", stats.YieldLt5Count))
+	b.WriteString(fmt.Sprintf("预测难度序列: %d\n", stats.PredictedDifficultSeq))
+	b.WriteString(fmt.Sprintf("重合序列: %d\n", stats.OverlapSequences))
+	b.WriteString("\n")
+
+	// 2. 合成错误统计
+	b.WriteString("合成错误统计\n")
+	b.WriteString("============\n")
+	b.WriteString(fmt.Sprintf("%-30s\t%s\n", "错误类型-CN", "数据"))
+	b.WriteString(strings.Repeat("-", 50) + "\n")
+
+	for _, es := range data.Summary.ErrorStats {
+		// 获取错误类型的详细信息
+		errorInfo := errorTypeInfoMap[es.ErrorType]
+
+		dataStr := ""
+		if es.Data != nil {
+			dataStr = fmt.Sprintf("%.2f%%", *es.Data)
+		}
+		b.WriteString(fmt.Sprintf("%-30s\t%s\n", errorInfo.CN, dataStr))
+	}
+
+	return b.String()
 }

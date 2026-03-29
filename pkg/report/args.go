@@ -8,7 +8,7 @@ import (
 // Config 存储命令行参数
 type Config struct {
 	InputFile        string
-	OutputFile       string
+	Prefix           string // 输出文件前缀
 	MutationStatsDir string
 	BomFile          string
 	SuffixCol        string // 样品名称后缀列
@@ -22,7 +22,7 @@ type Config struct {
 // ParseArgs 解析命令行参数
 func ParseArgs() *Config {
 	inputFile := flag.String("i", "", "输入JSON文件路径（可选）")
-	outputFile := flag.String("o", "", "输出报告文件路径（默认输出到stdout）")
+	prefix := flag.String("p", "", "输出文件前缀（默认输出到stdout）")
 	mutationStatsDir := flag.String("m", "", "mutation_stats目录路径（必填）")
 	bomFile := flag.String("b", "", "BOM.xlsx文件路径（必填）")
 	suffixCol := flag.String("suffix-col", "", "可选参数：样品名称后缀列，若指定则将该列值拼接到样品名称后")
@@ -46,7 +46,7 @@ func ParseArgs() *Config {
 
 	return &Config{
 		InputFile:        *inputFile,
-		OutputFile:       *outputFile,
+		Prefix:           *prefix,
 		MutationStatsDir: *mutationStatsDir,
 		BomFile:          *bomFile,
 		SuffixCol:        *suffixCol,
