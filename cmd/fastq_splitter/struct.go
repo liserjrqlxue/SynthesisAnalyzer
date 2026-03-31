@@ -14,7 +14,7 @@ type Config struct {
 	OutputDir        string
 	FastqDir         string
 	Threads          int
-	UseRC            bool // 是否使用反向互补
+	UseRC            bool   // 是否使用反向互补
 	SampleNameSuffix string // 样品名称后缀列
 
 	// 匹配参数
@@ -36,6 +36,9 @@ type Config struct {
 
 	// 比对相关配置
 	Alignment AlignmentConfig
+
+	// 污染检测
+	ContaminationDetection bool // 是否启用交叉污染检测
 
 	// --overlap_len_require
 	// the minimum length to detect overlapped region of PE reads. This will affect overlap analysis based PE merge, adapter trimming and correction. 30 by default. (int [=30])

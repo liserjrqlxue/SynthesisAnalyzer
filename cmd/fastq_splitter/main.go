@@ -50,6 +50,11 @@ var (
 		30,
 		"the minimum length to detect overlapped region of PE reads. This will affect overlap analysis based PE merge, adapter trimming and correction. 3",
 	)
+	contaminationDetection = flag.Bool(
+		"contamination-detection",
+		false,
+		"启用交叉污染检测功能",
+	)
 )
 
 func main() {
@@ -144,7 +149,8 @@ func main() {
 			AnalysisOnly:   false,
 		},
 
-		OverlapLenRequire: *overlap,
+		ContaminationDetection: *contaminationDetection,
+		OverlapLenRequire:      *overlap,
 	}
 
 	// 处理可选参数
@@ -194,6 +200,7 @@ func printUsage() {
   --analysis-only    仅分析已有的BAM文件
   --keep-bam         保留BAM文件（默认清理）
   --threads N        设置线程数
+  --contamination-detection  启用交叉污染检测功能
 
 输入Excel格式:
   Sheet1必须包含以下列：
@@ -316,6 +323,13 @@ func (s *EnhancedSplitter) RunWithAlignment() error {
 		// 步骤4: 生成质量控制报告
 		if err := analyzer.generateQCReport(); err != nil {
 			fmt.Printf("警告: 生成QC报告失败: %v\n", err)
+		}
+
+		// 步骤5: 执行交叉污染检测（如果启用）
+		if s.config.ContaminationDetection {
+			if err := analyzer.performContaminationDetection(); err != nil {
+				fmt.Printf("警告: 交叉污染检测失败: %v\n", err)
+			}
 		}
 	}
 
