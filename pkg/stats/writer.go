@@ -592,6 +592,7 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	// 定义输出顺序
 	order := []string{
 		ReadTypeNames[ReadTypeMatch],
+		ReadTypeNames[ReadTypeMatchClip],
 		ReadTypeNames[ReadTypeInsert],
 		ReadTypeNames[ReadTypeDelete],
 		ReadTypeNames[ReadTypeSubstitution],

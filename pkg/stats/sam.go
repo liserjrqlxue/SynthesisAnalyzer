@@ -158,6 +158,7 @@ func analyzeReadType(read *sam.Record) ReadType {
 	hasInsert := false
 	hasDelete := false
 	hasSubstitution := false
+	hasClip := false
 
 	// 1. 检查CIGAR操作
 	for _, cigarOp := range read.Cigar {
@@ -170,6 +171,8 @@ func analyzeReadType(read *sam.Record) ReadType {
 			hasDelete = true
 		case sam.CigarMismatch: // X: 替换
 			hasSubstitution = true
+		case sam.CigarSoftClipped, sam.CigarHardClipped: // S, H: 剪辑
+			hasClip = true
 		}
 	}
 
@@ -188,6 +191,9 @@ func analyzeReadType(read *sam.Record) ReadType {
 
 	// 3. 根据组合确定类型
 	if !hasInsert && !hasDelete && !hasSubstitution {
+		if hasClip {
+			return ReadTypeMatchClip
+		}
 		return ReadTypeMatch
 	} else if hasInsert && !hasDelete && !hasSubstitution {
 		return ReadTypeInsert
@@ -205,6 +211,9 @@ func analyzeReadType(read *sam.Record) ReadType {
 		return ReadTypeAll
 	}
 
+	if hasClip {
+		return ReadTypeMatchClip
+	}
 	return ReadTypeMatch
 }
 
