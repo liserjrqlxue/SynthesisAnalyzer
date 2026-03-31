@@ -435,7 +435,7 @@ func (sampleStats *SampleStats) ProcessSamRecord(read *sam.Record, NMerSize, Max
 	substitutionCount := len(readInfo.SubstituteSub.Substitutions)
 	sampleStats.SubstitutionCountDist[substitutionCount]++
 	// 跳过非良好比对
-	if substitutionCount > MaxSubstitutions {
+	if substitutionCount > MaxSubstitutions || readInfo.MainType == ReadTypeMatchClip {
 		return nil
 	}
 	sampleStats.GoodAlignedReads++
