@@ -1344,12 +1344,14 @@ func (stats *MutationStats) MainPrint() {
 	fmt.Printf("\n处理完成!\n")
 	fmt.Printf("总体统计:\n")
 	fmt.Printf("  总reads数: %d\n", stats.TotalReadCount)
+	fmt.Printf("  过滤reads数: %d\n", stats.TotalGoodAlignedReads)
 	fmt.Printf("  细分类统计:\n")
 	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
 		count := stats.ReadTypeCounts[rt]
 		if count > 0 {
-			percentage := float64(count) / float64(stats.TotalReadCount) * 100
-			fmt.Printf("    %s: %d (%.2f%%)\n", ReadTypeNames[rt], count, percentage)
+			percentage1 := float64(count) / float64(stats.TotalReadCount) * 100
+			percentage2 := float64(count) / float64(stats.TotalGoodAlignedReads) * 100
+			fmt.Printf("    %s: %d (%.2f%%, %.2f%%)\n", ReadTypeNames[rt], count, percentage1, percentage2)
 		}
 	}
 	stats.WriteSubtype(os.Stdout)
