@@ -132,9 +132,10 @@ type ReportData struct {
 	SynthesisProcessVer string `json:"synthesis_process_version"`
 	SEC1ProcessVer      string `json:"sec1_process_version"`
 	SequencingDate      string `json:"sequencing_date"`
-	BarcodeReads        int    `json:"barcode_reads"`  // 总处理reads数
-	FilteredReads       int    `json:"filtered_reads"` // 过滤拼接后reads数
-	MatchedReads        int    `json:"matched_reads"`  // 成功匹配reads数
+	BarcodeReads        int    `json:"barcode_reads"`      // 总处理reads数
+	FilteredReads       int    `json:"filtered_reads"`     // 过滤拼接后reads数
+	MatchedReads        int    `json:"matched_reads"`      // 成功匹配reads数
+	GoodAlignedReads    int    `json:"good_aligned_reads"` // 良好比对reads数
 
 	BatchID string
 

@@ -214,8 +214,9 @@ func (g *Generator) writeSummarySection(b *strings.Builder, data *ReportData) {
 	b.WriteString(fmt.Sprintf("<tr><td>SEC1工艺版本</td><td>%s</td></tr>\n", data.SEC1ProcessVer))
 	b.WriteString(fmt.Sprintf("<tr><td>测序日期</td><td>%s</td></tr>\n", data.SequencingDate))
 	b.WriteString(fmt.Sprintf("<tr><td>总处理reads数</td><td>%d</td></tr>\n", data.BarcodeReads))
-	b.WriteString(fmt.Sprintf("<tr><td>过滤拼接后reads数</td><td>%d</td></tr>\n", data.FilteredReads))
-	b.WriteString(fmt.Sprintf("<tr><td>成功匹配reads数</td><td>%d</td></tr>\n", data.MatchedReads))
+	b.WriteString(fmt.Sprintf("<tr><td>过滤拼接后reads数</td><td>%d (%.2f%%)</td></tr>\n", data.FilteredReads, float64(data.FilteredReads*2)/float64(data.BarcodeReads)*100))
+	b.WriteString(fmt.Sprintf("<tr><td>成功匹配reads数</td><td>%d (%.2f%%)</td></tr>\n", data.MatchedReads, float64(data.MatchedReads)/float64(data.FilteredReads)*100))
+	b.WriteString(fmt.Sprintf("<tr><td>良好比对reads数</td><td>%d (%.2f%%)</td></tr>\n", data.GoodAlignedReads, float64(data.GoodAlignedReads)/float64(data.MatchedReads)*100))
 
 	// 统计概要
 	stats := data.Summary.Statistics
@@ -228,15 +229,15 @@ func (g *Generator) writeSummarySection(b *strings.Builder, data *ReportData) {
 
 	// 平均收率 - 根据参考值是否存在来决定输出格式
 	if refVal, ok := refMap["平均收率"]; ok && refVal != nil && *refVal > 0 {
-		b.WriteString(fmt.Sprintf("<tr><td>平均收率</td><td>%.2f%% (参考值%.2f%%)</td></tr>\n", stats.AvgYield, *refVal))
+		fmt.Fprintf(b, "<tr><td>平均收率</td><td>%.2f%% (参考值%.2f%%)</td></tr>\n", stats.AvgYield, *refVal)
 	} else {
-		b.WriteString(fmt.Sprintf("<tr><td>平均收率</td><td>%.2f%%</td></tr>\n", stats.AvgYield))
+		fmt.Fprintf(b, "<tr><td>平均收率</td><td>%.2f%%</td></tr>\n", stats.AvgYield)
 	}
 	// 收率标准差 - 根据参考值是否存在来决定输出格式
 	if refVal, ok := refMap["收率标准差"]; ok && refVal != nil && *refVal > 0 {
-		b.WriteString(fmt.Sprintf("<tr><td>收率标准差</td><td>%.2f%% (参考值%.2f%%)</td></tr>\n", stats.YieldStddev, *refVal))
+		fmt.Fprintf(b, "<tr><td>收率标准差</td><td>%.2f%% (参考值%.2f%%)</td></tr>\n", stats.YieldStddev, *refVal)
 	} else {
-		b.WriteString(fmt.Sprintf("<tr><td>收率标准差</td><td>%.2f%%</td></tr>\n", stats.YieldStddev))
+		fmt.Fprintf(b, "<tr><td>收率标准差</td><td>%.2f%%</td></tr>\n", stats.YieldStddev)
 	}
 
 	b.WriteString(fmt.Sprintf("<tr><td>收率中位数</td><td>%.2f%%</td></tr>\n", stats.YieldMedian))

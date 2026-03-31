@@ -189,10 +189,11 @@ func (p *Processor) updateMutationStats(report *ReportData) error {
 	}
 
 	// 读取子类型统计数据
-	subtypeStats, err := ReadSubtypeStats(p.config.MutationStatsDir)
+	subtypeStats, goodAlignedReads, err := ReadSubtypeStats(p.config.MutationStatsDir)
 	if err != nil {
 		log.Printf("警告：读取子类型统计数据失败: %v", err)
 	} else {
+		report.GoodAlignedReads = goodAlignedReads
 		// 更新错误统计
 		p.updateErrorStats(report, subtypeStats)
 		log.Printf("成功更新错误统计数据")
@@ -516,11 +517,11 @@ func (p *Processor) ReadBOMFile() (map[string]*Well, error) {
 }
 
 // ReadSubtypeStats 从read_type_summary.csv读取子类型统计数据
-func ReadSubtypeStats(inputDir string) (map[string]float64, error) {
+func ReadSubtypeStats(inputDir string) (map[string]float64, int, error) {
 	csvPath := filepath.Join(inputDir, "mutation_stats", "read_type_summary.csv")
 	file, err := os.Open(csvPath)
 	if err != nil {
-		return nil, fmt.Errorf("打开read_type_summary.csv失败: %w", err)
+		return nil, 0, fmt.Errorf("打开read_type_summary.csv失败: %w", err)
 	}
 	defer file.Close()
 
@@ -528,17 +529,34 @@ func ReadSubtypeStats(inputDir string) (map[string]float64, error) {
 	reader.FieldsPerRecord = -1 // 允许不同行有不同数量的字段
 	records, err := reader.ReadAll()
 	if err != nil {
-		return nil, fmt.Errorf("读取read_type_summary.csv失败: %w", err)
+		return nil, 0, fmt.Errorf("读取read_type_summary.csv失败: %w", err)
 	}
 
 	subtypeStats := make(map[string]float64)
 
 	// 查找细分类统计部分
 	inSubtypeSection := false
+	goodAlignedReads := 0
 
 	for _, record := range records {
 		// 跳过空行
 		if len(record) == 0 || (len(record) == 1 && strings.TrimSpace(record[0]) == "") {
+			continue
+		}
+
+		// 获取 GoodAlignedReads
+		if strings.TrimSpace(record[0]) == "GoodAlignedReads" {
+			if len(record) > 1 {
+				valueStr := strings.TrimSpace(record[1])
+				if valueStr == "" {
+					continue
+				}
+				value, err := strconv.Atoi(valueStr)
+				if err != nil {
+					continue
+				}
+				goodAlignedReads = value
+			}
 			continue
 		}
 
@@ -593,7 +611,7 @@ func ReadSubtypeStats(inputDir string) (map[string]float64, error) {
 			}
 		}
 	}
-	return subtypeStats, nil
+	return subtypeStats, goodAlignedReads, nil
 }
 
 // ReadYieldStats 从read_type_by_sample.csv读取收率和错误统计数据
