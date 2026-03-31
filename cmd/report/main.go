@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"SynthesisAnalyzer/pkg/report"
 )
@@ -12,8 +13,16 @@ import (
 // 主函数：读取JSON并生成报告
 // ------------------------------------------------------------
 func main() {
+	// 获取可执行文件路径
+	execPath, err := os.Executable()
+	if err != nil {
+		log.Printf("警告：获取可执行文件路径失败: %v", err)
+	}
+	// 获取可执行文件所在目录
+	execDir := filepath.Dir(execPath)
+
 	// 解析命令行参数
-	config := report.ParseArgs()
+	config := report.ParseArgs(execDir)
 
 	// 加载并处理数据
 	processor := report.NewProcessor(config)

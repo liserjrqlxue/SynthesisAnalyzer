@@ -44,6 +44,28 @@ func (g *Generator) GenerateHTML(data *ReportData) string {
 		log.Printf("警告：创建输出目录失败: %v", err)
 	}
 
+	// 确保静态资源目录存在
+	staticDir := filepath.Join(outputDir, "static", "js")
+	if err := os.MkdirAll(staticDir, 0755); err != nil {
+		log.Printf("警告：创建静态资源目录失败: %v", err)
+	}
+
+	// 复制echarts.min.js到输出目录的静态资源目录
+	echartsSrc := g.config.EchartsPath
+	echartsDest := filepath.Join(staticDir, "echarts.min.js")
+	if _, err := os.Stat(echartsSrc); err == nil {
+		if data, err := os.ReadFile(echartsSrc); err == nil {
+			if err := os.WriteFile(echartsDest, data, 0644); err != nil {
+				log.Printf("警告：复制echarts.min.js失败: %v", err)
+			}
+		}
+	}
+
+	// 更新echarts路径为相对于输出目录的路径
+	if g.config.UseLocalEcharts {
+		g.config.EchartsPath = "./static/js/echarts.min.js"
+	}
+
 	// HTML 头部
 	g.writeHTMLHeader(b, data.ReportTitle)
 
@@ -79,8 +101,18 @@ func (g *Generator) writeHTMLHeader(b *strings.Builder, reportTitle string) {
 <title>`)
 	b.WriteString(html.EscapeString(reportTitle))
 	b.WriteString(`</title>
-<script src="https://go-echarts.github.io/go-echarts-assets/assets/echarts.min.js"></script>
-<style>
+`)
+	// 根据配置选择使用本地还是远程的echarts资源
+	if g.config.UseLocalEcharts {
+		b.WriteString(`<script src="`)
+		b.WriteString(g.config.EchartsPath)
+		b.WriteString(`"></script>
+`)
+	} else {
+		b.WriteString(`<script src="https://go-echarts.github.io/go-echarts-assets/assets/echarts.min.js"></script>
+`)
+	}
+	b.WriteString(`<style>
 body { 
 	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 	margin: 2em;
