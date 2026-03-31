@@ -456,7 +456,7 @@ func (s *EnhancedSplitter) loadSamplesFromExcel() error {
 	requiredCols := []string{"样品名称", "靶标序列", "合成序列", "后靶标", "路径-R1", "路径-R2"}
 	for _, col := range requiredCols {
 		if _, ok := headerMap[col]; !ok {
-			return fmt.Errorf("缺少必需的列: %s", col)
+			return fmt.Errorf("缺少必需的列: %s:[%+v]", col, headerMap)
 		}
 	}
 
