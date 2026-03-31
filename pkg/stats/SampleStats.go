@@ -459,7 +459,7 @@ func (sampleStats *SampleStats) ProcessSamRecord(read *sam.Record, NMerSize, Max
 // 返回插入细分类的映射
 func (sampleStats *SampleStats) UpdateInsertionSubtypeStats(subtype *InsertSubtype) map[InsertionSubtype]bool {
 	var insertSubtypes = make(map[InsertionSubtype]bool)
-	if len(subtype.Insertions) == 0 {
+	if subtype == nil || len(subtype.Insertions) == 0 {
 		return insertSubtypes
 	}
 	sampleStats.InsertReads++
@@ -492,7 +492,7 @@ func (sampleStats *SampleStats) UpdateInsertionSubtypeStats(subtype *InsertSubty
 func (sampleStats *SampleStats) UpdateDeletetionSubtypeStats(subtype *DeleteSubtype) map[DeletionSubtype]bool {
 	var deletSubtypes = make(map[DeletionSubtype]bool)
 
-	if len(subtype.Deletions) == 0 {
+	if subtype == nil || len(subtype.Deletions) == 0 {
 		return deletSubtypes
 	}
 	sampleStats.DeleteReads++
