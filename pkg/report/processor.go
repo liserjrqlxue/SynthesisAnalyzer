@@ -54,13 +54,22 @@ func (p *Processor) LoadData() (*ReportData, error) {
 			// 使用这些信息更新报告数据
 			report.SynthesisDate = synthesisDate
 			report.InstrumentID = instrumentID
-			report.BatchID = batchID
+			// 只有当用户未指定BatchID时，才使用从BOM文件解析的BatchID
+			if p.config.BatchID == "" {
+				report.BatchID = batchID
+			}
 		}
 		if err := p.updateWellInfo(report); err != nil {
 			log.Printf("警告：更新孔位信息失败: %v", err)
 		} else {
 			log.Printf("成功更新孔位信息")
 		}
+	}
+
+	// 如果用户指定了BatchID，优先使用
+	if p.config.BatchID != "" {
+		log.Printf("使用用户指定的BatchID: %s", p.config.BatchID)
+		report.BatchID = p.config.BatchID
 	}
 
 	// 如果提供了mutation_stats目录，读取并更新数据

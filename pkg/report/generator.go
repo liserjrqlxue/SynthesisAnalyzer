@@ -1031,19 +1031,18 @@ func (g *Generator) getTextColor(val, min, max float64) string {
 func (g *Generator) GenerateTXT(data *ReportData) string {
 	b := &strings.Builder{}
 
-	// 1. 基本信息
+	// 确保BatchID已生成
+	if data.BatchID == "" {
+		data.makeBatchID()
+	}
+
+	// 标题
+	b.WriteString(fmt.Sprintf("合成下机报告:%s\n", data.BatchID))
+	b.WriteString("\n")
+
+	// 1. 基本信息 - Tab分割格式
 	b.WriteString("基本信息\n")
 	b.WriteString("========\n")
-	b.WriteString(fmt.Sprintf("合成日期: %s\n", data.SynthesisDate))
-	b.WriteString(fmt.Sprintf("仪器号: %s\n", data.InstrumentID))
-	b.WriteString(fmt.Sprintf("合成孔数: %d\n", data.WellCount))
-	b.WriteString(fmt.Sprintf("合成长度: %dnt\n", data.SynthesisLength))
-	b.WriteString(fmt.Sprintf("合成工艺版本: %s\n", data.SynthesisProcessVer))
-	b.WriteString(fmt.Sprintf("SEC1工艺版本: %s\n", data.SEC1ProcessVer))
-	b.WriteString(fmt.Sprintf("测序日期: %s\n", data.SequencingDate))
-	b.WriteString(fmt.Sprintf("总处理reads数: %d\n", data.BarcodeReads))
-	b.WriteString(fmt.Sprintf("过滤拼接后reads数: %d\n", data.FilteredReads))
-	b.WriteString(fmt.Sprintf("成功匹配reads数: %d\n", data.MatchedReads))
 
 	// 统计概要
 	stats := data.Summary.Statistics
@@ -1054,32 +1053,42 @@ func (g *Generator) GenerateTXT(data *ReportData) string {
 		refMap[ref.ErrorType] = ref.Reference
 	}
 
+	// 输出基本信息（Tab分割两列）
+	b.WriteString(fmt.Sprintf("%s\t%s\n", "合成日期", data.SynthesisDate))
+	b.WriteString(fmt.Sprintf("%s\t%s\n", "仪器号", data.InstrumentID))
+	b.WriteString(fmt.Sprintf("%s\t%d\n", "合成孔数", data.WellCount))
+	b.WriteString(fmt.Sprintf("%s\t%dnt\n", "合成长度", data.SynthesisLength))
+	b.WriteString(fmt.Sprintf("%s\t%s\n", "合成工艺版本", data.SynthesisProcessVer))
+	b.WriteString(fmt.Sprintf("%s\t%s\n", "SEC1工艺版本", data.SEC1ProcessVer))
+	b.WriteString(fmt.Sprintf("%s\t%s\n", "测序日期", data.SequencingDate))
+	b.WriteString(fmt.Sprintf("%s\t%d\n", "总处理reads数", data.BarcodeReads))
+	b.WriteString(fmt.Sprintf("%s\t%d\n", "过滤拼接后reads数", data.FilteredReads))
+	b.WriteString(fmt.Sprintf("%s\t%d\n", "成功匹配reads数", data.MatchedReads))
+
 	// 平均收率
 	if refVal, ok := refMap["平均收率"]; ok && refVal != nil && *refVal > 0 {
-		b.WriteString(fmt.Sprintf("平均收率: %.2f%% (参考值%.2f%%)\n", stats.AvgYield, *refVal))
+		b.WriteString(fmt.Sprintf("%s\t%.2f%% (参考值%.2f%%)\n", "平均收率", stats.AvgYield, *refVal))
 	} else {
-		b.WriteString(fmt.Sprintf("平均收率: %.2f%%\n", stats.AvgYield))
+		b.WriteString(fmt.Sprintf("%s\t%.2f%%\n", "平均收率", stats.AvgYield))
 	}
 	// 收率标准差
 	if refVal, ok := refMap["收率标准差"]; ok && refVal != nil && *refVal > 0 {
-		b.WriteString(fmt.Sprintf("收率标准差: %.2f%% (参考值%.2f%%)\n", stats.YieldStddev, *refVal))
+		b.WriteString(fmt.Sprintf("%s\t%.2f%% (参考值%.2f%%)\n", "收率标准差", stats.YieldStddev, *refVal))
 	} else {
-		b.WriteString(fmt.Sprintf("收率标准差: %.2f%%\n", stats.YieldStddev))
+		b.WriteString(fmt.Sprintf("%s\t%.2f%%\n", "收率标准差", stats.YieldStddev))
 	}
 
-	b.WriteString(fmt.Sprintf("收率中位数: %.2f%%\n", stats.YieldMedian))
-	b.WriteString(fmt.Sprintf("收率四分位数: %.2f%%\n", stats.YieldQuartile))
-	b.WriteString(fmt.Sprintf("收率<1%%片段个数: %d\n", stats.YieldLt1Count))
-	b.WriteString(fmt.Sprintf("收率<5%%片段个数: %d\n", stats.YieldLt5Count))
-	b.WriteString(fmt.Sprintf("预测难度序列: %d\n", stats.PredictedDifficultSeq))
-	b.WriteString(fmt.Sprintf("重合序列: %d\n", stats.OverlapSequences))
+	b.WriteString(fmt.Sprintf("%s\t%.2f%%\n", "收率中位数", stats.YieldMedian))
+	b.WriteString(fmt.Sprintf("%s\t%.2f%%\n", "收率四分位数", stats.YieldQuartile))
+	b.WriteString(fmt.Sprintf("%s\t%d\n", "收率<1%片段个数", stats.YieldLt1Count))
+	b.WriteString(fmt.Sprintf("%s\t%d\n", "收率<5%片段个数", stats.YieldLt5Count))
+	b.WriteString(fmt.Sprintf("%s\t%d\n", "预测难度序列", stats.PredictedDifficultSeq))
+	b.WriteString(fmt.Sprintf("%s\t%d\n", "重合序列", stats.OverlapSequences))
 	b.WriteString("\n")
 
-	// 2. 合成错误统计
+	// 2. 合成错误统计 - Tab分割格式
 	b.WriteString("合成错误统计\n")
 	b.WriteString("============\n")
-	b.WriteString(fmt.Sprintf("%-30s\t%s\n", "错误类型-CN", "数据"))
-	b.WriteString(strings.Repeat("-", 50) + "\n")
 
 	for _, es := range data.Summary.ErrorStats {
 		// 获取错误类型的详细信息
@@ -1089,7 +1098,7 @@ func (g *Generator) GenerateTXT(data *ReportData) string {
 		if es.Data != nil {
 			dataStr = fmt.Sprintf("%.2f%%", *es.Data)
 		}
-		b.WriteString(fmt.Sprintf("%-30s\t%s\n", errorInfo.CN, dataStr))
+		b.WriteString(fmt.Sprintf("%s\t%s\n", errorInfo.CN, dataStr))
 	}
 
 	return b.String()
