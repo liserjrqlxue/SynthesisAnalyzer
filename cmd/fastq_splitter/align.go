@@ -82,7 +82,7 @@ func (a *AlignmentAnalyzer) createReferenceFiles() error {
 		}
 	}
 
-	fmt.Printf("\n参考序列文件创建完成: %d 个文件\n", createdCount)
+	fmt.Printf("\r参考序列文件创建完成: %d 个文件\n", createdCount)
 	return nil
 }
 
