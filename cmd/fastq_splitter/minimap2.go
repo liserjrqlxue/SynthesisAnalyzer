@@ -108,18 +108,22 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 
 // 单个样品的比对
 func (a *AlignmentAnalyzer) alignSample(sample *SampleInfo) (*SampleAlignment, error) {
+	// 调用通用的比对方法
+	return a.alignSampleWithParams(sample, sample.ReferenceFile, sample.Name)
+}
+
+// 通用的样品比对方法，可接受自定义参考序列和输出前缀
+func (a *AlignmentAnalyzer) alignSampleWithParams(sample *SampleInfo, referenceFile string, outputPrefix string) (*SampleAlignment, error) {
 	// 创建样品特定的输出目录
-	// sampleAlignDir := filepath.Join(a.outputDir, "alignment", sample.Name)
 	sampleAlignDir := sample.OutputPath
 	if err := os.MkdirAll(sampleAlignDir, 0755); err != nil {
 		return nil, fmt.Errorf("创建比对目录失败: %v", err)
 	}
 
 	// 1. 运行minimap2
-	samFile := filepath.Join(sampleAlignDir, fmt.Sprintf("%s.sam", sample.Name))
+	samFile := filepath.Join(sampleAlignDir, fmt.Sprintf("%s.sam", outputPrefix))
 	cmd := exec.Command("minimap2",
 		"-a", // 输出SAM格式
-		// "-x", "map-ont",
 		"-x", "sr",
 		"-z", "800",
 		"--end-bonus=100",
@@ -128,7 +132,7 @@ func (a *AlignmentAnalyzer) alignSample(sample *SampleInfo) (*SampleAlignment, e
 		"-t", fmt.Sprintf("%d", a.config.AlignerThreads/len(a.samples)+1),
 		"--secondary=no", // 不输出secondary比对
 		"-o", samFile,
-		sample.ReferenceFile,
+		referenceFile,
 		filepath.Join(sample.OutputPath, "target_only_reads.fastq.gz"),
 	)
 
@@ -140,7 +144,7 @@ func (a *AlignmentAnalyzer) alignSample(sample *SampleInfo) (*SampleAlignment, e
 	}
 
 	// 2. 转换SAM为BAM并排序
-	bamFile := filepath.Join(sampleAlignDir, fmt.Sprintf("%s.sorted.bam", sample.Name))
+	bamFile := filepath.Join(sampleAlignDir, fmt.Sprintf("%s.sorted.bam", outputPrefix))
 
 	// 使用samtools view + sort
 	cmd1 := exec.Command("samtools", "view", "-bS", samFile)
