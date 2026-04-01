@@ -344,15 +344,21 @@ func (s *EnhancedSplitter) RunWithAlignment() error {
 
 // 主运行流程
 func (s *EnhancedSplitter) Run() error {
-	startTime := time.Now()
+	// 初始化统计
+	s.stats = &SplitStats{
+		startTime: time.Now(),
+	}
+	defer func() {
+		s.stats.endTime = time.Now()
+		fmt.Printf("\n=== 全部处理完成! 总耗时: %v ===\n", s.stats.endTime.Sub(s.stats.startTime))
+		fmt.Printf("处理统计: %d 个文件, %d 个样品, %d 条reads, %d 条匹配 (%.1f%%)\n",
+			s.stats.totalFiles, s.stats.totalSamples, s.stats.totalReads, s.stats.totalMatched,
+			float64(s.stats.totalMatched)/float64(s.stats.totalReads)*100)
+	}()
+
 	fmt.Println("=== 增强版FASTQ拆分程序开始运行 ===")
 	fmt.Printf("配置: 线程数=%d, 反向互补=%v, 跳过已存在=%v\n",
 		s.config.Threads, s.config.UseRC, s.config.SkipExisting)
-
-	// 初始化统计
-	s.stats = &SplitStats{
-		startTime: startTime,
-	}
 
 	// 步骤1: 创建输出目录
 	if err := s.createOutputDir(); err != nil {
@@ -381,6 +387,14 @@ func (s *EnhancedSplitter) Run() error {
 		return fmt.Errorf("构建索引失败: %v", err)
 	}
 
+	// 检查全局完成标签
+	runDoneFile := filepath.Join(s.config.OutputDir, "run.done")
+	if _, err := os.Stat(runDoneFile); err == nil {
+		fmt.Println("  检测到run.done文件，后续步骤已跳过")
+		fmt.Println("  如需重新运行，请删除", runDoneFile, "后重跑")
+		return nil
+	}
+
 	// 步骤6: 独立处理每个合并文件
 	fmt.Println("\n步骤6: 独立处理每个合并文件...")
 	if err := s.processEachFileSeparately(); err != nil {
@@ -401,12 +415,14 @@ func (s *EnhancedSplitter) Run() error {
 		}
 	}
 
-	s.stats.endTime = time.Now()
-
-	fmt.Printf("\n=== 全部处理完成! 总耗时: %v ===\n", s.stats.endTime.Sub(startTime))
-	fmt.Printf("处理统计: %d 个文件, %d 个样品, %d 条reads, %d 条匹配 (%.1f%%)\n",
+	// 创建全局完成标签
+	content := fmt.Sprintf("Created: %s\nTotalFiles: %d\nTotalSamples: %d\nTotalReads: %d\nTotalMatched: %d\nMatchingRate: %.1f%%\n",
+		time.Now().Format(time.RFC3339),
 		s.stats.totalFiles, s.stats.totalSamples, s.stats.totalReads, s.stats.totalMatched,
 		float64(s.stats.totalMatched)/float64(s.stats.totalReads)*100)
+	if err := os.WriteFile(runDoneFile, []byte(content), 0644); err != nil {
+		fmt.Printf("  警告: 创建全局完成标签失败: %v\n", err)
+	}
 
 	return nil
 }
