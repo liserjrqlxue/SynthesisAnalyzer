@@ -109,15 +109,25 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 // 单个样品的比对
 func (a *AlignmentAnalyzer) alignSample(sample *SampleInfo) (*SampleAlignment, error) {
 	// 调用通用的比对方法
-	return a.alignSampleWithParams(sample, sample.ReferenceFile, sample.Name)
+	bamFile, err := a.alignSampleWithParams(sample, sample.ReferenceFile, sample.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	// 分析比对结果
+	alignment, err := a.analyzeBamFile(bamFile, sample)
+	if err != nil {
+		return nil, fmt.Errorf("分析BAM文件失败: %v", err)
+	}
+	return alignment, err
 }
 
 // 通用的样品比对方法，可接受自定义参考序列和输出前缀
-func (a *AlignmentAnalyzer) alignSampleWithParams(sample *SampleInfo, referenceFile string, outputPrefix string) (*SampleAlignment, error) {
+func (a *AlignmentAnalyzer) alignSampleWithParams(sample *SampleInfo, referenceFile string, outputPrefix string) (string, error) {
 	// 创建样品特定的输出目录
 	sampleAlignDir := sample.OutputPath
 	if err := os.MkdirAll(sampleAlignDir, 0755); err != nil {
-		return nil, fmt.Errorf("创建比对目录失败: %v", err)
+		return "", fmt.Errorf("创建比对目录失败: %v", err)
 	}
 
 	// 1. 运行minimap2
@@ -140,7 +150,7 @@ func (a *AlignmentAnalyzer) alignSampleWithParams(sample *SampleInfo, referenceF
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("minimap2执行失败: %v\n%s", err, stderr.String())
+		return "", fmt.Errorf("minimap2执行失败: %v\n%s", err, stderr.String())
 	}
 
 	// 2. 转换SAM为BAM并排序
@@ -156,33 +166,27 @@ func (a *AlignmentAnalyzer) alignSampleWithParams(sample *SampleInfo, referenceF
 	cmd2.Stderr = &stderr2
 
 	if err := cmd2.Start(); err != nil {
-		return nil, fmt.Errorf("启动samtools失败: %v", err)
+		return "", fmt.Errorf("启动samtools失败: %v", err)
 	}
 
 	if err := cmd1.Run(); err != nil {
-		return nil, fmt.Errorf("samtools view失败: %v", err)
+		return "", fmt.Errorf("samtools view失败: %v", err)
 	}
 
 	if err := cmd2.Wait(); err != nil {
-		return nil, fmt.Errorf("samtools sort失败: %v\n%s", err, stderr2.String())
+		return "", fmt.Errorf("samtools sort失败: %v\n%s", err, stderr2.String())
 	}
 
 	// 3. 索引BAM文件
 	indexCmd := exec.Command("samtools", "index", bamFile)
 	if err := indexCmd.Run(); err != nil {
-		return nil, fmt.Errorf("索引BAM文件失败: %v", err)
+		return bamFile, fmt.Errorf("索引BAM文件失败: %v", err)
 	}
 
-	// 4. 分析比对结果
-	alignment, err := a.analyzeBamFile(bamFile, sample)
-	if err != nil {
-		return nil, fmt.Errorf("分析BAM文件失败: %v", err)
-	}
-
-	// 5. 清理临时文件（可选）
+	// 4. 清理临时文件（可选）
 	if !a.config.KeepSamFiles {
 		os.Remove(samFile)
 	}
 
-	return alignment, nil
+	return bamFile, nil
 }
