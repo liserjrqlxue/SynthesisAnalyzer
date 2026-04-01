@@ -271,7 +271,7 @@ func (a *AlignmentAnalyzer) runContaminationAlignment(mergedRefFile string) (map
 			}()
 
 			// 使用通用比对方法进行污染检测比对
-			bamFile, err := a.alignSampleWithParams(s, mergedRefFile, "contamination")
+			bamFile, err := a.alignSampleWithParams(s.OutputPath, mergedRefFile, "contamination")
 			if err != nil {
 				slog.Error("污染检测比对失败", "样本", s.Name, "err", err)
 			}
@@ -344,17 +344,20 @@ func (a *AlignmentAnalyzer) analyzeContamination(bamFiles map[string]string) (ma
 	unmappedCounts := make(map[string]int64)
 	totalCounts := make(map[string]int64)
 
-	for _, sample := range a.samples {
-		contaminationMatrix[sample.Name] = make(map[string]int64)
-		for _, targetSample := range a.samples {
-			contaminationMatrix[sample.Name][targetSample.Name] = 0
-		}
-		unmappedCounts[sample.Name] = 0
-		totalCounts[sample.Name] = 0
-	}
-
 	// 分析每个样品的比对结果
-	for sampleName, bamFile := range bamFiles {
+	for _, sample := range a.samples {
+		sampleName := sample.Name
+		contaminationMatrix[sampleName] = make(map[string]int64)
+		for _, targetSample := range a.samples {
+			contaminationMatrix[sampleName][targetSample.Name] = 0
+		}
+		unmappedCounts[sampleName] = 0
+		totalCounts[sampleName] = 0
+
+		bamFile, ok := bamFiles[sample.Name]
+		if !ok {
+			slog.Warn("污染bam不存在,跳过", "Name", sample.Name)
+		}
 		// fmt.Printf("  分析样品: %s\n", sampleName)
 
 		// 运行 samtools idxstats
@@ -396,7 +399,7 @@ func (a *AlignmentAnalyzer) analyzeContamination(bamFiles map[string]string) (ma
 
 		slog.Info("污染比对",
 			"样品", sampleName,
-			"正确比例", float64(contaminationMatrix[sampleName][sampleName])/float64(sampleTotal),
+			"正确比例", fmt.Sprintf("%.2f%%", float64(contaminationMatrix[sampleName][sampleName])/float64(sampleTotal)*100),
 			"正确比对", contaminationMatrix[sampleName][sampleName],
 			"总reads", sampleTotal,
 			"比对", totalCounts[sampleName],

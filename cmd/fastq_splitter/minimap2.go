@@ -109,7 +109,7 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 // 单个样品的比对
 func (a *AlignmentAnalyzer) alignSample(sample *SampleInfo) (*SampleAlignment, error) {
 	// 调用通用的比对方法
-	bamFile, err := a.alignSampleWithParams(sample, sample.ReferenceFile, sample.Name)
+	bamFile, err := a.alignSampleWithParams(sample.OutputPath, sample.ReferenceFile, sample.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -123,15 +123,19 @@ func (a *AlignmentAnalyzer) alignSample(sample *SampleInfo) (*SampleAlignment, e
 }
 
 // 通用的样品比对方法，可接受自定义参考序列和输出前缀
-func (a *AlignmentAnalyzer) alignSampleWithParams(sample *SampleInfo, referenceFile string, outputPrefix string) (string, error) {
+func (a *AlignmentAnalyzer) alignSampleWithParams(workDir, referenceFile, outputPrefix string) (string, error) {
+	var (
+		fastqFile = filepath.Join(workDir, "target_only_reads.fastq.gz")
+
+		samFile = filepath.Join(workDir, fmt.Sprintf("%s.sam", outputPrefix))
+		bamFile = filepath.Join(workDir, fmt.Sprintf("%s.sorted.bam", outputPrefix))
+	)
 	// 创建样品特定的输出目录
-	sampleAlignDir := sample.OutputPath
-	if err := os.MkdirAll(sampleAlignDir, 0755); err != nil {
+	if err := os.MkdirAll(workDir, 0755); err != nil {
 		return "", fmt.Errorf("创建比对目录失败: %v", err)
 	}
 
 	// 1. 运行minimap2
-	samFile := filepath.Join(sampleAlignDir, fmt.Sprintf("%s.sam", outputPrefix))
 	cmd := exec.Command("minimap2",
 		"-a", // 输出SAM格式
 		"-x", "sr",
@@ -143,7 +147,7 @@ func (a *AlignmentAnalyzer) alignSampleWithParams(sample *SampleInfo, referenceF
 		"--secondary=no", // 不输出secondary比对
 		"-o", samFile,
 		referenceFile,
-		filepath.Join(sample.OutputPath, "target_only_reads.fastq.gz"),
+		fastqFile,
 	)
 
 	var stderr bytes.Buffer
@@ -154,7 +158,6 @@ func (a *AlignmentAnalyzer) alignSampleWithParams(sample *SampleInfo, referenceF
 	}
 
 	// 2. 转换SAM为BAM并排序
-	bamFile := filepath.Join(sampleAlignDir, fmt.Sprintf("%s.sorted.bam", outputPrefix))
 
 	// 使用samtools view + sort
 	cmd1 := exec.Command("samtools", "view", "-bS", samFile)
