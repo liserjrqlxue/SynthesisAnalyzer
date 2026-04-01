@@ -266,6 +266,7 @@ func (a *AlignmentAnalyzer) runContaminationAlignment(mergedRefFile string) (map
 
 		go func(s *SampleInfo) {
 			defer func() {
+				fmt.Print(".")
 				<-sem
 				wg.Done()
 			}()
@@ -288,6 +289,7 @@ func (a *AlignmentAnalyzer) runContaminationAlignment(mergedRefFile string) (map
 	// 等待所有比对完成
 	go func() {
 		wg.Wait()
+		fmt.Println()
 		close(bamFiles)
 	}()
 
