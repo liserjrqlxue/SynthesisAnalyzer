@@ -353,8 +353,7 @@ func (a *AlignmentAnalyzer) analyzeContamination(bamFiles map[string]string) (ma
 	if f != nil {
 		defer f.Close()
 		// 写入文件头
-		fmt.Fprintf(f, "交叉污染检测详细分析\n")
-		fmt.Fprintf(f, "生成时间: %s\n\n", time.Now().Format(time.RFC3339))
+		fmt.Fprintf(f, "样品名称\t总reads\t比对\t未比对\t正确比对\t正确比对比例\t最高污染样品\t最高污染count\t最高污染比例\t次高污染样品\t次高污染count\t次高污染比例\n")
 	}
 
 	// 分析每个样品的比对结果
@@ -462,22 +461,27 @@ func (a *AlignmentAnalyzer) analyzeContamination(bamFiles map[string]string) (ma
 
 		// 输出到文件
 		if f != nil {
-			fmt.Fprintf(f, "样品: %s\n", sampleName)
-			fmt.Fprintf(f, "  总reads: %d\n", sampleTotal)
-			fmt.Fprintf(f, "  比对: %d\n", totalCounts[sampleName])
-			fmt.Fprintf(f, "  未比对: %d\n", unmappedCounts[sampleName])
-			fmt.Fprintf(f, "  正确比对: %d (%.2f%%)\n", contaminationMatrix[sampleName][sampleName], selfRatio)
-			fmt.Fprintf(f, "  最高污染: %s - %d (%.2f%%)\n", highestContam.sample, highestContam.count, highestContam.ratio)
-			fmt.Fprintf(f, "  次高污染: %s - %d (%.2f%%)\n", secondHighestContam.sample, secondHighestContam.count, secondHighestContam.ratio)
-			fmt.Fprintf(f, "\n")
+			fmt.Fprintf(f, "%s\t%d\t%d\t%d\t%d\t%.2f%%\t%s\t%d\t%.2f%%\t%s\t%d\t%.2f%%\n",
+				sampleName,
+				sampleTotal,
+				totalCounts[sampleName],
+				unmappedCounts[sampleName],
+				contaminationMatrix[sampleName][sampleName],
+				selfRatio,
+				highestContam.sample,
+				highestContam.count,
+				highestContam.ratio,
+				secondHighestContam.sample,
+				secondHighestContam.count,
+				secondHighestContam.ratio)
 		}
 
 		// 输出到控制台
-		fmt.Printf("  样品 %s 统计: 总reads=%d, 比对=%d, 未比对=%d\n",
-			sampleName, sampleTotal, totalCounts[sampleName], unmappedCounts[sampleName])
-		fmt.Printf("  正确比对: %d (%.2f%%)\n", contaminationMatrix[sampleName][sampleName], selfRatio)
-		fmt.Printf("  最高污染: %s - %d (%.2f%%)\n", highestContam.sample, highestContam.count, highestContam.ratio)
-		fmt.Printf("  次高污染: %s - %d (%.2f%%)\n", secondHighestContam.sample, secondHighestContam.count, secondHighestContam.ratio)
+		// fmt.Printf("  样品 %s 统计: 总reads=%d, 比对=%d, 未比对=%d\n",
+		// 	sampleName, sampleTotal, totalCounts[sampleName], unmappedCounts[sampleName])
+		// fmt.Printf("  正确比对: %d (%.2f%%)\n", contaminationMatrix[sampleName][sampleName], selfRatio)
+		// fmt.Printf("  最高污染: %s - %d (%.2f%%)\n", highestContam.sample, highestContam.count, highestContam.ratio)
+		// fmt.Printf("  次高污染: %s - %d (%.2f%%)\n", secondHighestContam.sample, secondHighestContam.count, secondHighestContam.ratio)
 	}
 
 	return contaminationMatrix, unmappedCounts, totalCounts, nil

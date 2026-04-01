@@ -7,7 +7,7 @@ func (s *EnhancedSplitter) extractTargetRegionEnhanced(sequence string, matcher 
 	// 尝试多种匹配策略
 
 	// 策略1：精确正则匹配
-	targetRegion, sample, direction := matcher.extractTargetRegion(sequence)
+	targetRegion, direction, sample := matcher.extractTargetRegion(sequence)
 	if sample != nil {
 		return targetRegion, sample, direction, "regexp"
 	}

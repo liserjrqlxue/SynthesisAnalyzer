@@ -13,7 +13,7 @@ import (
 
 // 更新合并流程，建立正确的文件-样品关系
 func (s *EnhancedSplitter) mergeAndMapFiles() error {
-	fmt.Println("合并PE reads并建立文件-样品映射...")
+	// fmt.Println("合并PE reads并建立文件-样品映射...")
 
 	// 去重R1/R2文件对
 	filePairs := make(map[string][]*SampleInfo) // key: "R1|R2" -> 样品列表
@@ -23,7 +23,7 @@ func (s *EnhancedSplitter) mergeAndMapFiles() error {
 		filePairs[key] = append(filePairs[key], sample)
 	}
 
-	fmt.Printf("发现 %d 个唯一的R1/R2文件对\n", len(filePairs))
+	fmt.Printf("  发现 %d 个唯一的R1/R2文件对\n", len(filePairs))
 
 	// 创建合并目录
 	mergedDir := filepath.Join(s.config.OutputDir, "merged")
@@ -89,7 +89,6 @@ func (s *EnhancedSplitter) mergeAndMapFiles() error {
 				for _, sample := range samps {
 					sample.MergeTime = time.Now()
 				}
-
 
 			}
 

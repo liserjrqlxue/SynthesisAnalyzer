@@ -116,7 +116,7 @@ func (s *EnhancedSplitter) escapeRegexp(seq string) string {
 }
 
 // 修改匹配函数，提取靶标间序列
-func (matcher *FileMatcher) extractTargetRegion(sequence string) (string, *SampleInfo, string) {
+func (matcher *FileMatcher) extractTargetRegion(sequence string) (string, string, *SampleInfo) {
 	// 只在该文件的样品中匹配
 	for _, sample := range matcher.fileInfo.Samples {
 		// 尝试正向匹配
@@ -124,7 +124,7 @@ func (matcher *FileMatcher) extractTargetRegion(sequence string) (string, *Sampl
 			if matches := forwardRegex.FindStringSubmatch(sequence); len(matches) >= 2 {
 				// matches[0] 是整个匹配，matches[1] 是第一个分组（靶标间序列）
 				targetRegion := matches[1]
-				return targetRegion, sample, "forward"
+				return targetRegion, "forward", sample
 			}
 		}
 
@@ -134,13 +134,13 @@ func (matcher *FileMatcher) extractTargetRegion(sequence string) (string, *Sampl
 				if matches := reverseRegex.FindStringSubmatch(sequence); len(matches) >= 2 {
 					// 匹配到的是反向序列，需要反向互补
 					targetRegion := reverseComplement(matches[1])
-					return targetRegion, sample, "reverse"
+					return targetRegion, "reverse", sample
 				}
 			}
 		}
 	}
 
-	return "", nil, ""
+	return "", "", nil
 }
 
 // 增强的处理记录函数
@@ -172,7 +172,7 @@ func (s *EnhancedSplitter) processRecordForFile(record []byte, matcher *FileMatc
 	}
 
 	// 更新样本统计
-	// sample.MatchedReads++
+	sample.MatchedReads++
 	if direction == "forward" {
 		sample.ForwardReads++
 	} else {

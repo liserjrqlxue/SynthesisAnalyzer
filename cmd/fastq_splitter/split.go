@@ -541,27 +541,15 @@ func (s *EnhancedSplitter) processSingleFile(fileInfo *MergedFileInfo,
 				sampleStats[result.sample.Name]++
 
 				// 更新样品统计
-				result.sample.MatchedReads++
 				matchMethodStats[result.method]++
-
-				// 记录提取的序列长度
-				if result.sample.MinExtractedLen == 0 || len(result.processedRecord) < result.sample.MinExtractedLen {
-					result.sample.MinExtractedLen = len(result.processedRecord)
-				}
-				if len(result.processedRecord) > result.sample.MaxExtractedLen {
-					result.sample.MaxExtractedLen = len(result.processedRecord)
-				}
-				result.sample.TotalExtractedLen += len(result.processedRecord)
 			}
 		}
 	}
 	// 输出匹配方法统计
 	fmt.Printf("    匹配方法统计: ")
 	for method, count := range matchMethodStats {
-		if count > 0 {
-			fmt.Printf("%s=%d (%.1f%%) ",
-				method, count, float64(count)/float64(stats.matchedReads)*100)
-		}
+		fmt.Printf("%s=%d (%.1f%%) ",
+			method, count, float64(count)/float64(stats.matchedReads)*100)
 	}
 	fmt.Println()
 
@@ -598,7 +586,7 @@ func (s *EnhancedSplitter) regexpWorker(matcher *FileMatcher, recordChan <-chan 
 
 // 构建优化的正则表达式
 func (s *EnhancedSplitter) buildFileMatchers() error {
-	fmt.Println("为每个合并文件构建匹配器...")
+	// fmt.Println("为每个合并文件构建匹配器...")
 
 	s.fileMatchers = make(map[string]*FileMatcher)
 
@@ -708,8 +696,9 @@ func (s *FileMatcher) optimizedMatch(sequence string) (*SampleInfo, string) {
 
 // 打印每个样品的统计
 func (s *EnhancedSplitter) printPerSampleStats() {
+	width := 150
 	fmt.Println("\n各样品详细统计:")
-	fmt.Println(strings.Repeat("=", 100))
+	fmt.Println(strings.Repeat("=", width))
 
 	totalReads := 0
 	totalMatched := 0
@@ -719,25 +708,24 @@ func (s *EnhancedSplitter) printPerSampleStats() {
 	for _, sample := range s.samples {
 		// 重置，重新计算
 		sample.TotalReads = 0
-		sample.MatchedReads = 0
 	}
 
 	// 从文件统计中汇总
 	for _, mergedInfo := range s.mergedFiles {
 		totalReads += mergedInfo.TotalReads
-		totalMatched += mergedInfo.MatchedReads
+		// totalMatched += mergedInfo.MatchedReads
 		for _, sample := range mergedInfo.Samples {
-			// sample.TotalReads += mergedInfo.TotalReads / len(mergedInfo.Samples) // 估算
 			sample.TotalReads += mergedInfo.TotalReads
 		}
 	}
 
 	// 打印表头
-	fmt.Printf("  样品名称                 总处理数    匹配数    匹配率%%   最短长度   最长长度   平均长度   正向%%   反向%%   来源文件数   输出文件\n")
-	fmt.Println(strings.Repeat("-", 100))
+	fmt.Printf("  样品名称            总处理数   匹配数   匹配率%%  最短长度  最长长度  平均长度  正向%%   反向%%  来源文件数  输出文件\n")
+	fmt.Println(strings.Repeat("-", width))
 
 	for _, sample := range s.samples {
 		totalLength += sample.TotalExtractedLen
+		totalMatched += sample.MatchedReads
 
 		// 计算该样品的来源文件数
 		sourceFiles := 0
@@ -760,12 +748,12 @@ func (s *EnhancedSplitter) printPerSampleStats() {
 
 		if sample.MatchedReads > 0 {
 			avgLength = float64(sample.TotalExtractedLen) / float64(sample.MatchedReads)
-			forwardRate = float64(sample.ForwardReads) / float64(sample.MatchedReads) * 100
+			forwardRate = min(float64(sample.ForwardReads)/float64(sample.MatchedReads)*100, 100)
 		}
 
 		outputFile := filepath.Join(sample.OutputPath, "target_only_reads.fastq.gz")
 
-		fmt.Printf("  %-20s  %10d  %8d  %8.1f  %8d  %8d  %8.1f  %6.1f  %6.1f  %10d  %s\n",
+		fmt.Printf("  %-15s  %10d  %8d  %8.2f  %8d  %8d  %8.2f  %6.2f  %6.2f  %10d  %s\n",
 			sample.Name,
 			sample.TotalReads,
 			sample.MatchedReads,
@@ -780,7 +768,7 @@ func (s *EnhancedSplitter) printPerSampleStats() {
 		)
 	}
 
-	fmt.Println(strings.Repeat("-", 100))
+	fmt.Println(strings.Repeat("-", width))
 
 	overallRate := 0.0
 	avgOverallLength := 0.0
@@ -792,7 +780,7 @@ func (s *EnhancedSplitter) printPerSampleStats() {
 		avgOverallLength = float64(totalLength) / float64(totalMatched)
 	}
 
-	fmt.Printf("  总计                  %10d  %8d  %8.1f  %8s  %8s  %8.1f  %6s  %6s  %10d  %s\n",
+	fmt.Printf("  总计             %10d  %8d  %8.2f  %8s  %8s  %8.2f  %6s  %6s  %10d  %s\n",
 		totalReads,
 		totalMatched,
 		overallRate,

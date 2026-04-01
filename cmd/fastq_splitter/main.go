@@ -390,8 +390,7 @@ func (s *EnhancedSplitter) Run() error {
 	// 检查全局完成标签
 	runDoneFile := filepath.Join(s.config.OutputDir, "run.done")
 	if _, err := os.Stat(runDoneFile); err == nil {
-		fmt.Println("  检测到run.done文件，后续步骤已跳过")
-		fmt.Println("  如需重新运行，请删除", runDoneFile, "后重跑")
+		fmt.Println("  检测到run.done文件，后续步骤已跳过，如需重新运行，请删除[", runDoneFile, "]后重跑")
 		return nil
 	}
 
@@ -473,7 +472,9 @@ func (s *EnhancedSplitter) loadSamplesFromExcel() error {
 	}
 
 	sheet := xlFile.Sheets[0]
-	fmt.Printf("工作表: %s, 行数: %d\n", sheet.Name, sheet.MaxRow)
+	defer func() {
+		fmt.Printf("  工作表: %s, 行数: %d, 成功读取 %d 个样品\n", sheet.Name, sheet.MaxRow, len(s.samples))
+	}()
 
 	// 查找表头
 	var headerMap = make(map[string]int)

@@ -140,7 +140,7 @@ func (a *AlignmentAnalyzer) alignSampleWithParams(workDir, referenceFile, output
 	if _, err := os.Stat(doneFile); err == nil {
 		// 检查BAM文件是否存在
 		if _, err := os.Stat(bamFile); err == nil {
-			fmt.Printf("  比对已完成，跳过: %s\n", outputPrefix)
+			slog.Debug("比对已完成，跳过", "prefix", outputPrefix)
 			return bamFile, nil
 		}
 	}
