@@ -3,11 +3,13 @@ package main
 import (
 	"encoding/csv"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -95,7 +97,7 @@ func (a *AlignmentAnalyzer) createMergedReferenceFile() (string, error) {
 		if len(sample.FullReference) == 0 {
 			continue
 		}
-		content.WriteString(fmt.Sprintf(">%s\n%s\n", sample.Name, sample.FullReference))
+		fmt.Fprintf(&content, ">%s\n%s\n", sample.Name, sample.FullReference)
 	}
 
 	if err := os.WriteFile(mergedRefFile, []byte(content.String()), 0644); err != nil {
@@ -236,6 +238,78 @@ func (a *AlignmentAnalyzer) generatePerSampleReports() error {
 	return nil
 }
 
+// 运行污染检测的并行比对
+func (a *AlignmentAnalyzer) runContaminationAlignment(mergedRefFile string) (map[string]string, error) {
+	fmt.Println("\n=== 运行污染检测比对 ===")
+
+	// 并行处理每个样品
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, a.config.AlignerThreads)
+
+	bamFiles := make(chan struct {
+		sampleName string
+		bamFile    string
+		err        error
+	}, len(a.samples))
+
+	for _, sample := range a.samples {
+		// 检查输入文件是否存在
+		inputFile := filepath.Join(sample.OutputPath, "target_only_reads.fastq.gz")
+		if _, err := os.Stat(inputFile); os.IsNotExist(err) {
+			fmt.Printf("  警告: 样本 %s 的输入文件不存在，跳过\n", sample.Name)
+			slog.Warn("拆分文件不存在，跳过\n", "Name", sample.Name, "path", inputFile)
+			continue
+		}
+
+		wg.Add(1)
+		sem <- struct{}{}
+
+		go func(s *SampleInfo) {
+			defer func() {
+				<-sem
+				wg.Done()
+			}()
+
+			// 使用通用比对方法进行污染检测比对
+			bamFile, err := a.alignSampleWithParams(s, mergedRefFile, "contamination")
+			if err != nil {
+				slog.Error("污染检测比对失败", "样本", s.Name, "err", err)
+			}
+
+			// 返回生成的BAM文件路径
+			bamFiles <- struct {
+				sampleName string
+				bamFile    string
+				err        error
+			}{s.Name, bamFile, err}
+		}(sample)
+	}
+
+	// 等待所有比对完成
+	go func() {
+		wg.Wait()
+		close(bamFiles)
+	}()
+
+	// 收集结果
+	result := make(map[string]string)
+	successful := 0
+	failed := 0
+
+	for bamResult := range bamFiles {
+		if bamResult.err != nil {
+			failed++
+			continue
+		}
+
+		successful++
+		result[bamResult.sampleName] = bamResult.bamFile
+	}
+
+	fmt.Printf("  污染检测比对完成: %d 成功, %d 失败\n", successful, failed)
+	return result, nil
+}
+
 // 执行交叉污染检测
 func (a *AlignmentAnalyzer) performContaminationDetection() error {
 	fmt.Println("\n=== 执行交叉污染检测 ===")
@@ -247,12 +321,29 @@ func (a *AlignmentAnalyzer) performContaminationDetection() error {
 	}
 	fmt.Printf("  合并参考序列已创建: %s\n", filepath.Base(mergedRefFile))
 
-	// 2. 为每个样品执行比对
+	// 2. 对每个样品的拆分数据进行比对
+	bamFiles, err := a.runContaminationAlignment(mergedRefFile)
+
+	// 3. 分析每个样品的比对结果
+	contaminationMatrix, unmappedCounts, totalCounts, err := a.analyzeContamination(bamFiles)
+
+	// 4. 生成污染矩阵报告
+	if err := a.generateContaminationMatrixReport(contaminationMatrix, unmappedCounts, totalCounts); err != nil {
+		return fmt.Errorf("生成污染矩阵报告失败: %v", err)
+	}
+
+	return nil
+}
+
+// 分析污染检测比对结果
+func (a *AlignmentAnalyzer) analyzeContamination(bamFiles map[string]string) (map[string]map[string]int64, map[string]int64, map[string]int64, error) {
+	fmt.Println("\n=== 分析污染检测结果 ===")
+
+	// 初始化矩阵
 	contaminationMatrix := make(map[string]map[string]int64)
 	unmappedCounts := make(map[string]int64)
 	totalCounts := make(map[string]int64)
 
-	// 初始化矩阵
 	for _, sample := range a.samples {
 		contaminationMatrix[sample.Name] = make(map[string]int64)
 		for _, targetSample := range a.samples {
@@ -262,40 +353,21 @@ func (a *AlignmentAnalyzer) performContaminationDetection() error {
 		totalCounts[sample.Name] = 0
 	}
 
-	// 3. 对每个样品的拆分数据进行比对
-	for _, sample := range a.samples {
-		fmt.Printf("  分析样品: %s\n", sample.Name)
+	// 分析每个样品的比对结果
+	for sampleName, bamFile := range bamFiles {
+		// fmt.Printf("  分析样品: %s\n", sampleName)
 
-		// 获取拆分后的fastq文件
-		splitFastq := filepath.Join(sample.OutputPath, "split_reads.fastq.gz")
-		if _, err := os.Stat(splitFastq); os.IsNotExist(err) {
-			fmt.Printf("  警告: 样品 %s 的拆分文件不存在，跳过\n", sample.Name)
-			continue
-		}
-
-		// 生成输出bam文件路径
-		contamBam := filepath.Join(sample.OutputPath, "contamination.bam")
-
-		// 构建minimap2命令
-		cmd := fmt.Sprintf("minimap2 -a -x sr -t %d --secondary=no %s %s | samtools view -bS -F 4 -q 10 | samtools sort -o %s",
-			a.config.AlignerThreads, mergedRefFile, splitFastq, contamBam)
-
-		// 执行命令
-		if err := runCommand(cmd); err != nil {
-			fmt.Printf("  警告: 比对失败: %v\n", err)
-			continue
-		}
-
-		// 构建samtools命令统计每个参考序列的比对数
-		samtoolsCmd := fmt.Sprintf("samtools idxstats %s", contamBam)
-		output, err := runCommandWithOutput(samtoolsCmd)
+		// 运行 samtools idxstats
+		idxstatsCmd := fmt.Sprintf("samtools idxstats %s 2>&1", bamFile)
+		output, err := runCommandWithOutput(idxstatsCmd)
 		if err != nil {
-			fmt.Printf("  警告: 统计比对结果失败: %v\n", err)
+			slog.Error("samtools idxstats 失败", "bamFile", bamFile, "err", err, "输出", output)
 			continue
 		}
 
-		// 解析samtools输出
+		// 解析 samtools 输出
 		lines := strings.Split(output, "\n")
+		sampleTotal := int64(0)
 		for _, line := range lines {
 			if line == "" {
 				continue
@@ -311,26 +383,28 @@ func (a *AlignmentAnalyzer) performContaminationDetection() error {
 			}
 
 			if reference == "*" {
-				// 未比对的reads
-				unmappedCounts[sample.Name] = count
+				// 未比对的 reads
+				unmappedCounts[sampleName] = count
+				sampleTotal += count
 			} else {
 				// 比对到特定样品
-				contaminationMatrix[sample.Name][reference] = count
-				totalCounts[sample.Name] += count
+				contaminationMatrix[sampleName][reference] = count
+				totalCounts[sampleName] += count
+				sampleTotal += count
 			}
 		}
 
-		// 清理临时文件
-		os.Remove(contamBam)
-		os.Remove(contamBam + ".bai")
+		slog.Info("污染比对",
+			"样品", sampleName,
+			"正确比例", float64(contaminationMatrix[sampleName][sampleName])/float64(sampleTotal),
+			"正确比对", contaminationMatrix[sampleName][sampleName],
+			"总reads", sampleTotal,
+			"比对", totalCounts[sampleName],
+			"未比对", unmappedCounts[sampleName],
+		)
 	}
 
-	// 4. 生成污染矩阵报告
-	if err := a.generateContaminationMatrixReport(contaminationMatrix, unmappedCounts, totalCounts); err != nil {
-		return fmt.Errorf("生成污染矩阵报告失败: %v", err)
-	}
-
-	return nil
+	return contaminationMatrix, unmappedCounts, totalCounts, nil
 }
 
 // 生成污染矩阵报告
@@ -340,30 +414,44 @@ func (a *AlignmentAnalyzer) generateContaminationMatrixReport(matrix map[string]
 		return err
 	}
 
-	// 生成矩阵文件
-	matrixFile := filepath.Join(reportDir, "contamination_matrix.csv")
-	f, err := os.Create(matrixFile)
+	// 生成count矩阵文件
+	countFile := filepath.Join(reportDir, "contamination_matrix_count.csv")
+	countF, err := os.Create(countFile)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer countF.Close()
+	countWriter := csv.NewWriter(countF)
+	defer countWriter.Flush()
 
-	writer := csv.NewWriter(f)
-	defer writer.Flush()
+	// 生成ratio矩阵文件
+	ratioFile := filepath.Join(reportDir, "contamination_matrix_ratio.csv")
+	ratioF, err := os.Create(ratioFile)
+	if err != nil {
+		return err
+	}
+	defer ratioF.Close()
+	ratioWriter := csv.NewWriter(ratioF)
+	defer ratioWriter.Flush()
 
 	// 写入表头
 	header := []string{"Sample"}
 	for _, sample := range a.samples {
-		header = append(header, sample.Name)
+		header = append(header, a.getSampleShortName(sample.Name))
 	}
 	header = append(header, "Unmapped", "Total", "Mapping_Rate")
-	if err := writer.Write(header); err != nil {
+
+	if err := countWriter.Write(header); err != nil {
+		return err
+	}
+	if err := ratioWriter.Write(header); err != nil {
 		return err
 	}
 
 	// 写入数据
 	for _, sample := range a.samples {
-		record := []string{sample.Name}
+		countRecord := []string{a.getSampleShortName(sample.Name)}
+		ratioRecord := []string{a.getSampleShortName(sample.Name)}
 		totalReads := total[sample.Name] + unmapped[sample.Name]
 		mappingRate := 0.0
 		if totalReads > 0 {
@@ -376,7 +464,8 @@ func (a *AlignmentAnalyzer) generateContaminationMatrixReport(matrix map[string]
 			if totalReads > 0 {
 				percentage = float64(count) / float64(totalReads) * 100
 			}
-			record = append(record, fmt.Sprintf("%d (%.2f%%)", count, percentage))
+			countRecord = append(countRecord, fmt.Sprintf("%d", count))
+			ratioRecord = append(ratioRecord, fmt.Sprintf("%.2f%%", percentage))
 		}
 
 		unmappedPercentage := 0.0
@@ -384,31 +473,46 @@ func (a *AlignmentAnalyzer) generateContaminationMatrixReport(matrix map[string]
 			unmappedPercentage = float64(unmapped[sample.Name]) / float64(totalReads) * 100
 		}
 
-		record = append(record,
-			fmt.Sprintf("%d (%.2f%%)", unmapped[sample.Name], unmappedPercentage),
+		countRecord = append(countRecord,
+			fmt.Sprintf("%d", unmapped[sample.Name]),
 			fmt.Sprintf("%d", totalReads),
 			fmt.Sprintf("%.2f%%", mappingRate*100))
 
-		if err := writer.Write(record); err != nil {
+		ratioRecord = append(ratioRecord,
+			fmt.Sprintf("%.2f%%", unmappedPercentage),
+			fmt.Sprintf("%d", totalReads),
+			fmt.Sprintf("%.2f%%", mappingRate*100))
+
+		if err := countWriter.Write(countRecord); err != nil {
+			return err
+		}
+		if err := ratioWriter.Write(ratioRecord); err != nil {
 			return err
 		}
 	}
 
-	fmt.Printf("污染矩阵报告已生成: %s\n", matrixFile)
+	fmt.Printf("污染矩阵报告已生成: %s, %s\n", countFile, ratioFile)
 	return nil
+}
+
+// 获取样品短名称（使用"."分割后的最后一部分）
+func (a *AlignmentAnalyzer) getSampleShortName(fullName string) string {
+	parts := strings.Split(fullName, ".")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return fullName
 }
 
 // 执行命令并返回输出
 func runCommandWithOutput(cmd string) (string, error) {
-	output, err := exec.Command("sh", "-c", cmd).Output()
-	if err != nil {
-		return "", err
-	}
-	return string(output), nil
+	command := exec.Command("sh", "-c", cmd)
+	output, err := command.CombinedOutput()
+	return string(output), err
 }
 
 // 执行命令
 func runCommand(cmd string) error {
-	_, err := exec.Command("sh", "-c", cmd).Output()
-	return err
+	command := exec.Command("sh", "-c", cmd)
+	return command.Run()
 }
