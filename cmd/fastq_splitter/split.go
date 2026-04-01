@@ -566,12 +566,10 @@ func (s *EnhancedSplitter) processSingleFile(fileInfo *MergedFileInfo,
 	fmt.Println()
 
 	// 打印该文件的样品统计
-	fmt.Printf("    文件 %s 的样品统计:\n", filepath.Base(fileInfo.FilePath))
-	for sampleName, count := range sampleStats {
-		if count > 0 {
-			fmt.Printf("      %s: %d 条\n", sampleName, count)
-		}
-	}
+	// fmt.Printf("    文件 %s 的样品统计:\n", filepath.Base(fileInfo.FilePath))
+	// for sampleName, count := range sampleStats {
+	// 	fmt.Printf("      %15s: %7d 条\n", sampleName, count)
+	// }
 
 	return stats, scanner.Err()
 }
@@ -806,18 +804,19 @@ func (s *EnhancedSplitter) printPerSampleStats() {
 		len(s.mergedFiles), "-",
 	)
 
-	// 输出每个样本的靶标信息
-	fmt.Println("\n各样本靶标信息:")
-	fmt.Println(strings.Repeat("=", 80))
-	for _, sample := range s.samples {
-		fullRef := sample.TargetSeq + sample.SynthesisSeq + sample.PostTargetSeq
-		fmt.Printf("  样本 %-20s: 头靶标(%d) + 合成序列(%d) + 尾靶标(%d) = 总长 %d\n",
-			sample.Name,
-			len(sample.TargetSeq),
-			len(sample.SynthesisSeq),
-			len(sample.PostTargetSeq),
-			len(fullRef))
-	}
+	// // 输出每个样本的靶标信息
+	// fmt.Println("\n各样本靶标信息:")
+	// fmt.Println(strings.Repeat("=", 80))
+	// for _, sample := range s.samples {
+	// 	fullRef := sample.TargetSeq + sample.SynthesisSeq + sample.PostTargetSeq
+	// 	fmt.Printf("  样本 %-20s: 头靶标(%d) + 合成序列(%d) + 尾靶标(%d) = 总长 %d\n",
+	// 		sample.Name,
+	// 		len(sample.TargetSeq),
+	// 		len(sample.SynthesisSeq),
+	// 		len(sample.PostTargetSeq),
+	// 		len(fullRef))
+	// }
+
 }
 
 // 调试模式：输出未匹配的序列
