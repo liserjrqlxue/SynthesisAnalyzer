@@ -344,6 +344,19 @@ func (a *AlignmentAnalyzer) analyzeContamination(bamFiles map[string]string) (ma
 	unmappedCounts := make(map[string]int64)
 	totalCounts := make(map[string]int64)
 
+	// 打开污染详情文件
+	contamLogFile := filepath.Join(a.outputDir, "reports", "contamination_details.txt")
+	f, err := os.Create(contamLogFile)
+	if err != nil {
+		slog.Warn("创建污染详情文件失败", "file", contamLogFile, "err", err)
+	}
+	if f != nil {
+		defer f.Close()
+		// 写入文件头
+		fmt.Fprintf(f, "交叉污染检测详细分析\n")
+		fmt.Fprintf(f, "生成时间: %s\n\n", time.Now().Format(time.RFC3339))
+	}
+
 	// 分析每个样品的比对结果
 	for _, sample := range a.samples {
 		sampleName := sample.Name
@@ -357,8 +370,8 @@ func (a *AlignmentAnalyzer) analyzeContamination(bamFiles map[string]string) (ma
 		bamFile, ok := bamFiles[sample.Name]
 		if !ok {
 			slog.Warn("污染bam不存在,跳过", "Name", sample.Name)
+			continue
 		}
-		// fmt.Printf("  分析样品: %s\n", sampleName)
 
 		// 运行 samtools idxstats
 		idxstatsCmd := fmt.Sprintf("samtools idxstats %s 2>&1", bamFile)
@@ -397,14 +410,74 @@ func (a *AlignmentAnalyzer) analyzeContamination(bamFiles map[string]string) (ma
 			}
 		}
 
-		slog.Info("污染比对",
-			"样品", sampleName,
-			"正确比例", fmt.Sprintf("%.2f%%", float64(contaminationMatrix[sampleName][sampleName])/float64(sampleTotal)*100),
-			"正确比对", contaminationMatrix[sampleName][sampleName],
-			"总reads", sampleTotal,
-			"比对", totalCounts[sampleName],
-			"未比对", unmappedCounts[sampleName],
-		)
+		// 计算最高和次高比例的样品
+		type contaminationRecord struct {
+			sample string
+			count  int64
+			ratio  float64
+		}
+
+		var contaminationRecords []contaminationRecord
+		for targetSample := range contaminationMatrix[sampleName] {
+			if targetSample == sampleName {
+				continue // 跳过自身
+			}
+			count := contaminationMatrix[sampleName][targetSample]
+			ratio := 0.0
+			if sampleTotal > 0 {
+				ratio = float64(count) / float64(sampleTotal) * 100
+			}
+			contaminationRecords = append(contaminationRecords, contaminationRecord{
+				sample: targetSample,
+				count:  count,
+				ratio:  ratio,
+			})
+		}
+
+		// 按比例排序
+		for i := 0; i < len(contaminationRecords); i++ {
+			for j := i + 1; j < len(contaminationRecords); j++ {
+				if contaminationRecords[i].ratio < contaminationRecords[j].ratio {
+					contaminationRecords[i], contaminationRecords[j] = contaminationRecords[j], contaminationRecords[i]
+				}
+			}
+		}
+
+		// 获取最高和次高污染
+		highestContam := contaminationRecord{sample: "None", count: 0, ratio: 0}
+		secondHighestContam := contaminationRecord{sample: "None", count: 0, ratio: 0}
+
+		if len(contaminationRecords) > 0 {
+			highestContam = contaminationRecords[0]
+			if len(contaminationRecords) > 1 {
+				secondHighestContam = contaminationRecords[1]
+			}
+		}
+
+		// 计算自身比对比例
+		selfRatio := 0.0
+		if sampleTotal > 0 {
+			selfRatio = float64(contaminationMatrix[sampleName][sampleName]) / float64(sampleTotal) * 100
+		}
+
+		// 输出到文件
+		if f != nil {
+			fmt.Fprintf(f, "样品: %s\n", sampleName)
+			fmt.Fprintf(f, "  总reads: %d\n", sampleTotal)
+			fmt.Fprintf(f, "  比对: %d\n", totalCounts[sampleName])
+			fmt.Fprintf(f, "  未比对: %d\n", unmappedCounts[sampleName])
+			fmt.Fprintf(f, "  正确比对: %d (%.2f%%)\n", contaminationMatrix[sampleName][sampleName], selfRatio)
+			fmt.Fprintf(f, "  最高污染: %s - %d (%.2f%%)\n", highestContam.sample, highestContam.count, highestContam.ratio)
+			fmt.Fprintf(f, "  次高污染: %s - %d (%.2f%%)\n", secondHighestContam.sample, secondHighestContam.count, secondHighestContam.ratio)
+			fmt.Fprintf(f, "\n")
+		}
+
+		// 输出到控制台
+		fmt.Printf("  样品 %s 统计: 总reads=%d, 比对=%d, 未比对=%d\n",
+			sampleName, sampleTotal, totalCounts[sampleName], unmappedCounts[sampleName])
+		fmt.Printf("  正确比对: %d (%.2f%%)\n", contaminationMatrix[sampleName][sampleName], selfRatio)
+		fmt.Printf("  最高污染: %s - %d (%.2f%%)\n", highestContam.sample, highestContam.count, highestContam.ratio)
+		fmt.Printf("  次高污染: %s - %d (%.2f%%)\n", secondHighestContam.sample, secondHighestContam.count, secondHighestContam.ratio)
 	}
 
 	return contaminationMatrix, unmappedCounts, totalCounts, nil
