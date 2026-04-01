@@ -294,7 +294,7 @@ func sumMap(m map[string]int) int {
 
 // 修改主拆分函数，只输出靶标间序列
 func (s *EnhancedSplitter) processEachFileSeparately() error {
-	fmt.Println("\n开始独立处理每个合并文件...")
+	// fmt.Println("\n开始独立处理每个合并文件...")
 
 	s.stats.startTime = time.Now()
 	s.stats.totalFiles = len(s.mergedFiles)
@@ -350,17 +350,6 @@ func (s *EnhancedSplitter) processEachFileSeparately() error {
 
 			fileStatsChan <- stats
 		}(mergedInfo)
-
-		// fmt.Printf("  本文件: 处理 %d 条, 提取 %d 条 (%.1f%%)\n",
-		// processed, matched, float64(matched)/float64(processed)*100)
-
-		// 记录每个样本的统计
-		for _, sample := range mergedInfo.Samples {
-			// sample.TotalReads = processed
-			if sample.MatchedReads > 0 {
-				fmt.Printf("    样本 %s: %d 条\n", sample.Name, sample.MatchedReads)
-			}
-		}
 	}
 
 	// 等待所有文件处理完成
@@ -404,6 +393,13 @@ func (s *EnhancedSplitter) processEachFileSeparately() error {
 		totalFileMatched, float64(totalFileMatched)/float64(totalFileReads)*100)
 	fmt.Printf("耗时: %v\n", elapsed)
 
+	// 从文件统计中汇总
+	for _, mergedInfo := range s.mergedFiles {
+		for _, sample := range mergedInfo.Samples {
+			sample.TotalReads += mergedInfo.TotalReads
+		}
+	}
+
 	// 打印每个样品的统计
 	s.printPerSampleStats()
 
@@ -442,9 +438,9 @@ func (s *EnhancedSplitter) processSingleFile(fileInfo *MergedFileInfo,
 	defer gzReader.Close()
 
 	// 创建工作池
-	numWorkers := min(s.config.Threads, 16) // 限制最大工作线程数
-	recordChan := make(chan []byte, 10000)
-	resultChan := make(chan *MatchResult, 10000)
+	numWorkers := min(s.config.Threads, 32) // 限制最大工作线程数
+	recordChan := make(chan []byte, 100000)
+	resultChan := make(chan *MatchResult, 100000)
 
 	var wg sync.WaitGroup
 
@@ -713,14 +709,13 @@ func (s *EnhancedSplitter) printPerSampleStats() {
 	// 从文件统计中汇总
 	for _, mergedInfo := range s.mergedFiles {
 		totalReads += mergedInfo.TotalReads
-		// totalMatched += mergedInfo.MatchedReads
 		for _, sample := range mergedInfo.Samples {
 			sample.TotalReads += mergedInfo.TotalReads
 		}
 	}
 
 	// 打印表头
-	fmt.Printf("  样品名称            总处理数   匹配数   匹配率%%  最短长度  最长长度  平均长度  正向%%   反向%%  来源文件数  输出文件\n")
+	fmt.Printf("  样品名称            总处理数   匹配数   匹配率%%  最短长度  最长长度  平均长度  正向%%     反向%%  来源文件数  输出文件\n")
 	fmt.Println(strings.Repeat("-", width))
 
 	for _, sample := range s.samples {
@@ -792,18 +787,18 @@ func (s *EnhancedSplitter) printPerSampleStats() {
 		len(s.mergedFiles), "-",
 	)
 
-	// // 输出每个样本的靶标信息
-	// fmt.Println("\n各样本靶标信息:")
-	// fmt.Println(strings.Repeat("=", 80))
-	// for _, sample := range s.samples {
-	// 	fullRef := sample.TargetSeq + sample.SynthesisSeq + sample.PostTargetSeq
-	// 	fmt.Printf("  样本 %-20s: 头靶标(%d) + 合成序列(%d) + 尾靶标(%d) = 总长 %d\n",
-	// 		sample.Name,
-	// 		len(sample.TargetSeq),
-	// 		len(sample.SynthesisSeq),
-	// 		len(sample.PostTargetSeq),
-	// 		len(fullRef))
-	// }
+	// 输出每个样本的靶标信息
+	fmt.Println("\n各样本靶标信息:")
+	fmt.Println(strings.Repeat("=", 80))
+	for _, sample := range s.samples {
+		fullRef := sample.TargetSeq + sample.SynthesisSeq + sample.PostTargetSeq
+		fmt.Printf("  样本 %-20s: 头靶标(%d) + 合成序列(%d) + 尾靶标(%d) = 总长 %d\n",
+			sample.Name,
+			len(sample.TargetSeq),
+			len(sample.SynthesisSeq),
+			len(sample.PostTargetSeq),
+			len(fullRef))
+	}
 
 }
 

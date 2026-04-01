@@ -334,10 +334,10 @@ func (s *EnhancedSplitter) generateSampleReport() error {
 			filepath.Join(sample.Name, "target_only_reads.fastq.gz"),
 			fmt.Sprintf("%d", sample.TotalReads),
 			fmt.Sprintf("%d", sample.MatchedReads),
-			fmt.Sprintf("%.1f", matchRate),
+			fmt.Sprintf("%.2f", matchRate),
 			fmt.Sprintf("%d", sample.MinExtractedLen),
 			fmt.Sprintf("%d", sample.MaxExtractedLen),
-			fmt.Sprintf("%.1f", avgLength),
+			fmt.Sprintf("%.2f", avgLength),
 		}
 
 		if err := writer.Write(record); err != nil {
