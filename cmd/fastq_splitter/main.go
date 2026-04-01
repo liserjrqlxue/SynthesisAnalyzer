@@ -55,6 +55,11 @@ var (
 		false,
 		"启用交叉污染检测功能",
 	)
+	logLevel = flag.String(
+		"log-level",
+		"info",
+		"日志级别: debug, info, warn, error",
+	)
 )
 
 func main() {
@@ -63,6 +68,27 @@ func main() {
 		flag.Usage()
 		log.Fatalln("-i required!")
 	}
+
+	// 设置日志级别
+	var level slog.Level
+	switch strings.ToLower(*logLevel) {
+	case "debug":
+		level = slog.LevelDebug
+	case "info":
+		level = slog.LevelInfo
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+
+	// 配置slog
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: level,
+	}))
+	slog.SetDefault(logger)
 
 	// 处理输出目录
 	output := *outputDir
