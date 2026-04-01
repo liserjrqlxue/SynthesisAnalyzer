@@ -62,6 +62,51 @@ var (
 	)
 )
 
+// 处理fastq目录
+func processFastqDir(fastqDir, excelFile string) (string, error) {
+	if fastqDir != "" {
+		return fastqDir, nil
+	}
+
+	// 如果-fq未定义，查找-i对应目录内的*path.txt(兼容大写字符)
+	excelDir := filepath.Dir(excelFile)
+	files, err := filepath.Glob(filepath.Join(excelDir, "*[Pp][Aa][Tt][Hh].txt"))
+	if err != nil || len(files) == 0 {
+		return "", fmt.Errorf("No path.txt file found in the Excel directory")
+	}
+
+	// 读取path.txt文件内容
+	pathFile := files[0]
+	content, err := os.ReadFile(pathFile)
+	if err != nil {
+		return "", fmt.Errorf("Failed to read path.txt: %v", err)
+	}
+
+	fqBatch := strings.TrimSpace(string(content))
+	if fqBatch == "" {
+		return "", fmt.Errorf("Empty content in path.txt")
+	}
+
+	// 判断模式
+	if matched, _ := regexp.MatchString(`^FT\d+$`, fqBatch); matched {
+		// G99模式
+		return fmt.Sprintf("/data2/wangyaoshen/Sequencing_data/G99/R21007100240139/%s/L01", fqBatch), nil
+	} else if strings.HasPrefix(fqBatch, "oss://novo-medical-customer-tj/") {
+		// Novo模式
+		parts := strings.Split(fqBatch, "/")
+		if len(parts) < 4 {
+			return "", fmt.Errorf("Invalid Novo path format")
+		}
+		// 提取最后一个目录
+		lastDir := parts[len(parts)-1]
+		// 提取CYB编号 (parts[3] after splitting "oss://novo-medical-customer-tj/CYB24030020/...")
+		cyb := parts[3]
+		return fmt.Sprintf("/data2/wangyaoshen/novo-medical-customer-tj/%s/%s/Rawdata", cyb, lastDir), nil
+	} else {
+		return "", fmt.Errorf("Unsupported fqBatch format")
+	}
+}
+
 func main() {
 	flag.Parse()
 	if *excelFile == "" {
@@ -103,45 +148,9 @@ func main() {
 	}
 
 	// 处理fastq目录
-	fastq := *fastqDir
-	if fastq == "" {
-		// 如果-fq未定义，查找-i对应目录内的*path.txt(兼容大写字符)
-		excelDir := filepath.Dir(*excelFile)
-		files, err := filepath.Glob(filepath.Join(excelDir, "*[Pp][Aa][Tt][Hh].txt"))
-		if err != nil || len(files) == 0 {
-			log.Fatalln("No path.txt file found in the Excel directory")
-		}
-
-		// 读取path.txt文件内容
-		pathFile := files[0]
-		content, err := os.ReadFile(pathFile)
-		if err != nil {
-			log.Fatalf("Failed to read path.txt: %v", err)
-		}
-
-		fqBatch := strings.TrimSpace(string(content))
-		if fqBatch == "" {
-			log.Fatalln("Empty content in path.txt")
-		}
-
-		// 判断模式
-		if matched, _ := regexp.MatchString(`^FT\d+$`, fqBatch); matched {
-			// G99模式
-			fastq = fmt.Sprintf("/data2/wangyaoshen/Sequencing_data/G99/R21007100240139/%s/L01", fqBatch)
-		} else if strings.HasPrefix(fqBatch, "oss://novo-medical-customer-tj/") {
-			// Novo模式
-			parts := strings.Split(fqBatch, "/")
-			if len(parts) < 4 {
-				log.Fatalln("Invalid Novo path format")
-			}
-			// 提取最后一个目录
-			lastDir := parts[len(parts)-1]
-			// 提取CYB编号 (parts[3] after splitting "oss://novo-medical-customer-tj/CYB24030020/...")
-			cyb := parts[3]
-			fastq = fmt.Sprintf("/data2/wangyaoshen/novo-medical-customer-tj/%s/%s/Rawdata", cyb, lastDir)
-		} else {
-			log.Fatalln("Unsupported fqBatch format")
-		}
+	fastq, err := processFastqDir(*fastqDir, *excelFile)
+	if err != nil {
+		log.Fatalf("处理fastq目录失败: %v", err)
 	}
 
 	// 创建配置
