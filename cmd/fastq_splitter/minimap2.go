@@ -127,12 +127,27 @@ func (a *AlignmentAnalyzer) alignSampleWithParams(workDir, referenceFile, output
 	var (
 		fastqFile = filepath.Join(workDir, "target_only_reads.fastq.gz")
 
-		samFile = filepath.Join(workDir, fmt.Sprintf("%s.sam", outputPrefix))
-		bamFile = filepath.Join(workDir, fmt.Sprintf("%s.sorted.bam", outputPrefix))
+		samFile  = filepath.Join(workDir, fmt.Sprintf("%s.sam", outputPrefix))
+		bamFile  = filepath.Join(workDir, fmt.Sprintf("%s.sorted.bam", outputPrefix))
+		doneFile = bamFile + ".done"
 	)
 	// 创建样品特定的输出目录
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		return "", fmt.Errorf("创建比对目录失败: %v", err)
+	}
+
+	// 检查是否已完成比对
+	if _, err := os.Stat(doneFile); err == nil {
+		// 检查BAM文件是否存在
+		if _, err := os.Stat(bamFile); err == nil {
+			fmt.Printf("  比对已完成，跳过: %s\n", outputPrefix)
+			return bamFile, nil
+		}
+	}
+
+	// 检查输入文件是否存在
+	if _, err := os.Stat(fastqFile); os.IsNotExist(err) {
+		return "", fmt.Errorf("输入文件不存在: %s", fastqFile)
 	}
 
 	// 1. 运行minimap2
@@ -189,6 +204,15 @@ func (a *AlignmentAnalyzer) alignSampleWithParams(workDir, referenceFile, output
 	// 4. 清理临时文件（可选）
 	if !a.config.KeepSamFiles {
 		os.Remove(samFile)
+	}
+
+	// 5. 创建完成标签
+	doneContent := fmt.Sprintf("Created: %s\nReference: %s\nOutput: %s\n",
+		time.Now().Format(time.RFC3339),
+		filepath.Base(referenceFile),
+		filepath.Base(bamFile))
+	if err := os.WriteFile(doneFile, []byte(doneContent), 0644); err != nil {
+		fmt.Printf("  警告: 创建完成标签失败: %v\n", err)
 	}
 
 	return bamFile, nil
