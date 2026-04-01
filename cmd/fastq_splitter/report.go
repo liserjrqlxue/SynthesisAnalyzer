@@ -577,13 +577,11 @@ func (s *EnhancedSplitter) generateFinalSummary() error {
 %s/
 ├── merged/               # 合并的FASTQ文件
 ├── sample1/              # 样品1结果
-│   ├── split_reads.fastq.gz      # 拆分后的序列
 │   ├── target_only_reads.fastq.gz # 靶标序列
 │   ├── sample1.sorted.bam
 │   ├── sample1.sorted.bam.bai
 │   └── position_stats.csv
 ├── sample2/              # 样品2结果
-│   ├── split_reads.fastq.gz
 │   └── target_only_reads.fastq.gz
 ├── references/           # 参考序列文件
 ├── reports/             # 分析报告
