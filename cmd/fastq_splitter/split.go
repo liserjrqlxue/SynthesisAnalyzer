@@ -401,7 +401,7 @@ func (s *EnhancedSplitter) processEachFileSeparately() error {
 	}
 
 	// 打印每个样品的统计
-	s.printPerSampleStats()
+	// s.printPerSampleStats()
 
 	return nil
 }
