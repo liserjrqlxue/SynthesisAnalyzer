@@ -12,50 +12,38 @@ import (
 	stats "SynthesisAnalyzer/pkg/stats"
 )
 
-func NewBatchInfo(cfg *cfg.Config) *stats.BatchInfo {
+func NewBatchInfo(config *cfg.Config) *stats.BatchInfo {
 	batchInfo := stats.NewBatchInfo()
-	batchInfo.Config = cfg
-
-	batchInfo.InputExcel = cfg.ExcelFile
-	batchInfo.InputSheet = cfg.InputSheet
-	batchInfo.InputDir = cfg.InputDir
-	batchInfo.SampleNameSuffix = cfg.SampleNameSuffix
-	batchInfo.HeadCuts = cfg.HeadCut
-	batchInfo.TailCuts = cfg.TailCut
-	batchInfo.NMerSize = cfg.NMerSize
-	batchInfo.MaxSubstitutions = cfg.MaxSubstitutions
-	batchInfo.MaxThreads = cfg.Threads
-
-	// 设置输出目录
-	batchInfo.OutputDir = cfg.OutputDir
-	if batchInfo.OutputDir == "" {
-		batchInfo.OutputDir = filepath.Join(batchInfo.InputDir, "mutation_stats")
-	}
-
+	batchInfo.Config = config
 	return batchInfo
 }
 
 // parseFlags 解析命令行参数，返回配置对象
 func parseFlags() *cfg.Config {
-	cfg := &cfg.Config{}
+	config := &cfg.Config{}
 
 	// 计算默认最大线程数: max(8, CPU个数/8)
 	defaultMaxThreads := max(runtime.NumCPU()/8, 8)
 
-	flag.StringVar(&cfg.InputDir, "d", "", "输入目录，包含样本子目录")
-	flag.StringVar(&cfg.InputSheet, "s", "Sheet1", "输入Sheet名称，默认Sheet1")
-	flag.StringVar(&cfg.OutputDir, "o", "", "输出目录，默认输入目录/mutation_stats")
-	flag.StringVar(&cfg.ExcelFile, "i", "", "可选参数：输入Excel文件，包含样本顺序")
-	flag.StringVar(&cfg.SampleNameSuffix, "suffix-col", "", "可选参数：样品名称后缀列，若指定则将该列值拼接到样品名称后")
-	flag.IntVar(&cfg.HeadCut, "head", 27, "头切除长度")
-	flag.IntVar(&cfg.TailCut, "tail", 20, "尾切除长度")
-	flag.IntVar(&cfg.MaxSubstitutions, "max-sub", 5, "最大替换个数阈值，用于定义比对良好reads")
-	flag.IntVar(&cfg.NMerSize, "n", 4, "N-mer 统计的 N 值（默认4，即统计5-mer准确率）")
-	flag.StringVar(&cfg.LogLevel, "log-level", "info", "日志级别 (debug, info, warn, error)")
-	flag.IntVar(&cfg.Threads, "max-threads", defaultMaxThreads, "最大线程数，默认值为max(8, CPU个数/8)")
+	flag.StringVar(&config.InputDir, "d", "", "输入目录，包含样本子目录")
+	flag.StringVar(&config.InputSheet, "s", "Sheet1", "输入Sheet名称，默认Sheet1")
+	flag.StringVar(&config.OutputDir, "o", "", "输出目录，默认输入目录/mutation_stats")
+	flag.StringVar(&config.ExcelFile, "i", "", "可选参数：输入Excel文件，包含样本顺序")
+	flag.StringVar(&config.SampleNameSuffix, "suffix-col", "", "可选参数：样品名称后缀列，若指定则将该列值拼接到样品名称后")
+	flag.IntVar(&config.HeadCut, "head", 27, "头切除长度")
+	flag.IntVar(&config.TailCut, "tail", 20, "尾切除长度")
+	flag.IntVar(&config.MaxSubstitutions, "max-sub", 5, "最大替换个数阈值，用于定义比对良好reads")
+	flag.IntVar(&config.NMerSize, "n", 4, "N-mer 统计的 N 值（默认4，即统计5-mer准确率）")
+	flag.StringVar(&config.LogLevel, "log-level", "info", "日志级别 (debug, info, warn, error)")
+	flag.IntVar(&config.Threads, "max-threads", defaultMaxThreads, "最大线程数，默认值为max(8, CPU个数/8)")
 
 	flag.Parse()
-	return cfg
+
+	if config.OutputDir == "" {
+		config.OutputDir = filepath.Join(config.InputDir, cfg.DefaultMutationStatsDir)
+	}
+
+	return config
 }
 
 // validateConfig 验证配置合法性，返回错误
@@ -76,30 +64,30 @@ func validateConfig(cfg *cfg.Config) error {
 // run 执行核心业务逻辑，返回错误
 func run(cfg *cfg.Config) error {
 	// 初始化样本信息
-	sampleInfo := NewBatchInfo(cfg)
+	batchInfo := NewBatchInfo(cfg)
 
 	// 读取 Excel 样本顺序（如果提供）
 	if cfg.ExcelFile != "" {
-		if err := sampleInfo.ReadExcel(); err != nil {
+		if err := batchInfo.ReadExcel(); err != nil {
 			return fmt.Errorf("读取Excel文件失败: %w", err)
 		}
-		slog.Info("从Excel读取样本", "count", len(sampleInfo.Order))
+		slog.Info("从Excel读取样本", "count", len(batchInfo.Order))
 	}
 
 	// 查找所有BAM文件
-	if err := sampleInfo.FindBAMFiles(); err != nil {
+	if err := batchInfo.FindBAMFiles(); err != nil {
 		return fmt.Errorf("查找BAM文件失败: %w", err)
 	}
-	slog.Info("找到BAM文件", "count", len(sampleInfo.Order))
+	slog.Info("找到BAM文件", "count", len(batchInfo.Order))
 
 	// 创建输出目录
-	if err := os.MkdirAll(sampleInfo.OutputDir, 0755); err != nil {
+	if err := os.MkdirAll(batchInfo.Config.OutputDir, 0755); err != nil {
 		return fmt.Errorf("创建输出目录失败: %w", err)
 	}
 
 	// 统计处理
 	mutationStats := stats.NewMutationStats()
-	mutationStats.BatchInfo = sampleInfo
+	mutationStats.BatchInfo = batchInfo
 	if err := mutationStats.ProcessBAMFiles(); err != nil {
 		return fmt.Errorf("处理BAM文件失败: %w", err)
 	}

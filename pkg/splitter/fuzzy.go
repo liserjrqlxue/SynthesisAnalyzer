@@ -67,7 +67,7 @@ func (s *EnhancedSplitter) fuzzyExtractTargetRegion(sequence string) (string, *c
 		}
 
 		// 反向搜索（如果需要）
-		if s.useRC {
+		if s.config.UseRC {
 			rcHeadPos := s.fuzzySearch(sequence, sample.ReversePostTarget, s.config.AllowMismatch)
 			if rcHeadPos != -1 {
 				searchStart := rcHeadPos + len(sample.ReversePostTarget)
@@ -200,7 +200,7 @@ func (s *EnhancedSplitter) positionBasedExtract(sequence string) (string, *cfg.S
 		}
 
 		// 反向搜索
-		if s.useRC {
+		if s.config.UseRC {
 			// 搜索反向互补靶标
 			rcHeadPos := strings.Index(sequence, sample.ReversePostTarget)
 			if rcHeadPos != -1 {

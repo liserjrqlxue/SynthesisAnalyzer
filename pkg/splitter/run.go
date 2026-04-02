@@ -163,19 +163,22 @@ func (s *EnhancedSplitter) Run() error {
 	fmt.Printf("配置: 线程数=%d, 反向互补=%v, 跳过已存在=%v\n",
 		s.config.Threads, s.config.UseRC, s.config.SkipExisting)
 
-	// 步骤1: 创建输出目录
-	if err := s.createOutputDir(); err != nil {
-		return fmt.Errorf("创建输出目录失败: %v", err)
-	}
-
-	// 步骤2: 读取Excel文件
+	// 步骤1: 读取Excel文件
+	fmt.Printf("\n步骤1: 读取Excel文件: %s\n", s.config.ExcelFile)
 	if err := s.loadSamplesFromExcel(); err != nil {
 		return fmt.Errorf("读取Excel文件失败: %v", err)
 	}
 
-	// 步骤3: 检查重复样品名称
+	// 步骤2: 检查重复样品名称
+	fmt.Println("\n步骤2: 检查重复样品名称...")
 	if err := s.checkDuplicates(); err != nil {
 		return err
+	}
+
+	// 步骤3: 创建输出目录
+	fmt.Printf("\n步骤3: 创建输出目录: %s\n", s.config.OutputDir)
+	if err := s.createOutputDir(); err != nil {
+		return fmt.Errorf("创建输出目录失败: %v", err)
 	}
 
 	// 步骤4: 合并PE reads并建立文件映射
@@ -258,19 +261,26 @@ func (s *EnhancedSplitter) createOutputDir() error {
 	multiWriter := io.MultiWriter(os.Stdout, f)
 	log.SetOutput(multiWriter)
 
+	for _, sample := range s.samples {
+		// 创建输出目录
+		sample.OutputDir = filepath.Join(s.config.OutputDir, "samples", sample.Name)
+		if err := os.MkdirAll(sample.OutputDir, 0755); err != nil {
+			return fmt.Errorf("创建样品目录失败: %v", err)
+		}
+	}
+
 	return nil
 }
 
 // 读取Excel文件
 func (s *EnhancedSplitter) loadSamplesFromExcel() error {
-	fmt.Printf("步骤1: 读取Excel文件: %s\n", s.config.ExcelFile)
 	samples, err := s.config.LoadInputExcel()
 	if err != nil {
 		return fmt.Errorf("读取Excel文件失败: %v", err)
 	}
 	s.samples = samples
 
-	for _, sample := range samples {
+	for _, sample := range s.samples {
 
 		// 创建输出目录
 		sample.OutputDir = filepath.Join(s.config.OutputDir, "samples", sample.Name)
@@ -285,7 +295,6 @@ func (s *EnhancedSplitter) loadSamplesFromExcel() error {
 
 // 检查重复样品名称
 func (s *EnhancedSplitter) checkDuplicates() error {
-	fmt.Println("\n步骤2: 检查重复样品名称...")
 
 	seen := make(map[string]bool)
 	duplicates := []string{}

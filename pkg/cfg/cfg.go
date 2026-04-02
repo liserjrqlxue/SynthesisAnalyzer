@@ -10,6 +10,10 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
+var (
+	DefaultMutationStatsDir = "mutation_stats"
+)
+
 // 比对配置
 type AlignmentConfig struct {
 	UseMinimap2    bool    // 使用minimap2而不是BWA
@@ -35,15 +39,16 @@ type ReportConfig struct {
 // Config 存放所有命令行参数及派生配置
 type Config struct {
 	// input
-	ExcelFile        string // sample info excel file
-	InputSheet       string // input sheet name
+	ExcelFile        string // 输入Excel文件路径
+	InputSheet       string // 输入Sheet名称
 	SampleNameSuffix string // 样品名称后缀列
 	FastqDir         string
-	InputDir         string // 与OutputDir相同
 
-	OutputDir string
-
-	Threads int
+	InputDir         string // bam-mut-analyzer输入目录路径
+	OutputDir        string // bam-mut-analyzer输出目录路径,默认InputDir/mutation_stats
+	MutationStatsDir string
+	LogLevel         string
+	Threads          int
 
 	UseRC bool // 是否使用反向互补
 
@@ -75,19 +80,17 @@ type Config struct {
 	OverlapLenRequire int
 
 	// bam-mut-analyzer 相关配置
-	LogLevel         string
-	HeadCut          int
-	TailCut          int
-	NMerSize         int
-	MaxSubstitutions int
+	HeadCut          int // 头切除长度
+	TailCut          int // 尾切除长度
+	NMerSize         int // n-mer大小
+	MaxSubstitutions int // 最大错配次数
 
 	// report 相关配置
 	ReportConfig
-	InputFile        string
-	Prefix           string // 输出文件前缀
-	MutationStatsDir string
-	BomFile          string
-	BatchID          string // 手动指定BatchID
+	InputFile string
+	Prefix    string // 输出文件前缀
+	BomFile   string
+	BatchID   string // 手动指定BatchID
 }
 
 func (cfg *Config) SetLogLevel() {

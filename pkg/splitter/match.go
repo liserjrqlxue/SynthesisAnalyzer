@@ -45,7 +45,7 @@ func (s *EnhancedSplitter) buildIndex() error {
 			// 2. 如果需要，构建反向互补正则表达式
 			var reverseRegex *regexp.Regexp
 			var reversePattern string
-			if s.useRC {
+			if s.config.UseRC {
 				// 计算反向互补序列
 				rcTarget := reverseComplement(sample.TargetSeq)
 				rcPostTarget := reverseComplement(sample.PostTargetSeq)
@@ -61,7 +61,7 @@ func (s *EnhancedSplitter) buildIndex() error {
 
 			fmt.Printf("  样本 %s: 正则表达式构建成功\n", sample.Name)
 			fmt.Printf("    正向: %s\n", forwardPattern)
-			if s.useRC && reverseRegex != nil {
+			if s.config.UseRC && reverseRegex != nil {
 				fmt.Printf("    反向: %s\n", reversePattern)
 			}
 

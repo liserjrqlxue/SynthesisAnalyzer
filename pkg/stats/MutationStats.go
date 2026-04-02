@@ -175,7 +175,7 @@ func (stats *MutationStats) ProcessBAMFiles() (err error) {
 	g, ctx := errgroup.WithContext(ctx)
 
 	// 信号量 channel，容量即为最大并发数
-	sem := make(chan struct{}, sampleInfo.MaxThreads)
+	sem := make(chan struct{}, sampleInfo.Config.Threads)
 
 	// 处理每个BAM文件
 	for _, sampleName := range sampleInfo.Order {
@@ -194,7 +194,7 @@ func (stats *MutationStats) ProcessBAMFiles() (err error) {
 
 			// 初始化样本统计
 			sampleStats := stats.GetOrCreateSampleStats(sample)
-			err := sampleStats.ProcessBAMFile(ctx, stats.BatchInfo.NMerSize, stats.BatchInfo.MaxSubstitutions)
+			err := sampleStats.ProcessBAMFile(ctx, stats.BatchInfo.Config.NMerSize, stats.BatchInfo.Config.MaxSubstitutions)
 			if err != nil {
 				return err
 			}

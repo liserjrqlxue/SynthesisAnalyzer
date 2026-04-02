@@ -520,7 +520,7 @@ func (p *Processor) ReadBOMFile() (map[string]*Well, error) {
 
 // ReadSubtypeStats 从read_type_summary.csv读取子类型统计数据
 func ReadSubtypeStats(inputDir string) (map[string]float64, int, error) {
-	csvPath := filepath.Join(inputDir, "mutation_stats", "read_type_summary.csv")
+	csvPath := filepath.Join(inputDir, cfg.DefaultMutationStatsDir, "read_type_summary.csv")
 	file, err := os.Open(csvPath)
 	if err != nil {
 		return nil, 0, fmt.Errorf("打开read_type_summary.csv失败: %w", err)
@@ -618,7 +618,7 @@ func ReadSubtypeStats(inputDir string) (map[string]float64, int, error) {
 
 // ReadYieldStats 从read_type_by_sample.csv读取收率和错误统计数据
 func ReadYieldStats(inputDir string) (map[string]float64, map[string]float64, map[string]float64, map[string]float64, error) {
-	csvPath := filepath.Join(inputDir, "mutation_stats", "read_type_by_sample.csv")
+	csvPath := filepath.Join(inputDir, cfg.DefaultMutationStatsDir, "read_type_by_sample.csv")
 	file, err := os.Open(csvPath)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("打开read_type_by_sample.csv失败: %w", err)
@@ -818,7 +818,7 @@ func ReadSplitSummary(inputDir string) (int, string, int, int, error) {
 // ReadPositionStats 从{ID}_position_detailed.csv读取位置统计数据
 func ReadPositionStats(inputDir, id string) ([]PositionStats, error) {
 	// 构建position_detailed.csv文件路径
-	csvPath := filepath.Join(inputDir, "mutation_stats", id+"_position_detailed.csv")
+	csvPath := filepath.Join(inputDir, cfg.DefaultMutationStatsDir, id+"_position_detailed.csv")
 
 	// 打开文件
 	file, err := os.Open(csvPath)

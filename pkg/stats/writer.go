@@ -1264,7 +1264,7 @@ func extractPosition(posKey string) int {
 }
 
 func (stats *MutationStats) MainWrite() {
-	outputDir := stats.BatchInfo.OutputDir
+	outputDir := stats.BatchInfo.Config.OutputDir
 	// 写入各bam各位置各碱基变化组合的个数分布统计
 	if err := writePositionStats(stats, outputDir); err != nil {
 		fmt.Printf("写入位置统计失败: %v\n", err)
@@ -1781,10 +1781,10 @@ func writeNMerStats(stats *MutationStats, outputDir string) error {
 			prefix := "NNNN"
 			base := "N"
 
-			if rawPos > stats.BatchInfo.NMerSize {
+			if rawPos > stats.BatchInfo.Config.NMerSize {
 				// 提取前缀：原始序列中 [rawPos-N, rawPos-1] 区间
-				startIdx := rawPos - stats.BatchInfo.NMerSize - 1 // 0-based 起始
-				endIdx := rawPos - 2                              // 0-based 结束（包含）
+				startIdx := rawPos - stats.BatchInfo.Config.NMerSize - 1 // 0-based 起始
+				endIdx := rawPos - 2                                     // 0-based 结束（包含）
 				if len(fullSeq) >= rawPos {
 					prefix = fullSeq[startIdx : endIdx+1]
 					base = fullSeq[rawPos-1 : rawPos] // 当前碱基

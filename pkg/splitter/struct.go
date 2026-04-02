@@ -43,7 +43,6 @@ type EnhancedSplitter struct {
 
 	// 每个合并文件独立的匹配器
 	fileMatchers map[string]*FileMatcher
-	useRC        bool
 
 	// 全局统计
 	stats      *SplitStats
@@ -86,7 +85,6 @@ func NewEnhancedSplitter(config *cfg.Config) *EnhancedSplitter {
 		mergedFiles:   []*MergedFileInfo{},
 		mergedFileMap: make(map[string]*MergedFileInfo),
 		fileMatchers:  make(map[string]*FileMatcher),
-		useRC:         config.UseRC,
 	}
 }
 

@@ -12,18 +12,7 @@ import (
 
 // 样本信息结构体
 type BatchInfo struct {
-	Config           *cfg.Config // 配置信息
-	InputExcel       string      // 输入Excel文件路径
-	InputSheet       string      // 输入Sheet名称
-	InputDir         string      // 输入目录路径
-	OutputDir        string      // 输出目录路径
-	SampleNameSuffix string      // 样品名称后缀列
-
-	HeadCuts         int // 头切除长度
-	TailCuts         int // 尾切除长度
-	NMerSize         int // n-mer大小
-	MaxSubstitutions int // 最大错配次数
-	MaxThreads       int // 最大线程数
+	Config *cfg.Config // 配置信息
 
 	Order   []string               // 样本顺序列表
 	Samples map[string]*cfg.Sample // 样本名->样本信息
@@ -36,7 +25,7 @@ func NewBatchInfo() *BatchInfo {
 	}
 }
 
-// readExcelSampleOrder 使用 excelize 读取 Excel 文件，基于表头确定列
+// ReadExcel 使用 excelize 读取 Excel 文件，基于表头确定列
 // 返回: 样品信息结构体, 错误
 func (s *BatchInfo) ReadExcel() error {
 	samples, err := s.Config.LoadInputExcel()
@@ -69,8 +58,8 @@ func (s *BatchInfo) FindBAMFiles() error {
 func (s *BatchInfo) findBAMFilesFromExcel() (err error) {
 	// 使用Excel中的样本顺序
 	for _, sampleName := range s.Order {
-		sortBam := filepath.Join(s.InputDir, "samples", sampleName, sampleName+".sorted.bam")
-		filterBam := filepath.Join(s.InputDir, sampleName, sampleName+".filter.bam")
+		sortBam := filepath.Join(s.Config.InputDir, "samples", sampleName, sampleName+".sorted.bam")
+		filterBam := filepath.Join(s.Config.InputDir, sampleName, sampleName+".filter.bam")
 		var bamPath string
 		if _, err = os.Stat(sortBam); err == nil {
 			bamPath = sortBam
@@ -104,7 +93,7 @@ func (s *BatchInfo) findBAMFilesFromExcel() (err error) {
 // findBAMFilesFromWalk 递归遍历目录查找BAM文件
 func (s *BatchInfo) findBAMFilesFromWalk() (err error) {
 	// 原来的方法：递归查找所有BAM文件
-	err = filepath.Walk(s.InputDir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(s.Config.InputDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -118,8 +107,8 @@ func (s *BatchInfo) findBAMFilesFromWalk() (err error) {
 			if !ok {
 				sample = &cfg.Sample{
 					Name:    sampleName,
-					HeadCut: s.HeadCuts,
-					TailCut: s.TailCuts,
+					HeadCut: s.Config.HeadCut,
+					TailCut: s.Config.TailCut,
 				}
 				s.Samples[sampleName] = sample
 				s.Order = append(s.Order, sampleName)

@@ -61,7 +61,7 @@ fastq_splitter -i samples.xlsx -o ./output -fq ./fastq
 fastq_splitter -i samples.xlsx
 
 #### 完整参数
-fastq_splitter -i <Excel文件> [-o <输出目录>] [-fq <Fastq目录>] [-m <最小重叠长度>] [--skip-alignment] [--analysis-only] [--keep-bam] [--threads N]
+fastq_splitter -i <Excel文件> [-o <输出目录>] [-fq <Fastq目录>] [-m <最小重叠长度>] [--skip-alignment] [--analysis-only] [--threads N]
 ```
 
 ### 参数说明
@@ -74,7 +74,6 @@ fastq_splitter -i <Excel文件> [-o <输出目录>] [-fq <Fastq目录>] [-m <最
 | `-m` | 最小重叠长度（影响PE reads合并） | 30 |
 | `--skip-alignment` | 跳过比对步骤（仅拆分） | false |
 | `--analysis-only` | 仅分析已有的BAM文件 | false |
-| `--keep-bam` | 保留BAM文件（默认清理） | false |
 | `--threads` | 设置线程数 | CPU核心数 |
 
 ## 4. 输入文件格式
