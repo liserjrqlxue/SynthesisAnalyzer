@@ -1,42 +1,9 @@
 package stats
 
-import "io"
+import (
+	"io"
 
-// ReadType 表示read的类型
-type ReadType int
-
-const (
-	ReadTypeMatch              ReadType = iota // 匹配
-	ReadTypeMatchClip          ReadType = iota // 剪辑
-	ReadTypeInsert                             // 插入
-	ReadTypeDelete                             // 缺失
-	ReadTypeSubstitution                       // 替换
-	ReadTypeInsertDelete                       // 插入+缺失
-	ReadTypeInsertSubstitution                 // 插入+替换
-	ReadTypeDeleteSubstitution                 // 缺失+替换
-	ReadTypeAll                                // 插入+缺失+替换
-)
-
-// ReadTypeNames ReadType对应的名称
-var ReadTypeNames = map[ReadType]string{
-	ReadTypeMatch:              "匹配",
-	ReadTypeMatchClip:          "剪辑",
-	ReadTypeInsert:             "插入",
-	ReadTypeDelete:             "缺失",
-	ReadTypeSubstitution:       "替换",
-	ReadTypeInsertDelete:       "插入+缺失",
-	ReadTypeInsertSubstitution: "插入+替换",
-	ReadTypeDeleteSubstitution: "缺失+替换",
-	ReadTypeAll:                "插入+缺失+替换",
-}
-
-// 新增：缺失细分类
-type DeletionSubtype int
-
-const (
-	Del1 DeletionSubtype = iota // 长度1
-	Del2                        // 长度2
-	Del3                        // 长度>2
+	"SynthesisAnalyzer/pkg/cfg"
 )
 
 // 新增：插入细分类
@@ -63,10 +30,10 @@ const (
 )
 
 // 定义细分类名称映射
-var DeleteNames = map[DeletionSubtype]string{
-	Del1: "Del1",
-	Del2: "Del2",
-	Del3: "Del3",
+var DeleteNames = map[cfg.DeletionSubtype]string{
+	cfg.Del1: "Del1",
+	cfg.Del2: "Del2",
+	cfg.Del3: "Del3",
 }
 
 var InsertNames = map[InsertionSubtype]string{
@@ -90,7 +57,7 @@ func (stats *MutationStats) WriteSubtype(writer io.Writer) {
 	totalEvents := stats.TotalInsertEventCount + stats.TotalDeleteEventCount + stats.TotalSubstitutionEventCount
 
 	// 缺失
-	for st := Del1; st <= Del3; st++ {
+	for st := cfg.Del1; st <= cfg.Del3; st++ {
 		name := "D:" + DeleteNames[st]
 		count := stats.DeleteSubtypeEvents[st]
 		write1line(writer, name, count, stats.TotalGoodAlignedReads, stats.TotalRefLengthGoodAligned, totalEvents)

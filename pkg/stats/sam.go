@@ -1,28 +1,13 @@
 package stats
 
 import (
-	"log"
 	"sort"
-	"strconv"
 	"strings"
+
+	"SynthesisAnalyzer/pkg/cfg"
 
 	"github.com/biogo/hts/sam"
 )
-
-func getMD(read *sam.Record) (mdStr string, hasMD bool) {
-	var mdTag sam.Aux
-	mdTag, hasMD = read.Tag([]byte{'M', 'D'})
-	if hasMD {
-		mdStr = mdTag.String()
-		if len(mdStr) > 5 && mdStr[4] == ':' {
-			mdStr = mdStr[5:]
-		} else {
-			mdStr = strings.TrimPrefix(mdStr, "MD:Z:")
-		}
-	}
-
-	return
-}
 
 // analyzeSubstitutionSubtype 使用参考序列和MD标签解析突变
 func analyzeSubstitutionSubtype(read *sam.Record, refSeq string, mdMap map[int]string) *SubstituteSubtype {
@@ -56,173 +41,12 @@ func analyzeSubstitutionSubtype(read *sam.Record, refSeq string, mdMap map[int]s
 	return subtype
 }
 
-// isBase 判断字符是否为有效碱基
-func isBase(c byte) bool {
-	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
-}
-
-// checkMismatchInMD 检查MD字符串中是否有错配和删除
-func checkMismatchInMD(mdStr string) (bool, bool) {
-	hasDelete := false
-	hasSubstitution := false
-
-	i := 0
-	for i < len(mdStr) {
-		if isDigit(mdStr[i]) {
-			// 跳过数字
-			i++
-			for i < len(mdStr) && isDigit(mdStr[i]) {
-				i++
-			}
-		} else if mdStr[i] == '^' {
-			hasDelete = true
-			i++
-			// 跳过所有非数字字符（删除的碱基）
-			for i < len(mdStr) && !isDigit(mdStr[i]) {
-				i++
-			}
-		} else if isBase(mdStr[i]) {
-			// 不是数字也不是'^'，就是错配碱基
-			hasSubstitution = true
-			i++
-		} else {
-			i++
-		}
-	}
-
-	return hasDelete, hasSubstitution
-}
-
-// parseMDToMap 解析MD字符串，返回位置(0-based)->参考碱基的映射（只包含错配）
-func parseMDToMap(mdStr string, refStart int) map[int]string {
-	result := make(map[int]string)
-
-	if mdStr == "" {
-		return result
-	}
-
-	// pos是0-based的位置（相对于参考序列起始）
-	pos := refStart
-	i := 0
-
-	for i < len(mdStr) {
-		// 读取数字（匹配长度）
-		if isDigit(mdStr[i]) {
-			j := i
-			for j < len(mdStr) && isDigit(mdStr[j]) {
-				j++
-			}
-			numStr := mdStr[i:j]
-			num, err := strconv.Atoi(numStr)
-			if err != nil {
-				i = j
-				log.Fatalf("num Error[%s]:[%s]", numStr, mdStr)
-				continue
-			}
-
-			// 匹配区域，不记录到映射中
-			pos += num
-			i = j
-		} else if isBase(mdStr[i]) && mdStr[i] != '^' {
-			// 错配（碱基）
-			// 检查是否在删除标记后
-			if i > 0 && mdStr[i-1] == '^' {
-				// 在删除标记后，这是被删除的碱基，不是错配
-				pos++
-				i++
-			} else {
-				// 真正的错配
-				result[pos] = string(mdStr[i])
-				pos++
-				i++
-			}
-		} else if mdStr[i] == '^' {
-			// 删除
-			i++
-			// 跳过删除的碱基
-			for i < len(mdStr) && isBase(mdStr[i]) {
-				// 删除的碱基不记录到错配映射中
-				pos++
-				i++
-			}
-		} else {
-			i++
-		}
-	}
-
-	return result
-}
-
-// analyzeReadType 分析read的类型 - 更新版本，考虑M操作中的错配
-func analyzeReadType(read *sam.Record) ReadType {
-	hasInsert := false
-	hasDelete := false
-	hasSubstitution := false
-	hasClip := false
-
-	// 1. 检查CIGAR操作
-	for _, cigarOp := range read.Cigar {
-		op := cigarOp.Type()
-
-		switch op {
-		case sam.CigarInsertion: // I: 插入
-			hasInsert = true
-		case sam.CigarDeletion, sam.CigarSkipped: // D, N: 缺失或跳过
-			hasDelete = true
-		case sam.CigarMismatch: // X: 替换
-			hasSubstitution = true
-		case sam.CigarSoftClipped, sam.CigarHardClipped: // S, H: 剪辑
-			hasClip = true
-		}
-	}
-
-	// 2. 检查MD标签中的错配（包括M操作中的错配）
-	mdStr, hasMD := getMD(read)
-	if hasMD {
-		// 解析MD字符串检查错配
-		mdHasDelete, mdHasSubstitution := checkMismatchInMD(mdStr)
-		if mdHasDelete {
-			hasDelete = true
-		}
-		if mdHasSubstitution {
-			hasSubstitution = true
-		}
-	}
-
-	// 3. 根据组合确定类型
-	if !hasInsert && !hasDelete && !hasSubstitution {
-		if hasClip {
-			return ReadTypeMatchClip
-		}
-		return ReadTypeMatch
-	} else if hasInsert && !hasDelete && !hasSubstitution {
-		return ReadTypeInsert
-	} else if !hasInsert && hasDelete && !hasSubstitution {
-		return ReadTypeDelete
-	} else if !hasInsert && !hasDelete && hasSubstitution {
-		return ReadTypeSubstitution
-	} else if hasInsert && hasDelete && !hasSubstitution {
-		return ReadTypeInsertDelete
-	} else if hasInsert && !hasDelete && hasSubstitution {
-		return ReadTypeInsertSubstitution
-	} else if !hasInsert && hasDelete && hasSubstitution {
-		return ReadTypeDeleteSubstitution
-	} else if hasInsert && hasDelete && hasSubstitution {
-		return ReadTypeAll
-	}
-
-	if hasClip {
-		return ReadTypeMatchClip
-	}
-	return ReadTypeMatch
-}
-
 // analyzeReadDetailedInfo 分析详细的read信息
 func analyzeReadDetailedInfo(read *sam.Record, mdMap map[int]string, mdStr, refSeq string) ReadDetailedInfo {
 	var info ReadDetailedInfo
 
 	// 基本类型分析
-	info.MainType = analyzeReadType(read)
+	info.MainType = cfg.AnalyzeReadType(read)
 
 	hasInsertion, hasDelete, _ := CheckCigar(read)
 
@@ -279,9 +103,9 @@ func analyzeDeleteSubtype(read *sam.Record, mdStr string) *DeleteSubtype {
 	// 从MD字符串解析缺失的碱基和位置
 	if mdStr != "" {
 		// 解析MD字符串获取缺失的碱基和位置
-		deletedInfos := parseDeletionInfoFromMD(mdStr, refStart)
+		deletedInfos := cfg.ParseDeletionInfoFromMD(mdStr, refStart)
 		for i := range deletedInfos {
-			deletedInfos[i].Subtype = classifyDeletion(deletedInfos[i].Length)
+			deletedInfos[i].Subtype = cfg.ClassifyDeletion(deletedInfos[i].Length)
 		}
 		subtype.Deletions = deletedInfos
 		return subtype
@@ -308,7 +132,7 @@ func analyzeDeleteSubtype(read *sam.Record, mdStr string) *DeleteSubtype {
 }
 
 // 新增：生成read的细分类组合键
-func buildSubtypeCombinationKey(insertSubtypes map[InsertionSubtype]bool, deleteSubtypes map[DeletionSubtype]bool, substSubtypes map[SubstitutionSubtype]bool) string {
+func buildSubtypeCombinationKey(insertSubtypes map[InsertionSubtype]bool, deleteSubtypes map[cfg.DeletionSubtype]bool, substSubtypes map[SubstitutionSubtype]bool) string {
 	var tags []string
 	// 插入
 	for st := range insertSubtypes {
@@ -324,68 +148,6 @@ func buildSubtypeCombinationKey(insertSubtypes map[InsertionSubtype]bool, delete
 	}
 	sort.Strings(tags)
 	return strings.Join(tags, "_")
-}
-
-// parseDeletionInfoFromMD 从MD字符串解析缺失信息（包括位置）
-func parseDeletionInfoFromMD(mdStr string, refStart int) []DeletionInfo {
-	var deletions []DeletionInfo
-
-	i := 0
-	refPos := refStart // 0-based位置
-
-	for i < len(mdStr) {
-		if isDigit(mdStr[i]) {
-			// 读取数字（匹配长度）
-			j := i
-			for j < len(mdStr) && isDigit(mdStr[j]) {
-				j++
-			}
-			numStr := mdStr[i:j]
-			num, err := strconv.Atoi(numStr)
-			if err != nil {
-				i = j
-				continue
-			}
-
-			// 匹配区域，增加参考位置
-			refPos += num
-			i = j
-		} else if mdStr[i] == '^' {
-			// 删除标记开始
-			i++
-			start := i
-			// 收集删除的碱基
-			for i < len(mdStr) && !isDigit(mdStr[i]) {
-				i++
-			}
-
-			if start < i {
-				bases := mdStr[start:i]
-				deletion := DeletionInfo{
-					Length:   len(bases),
-					Bases:    bases,
-					Position: refPos + 1, // 转换为1-based
-				}
-				deletions = append(deletions, deletion)
-
-				// 删除区域也增加参考位置
-				refPos += len(bases)
-			}
-		} else if isBase(mdStr[i]) {
-			// 错配碱基，增加参考位置
-			refPos++
-			// 错配碱基，跳过
-			i++
-		} else {
-			i++
-		}
-	}
-
-	return deletions
-}
-
-func isDigit(c byte) bool {
-	return c >= '0' && c <= '9'
 }
 
 // classifyInsertion 判定插入细分类
@@ -430,18 +192,6 @@ func classifyInsertion(refSeq, seq string, refPos, readPos, length int) Insertio
 	default:
 		// 长度 >2
 		return Ins3
-	}
-}
-
-// 新增：缺失细分类判定
-func classifyDeletion(length int) DeletionSubtype {
-	switch length {
-	case 1:
-		return Del1
-	case 2:
-		return Del2
-	default: // >2
-		return Del3
 	}
 }
 

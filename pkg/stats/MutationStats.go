@@ -19,7 +19,7 @@ type MutationStats struct {
 	Samples     map[string]*SampleStats // sample -> 样本统计
 	SampleNames []string                // 样本名顺序
 
-	ReadTypeCounts map[ReadType]int // 所有样本的read type统计
+	ReadTypeCounts map[cfg.ReadType]int // 所有样本的read type统计
 
 	InsertLengthDist map[int]int    // 所有样本的插入长度分布
 	InsertBaseCounts map[string]int // 所有样本的插入序列统计
@@ -31,9 +31,9 @@ type MutationStats struct {
 	SubstitutionCount map[string]int // mutation -> total count
 
 	// 细分类统计
-	DeleteSubtypeReads        map[DeletionSubtype]int
-	DeleteSubtypeEvents       map[DeletionSubtype]int
-	DeleteSubtypeBases        map[DeletionSubtype]int
+	DeleteSubtypeReads        map[cfg.DeletionSubtype]int
+	DeleteSubtypeEvents       map[cfg.DeletionSubtype]int
+	DeleteSubtypeBases        map[cfg.DeletionSubtype]int
 	InsertSubtypeReads        map[InsertionSubtype]int
 	InsertSubtypeEvents       map[InsertionSubtype]int
 	InsertSubtypeBases        map[InsertionSubtype]int
@@ -84,7 +84,7 @@ func NewMutationStats() *MutationStats {
 	stats := &MutationStats{
 		Samples:                  make(map[string]*SampleStats),
 		SubstitutionCount:        make(map[string]int),
-		ReadTypeCounts:           make(map[ReadType]int),
+		ReadTypeCounts:           make(map[cfg.ReadType]int),
 		InsertLengthDist:         make(map[int]int),
 		DeleteLengthDist:         make(map[int]int),
 		TotalMaxDeleteLengthDist: make(map[int]int),
@@ -94,9 +94,9 @@ func NewMutationStats() *MutationStats {
 
 		DeletePositionCounts: make(map[string]int),
 
-		DeleteSubtypeReads:        make(map[DeletionSubtype]int),
-		DeleteSubtypeEvents:       make(map[DeletionSubtype]int),
-		DeleteSubtypeBases:        make(map[DeletionSubtype]int),
+		DeleteSubtypeReads:        make(map[cfg.DeletionSubtype]int),
+		DeleteSubtypeEvents:       make(map[cfg.DeletionSubtype]int),
+		DeleteSubtypeBases:        make(map[cfg.DeletionSubtype]int),
 		InsertSubtypeReads:        make(map[InsertionSubtype]int),
 		InsertSubtypeEvents:       make(map[InsertionSubtype]int),
 		InsertSubtypeBases:        make(map[InsertionSubtype]int),

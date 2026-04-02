@@ -3,6 +3,8 @@ package stats
 import (
 	"log/slog"
 
+	"SynthesisAnalyzer/pkg/cfg"
+
 	"github.com/biogo/hts/sam"
 )
 
@@ -65,25 +67,17 @@ type InsertionInfo struct {
 
 // DeleteSubtype 缺失子类型
 type DeleteSubtype struct {
-	Deletions []DeletionInfo // 每条缺失的信息
+	Deletions []cfg.DeletionInfo // 每条缺失的信息
 }
 
 func (subtype *DeleteSubtype) Classify(read *sam.Record, refPos, length int) {
 	// 记录缺失长度
-	deletion := DeletionInfo{
+	deletion := cfg.DeletionInfo{
 		Length:   length,
 		Position: refPos + 1, // 转换为1-based
-		Subtype:  classifyDeletion(length),
+		Subtype:  cfg.ClassifyDeletion(length),
 	}
 	subtype.Deletions = append(subtype.Deletions, deletion)
-}
-
-// DeletionInfo 单条缺失信息
-type DeletionInfo struct {
-	Length   int             // 缺失长度
-	Bases    string          // 缺失的碱基序列（如果长度为1）
-	Position int             // 缺失位置（1-based）
-	Subtype  DeletionSubtype // 细分类
 }
 
 // 替换信息结构（用于记录替换细分类）
@@ -136,7 +130,7 @@ func (subtype *SubstituteSubtype) Classify(read *sam.Record, mdMap map[int]strin
 
 // ReadDetailedInfo 详细的read信息
 type ReadDetailedInfo struct {
-	MainType       ReadType
+	MainType       cfg.ReadType
 	InsertSub      *InsertSubtype
 	DeleteSub      *DeleteSubtype
 	SubstituteSub  *SubstituteSubtype // 该read中的所有突变，兼容替换细分类列表

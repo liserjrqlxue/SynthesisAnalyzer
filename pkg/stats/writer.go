@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	"SynthesisAnalyzer/pkg/cfg"
+
 	"github.com/samber/lo"
 )
 
@@ -342,8 +344,8 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	header := "Sample,TotalReads,AlignedReads,GoodAlignedReads,ReadsWithMutations"
 
 	// 原有read类型列
-	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
-		header += "," + ReadTypeNames[rt]
+	for rt := cfg.ReadTypeMatch; rt <= cfg.ReadTypeAll; rt++ {
+		header += "," + cfg.ReadTypeNames[rt]
 	}
 
 	// 新增：reads维度变异统计
@@ -373,7 +375,7 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 		row := fmt.Sprintf("%s,%d,%d,%d,%d", sampleName, totalReads, alignedReads, goodAlignedReads, readsWithMuts)
 
 		// 写入每种read类型的计数
-		for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
+		for rt := cfg.ReadTypeMatch; rt <= cfg.ReadTypeAll; rt++ {
 			count := sampleStats.ReadTypeCounts[rt]
 			row += fmt.Sprintf(",%d", count)
 		}
@@ -427,8 +429,8 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	totalDel1 := lo.Sum(lo.Values(stats.Del1BaseCounts))
 
 	// a. 原有read类型统计
-	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
-		write1line(writer, ReadTypeNames[rt], stats.ReadTypeCounts[rt], readsCount, alignedReads, totalReads)
+	for rt := cfg.ReadTypeMatch; rt <= cfg.ReadTypeAll; rt++ {
+		write1line(writer, cfg.ReadTypeNames[rt], stats.ReadTypeCounts[rt], readsCount, alignedReads, totalReads)
 	}
 
 	writer.WriteString("\n变异大类统计（非互斥）:\n")
@@ -492,8 +494,8 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 
 	// 初始化需要统计的项（与已有输出保持一致）
 	// 主类型
-	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
-		sums[ReadTypeNames[rt]] = &SumPct{}
+	for rt := cfg.ReadTypeMatch; rt <= cfg.ReadTypeAll; rt++ {
+		sums[cfg.ReadTypeNames[rt]] = &SumPct{}
 	}
 	bases := []byte{'A', 'C', 'G', 'T'}
 	for _, base := range bases {
@@ -516,15 +518,15 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 		aligned := sampleStats.AlignedReads
 		total := sampleStats.ReadCounts
 		// 主类型比例
-		for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
+		for rt := cfg.ReadTypeMatch; rt <= cfg.ReadTypeAll; rt++ {
 			count := sampleStats.ReadTypeCounts[rt]
 			pctGood := float64(count) / float64(good) * 100
 			pctAligned := float64(count) / float64(aligned) * 100
 			pctTotal := float64(count) / float64(total) * 100
-			sums[ReadTypeNames[rt]].SumGood += pctGood
-			sums[ReadTypeNames[rt]].SumAligned += pctAligned
-			sums[ReadTypeNames[rt]].SumTotal += pctTotal
-			sums[ReadTypeNames[rt]].Count++
+			sums[cfg.ReadTypeNames[rt]].SumGood += pctGood
+			sums[cfg.ReadTypeNames[rt]].SumAligned += pctAligned
+			sums[cfg.ReadTypeNames[rt]].SumTotal += pctTotal
+			sums[cfg.ReadTypeNames[rt]].Count++
 		}
 
 		bases := []byte{'A', 'C', 'G', 'T'}
@@ -589,25 +591,7 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	writer.WriteString("\n样品平均比例（每个样本的比例取算术平均）:\n")
 	writer.WriteString("Statistic,SampleMeanGoodAlignedPct,SampleMeanAlignedPct,SampleMeanTotalPct\n")
 
-	// 定义输出顺序
-	order := []string{
-		ReadTypeNames[ReadTypeMatch],
-		ReadTypeNames[ReadTypeMatchClip],
-		ReadTypeNames[ReadTypeInsert],
-		ReadTypeNames[ReadTypeDelete],
-		ReadTypeNames[ReadTypeSubstitution],
-		ReadTypeNames[ReadTypeInsertDelete],
-		ReadTypeNames[ReadTypeInsertSubstitution],
-		ReadTypeNames[ReadTypeDeleteSubstitution],
-		ReadTypeNames[ReadTypeAll],
-		"InsertReads",
-		"DeleteReads",
-		"SubstitutionReads",
-		"ReadsWithMutations",
-		"GoodAlignedReads",
-	}
-
-	for _, name := range order {
+	for _, name := range cfg.Order {
 		s := sums[name]
 		if s == nil || s.Count == 0 {
 			continue
@@ -1346,12 +1330,12 @@ func (stats *MutationStats) MainPrint() {
 	fmt.Printf("  总reads数: %d\n", stats.TotalReadCount)
 	fmt.Printf("  过滤reads数: %d\n", stats.TotalGoodAlignedReads)
 	fmt.Printf("  细分类统计:\n")
-	for rt := ReadTypeMatch; rt <= ReadTypeAll; rt++ {
+	for rt := cfg.ReadTypeMatch; rt <= cfg.ReadTypeAll; rt++ {
 		count := stats.ReadTypeCounts[rt]
 		if count > 0 {
 			percentage1 := float64(count) / float64(stats.TotalReadCount) * 100
 			percentage2 := float64(count) / float64(stats.TotalGoodAlignedReads) * 100
-			fmt.Printf("    %s: %d (%.2f%%, %.2f%%)\n", ReadTypeNames[rt], count, percentage1, percentage2)
+			fmt.Printf("    %s: %d (%.2f%%, %.2f%%)\n", cfg.ReadTypeNames[rt], count, percentage1, percentage2)
 		}
 	}
 	stats.WriteSubtype(os.Stdout)

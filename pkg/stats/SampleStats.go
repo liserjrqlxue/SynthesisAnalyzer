@@ -22,8 +22,8 @@ type SampleStats struct {
 	PositionMutations map[string]int            // position:mutation -> count
 	PositionDetails   map[string]map[string]int // position -> mutation -> count
 
-	ReadTypeCounts    map[ReadType]int // read type -> count
-	SubstitutionCount map[string]int   // mutation -> count
+	ReadTypeCounts    map[cfg.ReadType]int // read type -> count
+	SubstitutionCount map[string]int       // mutation -> count
 
 	InsertLengthDist map[int]int    // 插入长度 -> count
 	InsertBaseCounts map[string]int // 插入序列 -> count
@@ -53,9 +53,9 @@ type SampleStats struct {
 	SubstitutionBaseTotal int // 替换碱基总数（替换个数）
 
 	// 新增：缺失细分类统计（三个维度）
-	DeleteSubtypeReads  map[DeletionSubtype]int // 包含该细分类缺失的reads数
-	DeleteSubtypeEvents map[DeletionSubtype]int // 该细分类缺失事件总数
-	DeleteSubtypeBases  map[DeletionSubtype]int // 该细分类缺失碱基总数
+	DeleteSubtypeReads  map[cfg.DeletionSubtype]int // 包含该细分类缺失的reads数
+	DeleteSubtypeEvents map[cfg.DeletionSubtype]int // 该细分类缺失事件总数
+	DeleteSubtypeBases  map[cfg.DeletionSubtype]int // 该细分类缺失碱基总数
 	// 新增：Del1缺失碱基分布
 	Del1BaseCounts map[byte]int // 缺失碱基 -> 事件数（注意：事件数即缺失个数）
 
@@ -100,16 +100,16 @@ func NewSampleStats() *SampleStats {
 		PositionMutations:    make(map[string]int),
 		SubstitutionCount:    make(map[string]int),
 		PositionDetails:      make(map[string]map[string]int),
-		ReadTypeCounts:       make(map[ReadType]int),
+		ReadTypeCounts:       make(map[cfg.ReadType]int),
 		InsertLengthDist:     make(map[int]int),
 		DeleteLengthDist:     make(map[int]int),
 		InsertBaseCounts:     make(map[string]int),
 		DeletePositionCounts: make(map[string]int),
 
 		// 细分类统计初始化
-		DeleteSubtypeReads:        make(map[DeletionSubtype]int),
-		DeleteSubtypeEvents:       make(map[DeletionSubtype]int),
-		DeleteSubtypeBases:        make(map[DeletionSubtype]int),
+		DeleteSubtypeReads:        make(map[cfg.DeletionSubtype]int),
+		DeleteSubtypeEvents:       make(map[cfg.DeletionSubtype]int),
+		DeleteSubtypeBases:        make(map[cfg.DeletionSubtype]int),
 		InsertSubtypeReads:        make(map[InsertionSubtype]int),
 		InsertSubtypeEvents:       make(map[InsertionSubtype]int),
 		InsertSubtypeBases:        make(map[InsertionSubtype]int),
@@ -330,9 +330,9 @@ func (sampleStats *SampleStats) ProcessSamRecord(read *sam.Record, NMerSize, Max
 	sampleStats.AlignedReads++
 
 	// 获取MD字符串并缓存解析结果
-	mdStr, hasMD := getMD(read)
+	mdStr, hasMD := cfg.GetMD(read)
 	refStart := int(read.Pos)
-	mdMap := parseMDToMap(mdStr, refStart)
+	mdMap := cfg.ParseMDToMap(mdStr, refStart)
 
 	// 预计算位置范围，减少边界检查
 	consecutiveMatch := 0
@@ -470,7 +470,7 @@ func (sampleStats *SampleStats) ProcessSamRecord(read *sam.Record, NMerSize, Max
 	substitutionCount := len(readInfo.SubstituteSub.Substitutions)
 	sampleStats.SubstitutionCountDist[substitutionCount]++
 	// 跳过非良好比对
-	if substitutionCount > MaxSubstitutions || readInfo.MainType == ReadTypeMatchClip {
+	if substitutionCount > MaxSubstitutions || readInfo.MainType == cfg.ReadTypeMatchClip {
 		return nil
 	}
 	sampleStats.GoodAlignedReads++
@@ -524,8 +524,8 @@ func (sampleStats *SampleStats) UpdateInsertionSubtypeStats(subtype *InsertSubty
 
 // UpdateDeletetionSubtypeStats 更新缺失细分类统计
 // 返回缺失细分类的映射
-func (sampleStats *SampleStats) UpdateDeletetionSubtypeStats(subtype *DeleteSubtype) map[DeletionSubtype]bool {
-	var deletSubtypes = make(map[DeletionSubtype]bool)
+func (sampleStats *SampleStats) UpdateDeletetionSubtypeStats(subtype *DeleteSubtype) map[cfg.DeletionSubtype]bool {
+	var deletSubtypes = make(map[cfg.DeletionSubtype]bool)
 
 	if subtype == nil || len(subtype.Deletions) == 0 {
 		return deletSubtypes
@@ -545,7 +545,7 @@ func (sampleStats *SampleStats) UpdateDeletetionSubtypeStats(subtype *DeleteSubt
 		sampleStats.DeleteLengthDist[length]++
 
 		// 统计 Del1 统计
-		if st == Del1 && len(del.Bases) == 1 {
+		if st == cfg.Del1 && len(del.Bases) == 1 {
 			base := del.Bases[0]
 			sampleStats.Del1BaseCounts[base]++
 			posKey := fmt.Sprintf("%d:%c", del.Position, base)
@@ -553,7 +553,7 @@ func (sampleStats *SampleStats) UpdateDeletetionSubtypeStats(subtype *DeleteSubt
 		}
 
 		// Del3 统计
-		if st == Del3 && sampleStats.Sample.FullReference != "" {
+		if st == cfg.Del3 && sampleStats.Sample.FullReference != "" {
 			pos := del.Position
 			var prevBase byte
 			var firstBase byte

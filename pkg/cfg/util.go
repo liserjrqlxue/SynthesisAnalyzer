@@ -28,3 +28,12 @@ func readRefFasta(fastaPath string) (string, error) {
 	}
 	return seq.String(), nil
 }
+
+func isDigit(c byte) bool {
+	return c >= '0' && c <= '9'
+}
+
+// isBase 判断字符是否为有效碱基
+func isBase(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+}

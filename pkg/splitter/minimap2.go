@@ -30,6 +30,7 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 	// 并行处理每个样品
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, a.config.AlignerThreads)
+	singleThread := max(a.config.AlignerThreads/len(a.samples), 1)
 
 	results := make(chan *AlignmentResult, len(a.samples))
 
@@ -56,7 +57,7 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 				wg.Done()
 			}()
 
-			result := a.alignSample(s)
+			result := alignSample(s, singleThread, a.config.MapQThreshold)
 			if result.Error != nil {
 				slog.Error("比对失败", "样本", s.Name, "err", result.Error)
 			}
@@ -106,14 +107,14 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 }
 
 // 单个样品的比对
-func (a *AlignmentAnalyzer) alignSample(sample *cfg.Sample) *AlignmentResult {
+func alignSample(sample *cfg.Sample, threads, mapQThreshold int) *AlignmentResult {
 	var result = &AlignmentResult{Sample: sample}
 	// 调用通用的比对方法
 	bamFile, err := AlignSampleWithParams(
 		sample.OutputDir,
 		sample.ReferenceFile,
 		sample.Name,
-		max(a.config.AlignerThreads/len(a.samples), 1),
+		threads,
 	)
 	if err != nil {
 		result.Error = err
@@ -121,7 +122,7 @@ func (a *AlignmentAnalyzer) alignSample(sample *cfg.Sample) *AlignmentResult {
 	}
 
 	// 分析比对结果
-	alignment, err := analyzeBamFile(bamFile, sample, a.config.MapQThreshold)
+	alignment, err := analyzeBamFile(bamFile, sample, mapQThreshold)
 	result.Error = err
 	result.Alignment = alignment
 	return result
