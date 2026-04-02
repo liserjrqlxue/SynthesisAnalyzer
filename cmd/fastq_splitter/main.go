@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -108,27 +107,6 @@ func main() {
 		log.Fatalln("-i required!")
 	}
 
-	// 设置日志级别
-	var level slog.Level
-	switch strings.ToLower(*logLevel) {
-	case "debug":
-		level = slog.LevelDebug
-	case "info":
-		level = slog.LevelInfo
-	case "warn":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
-	default:
-		level = slog.LevelInfo
-	}
-
-	// 配置slog
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: level,
-	}))
-	slog.SetDefault(logger)
-
 	// 处理输出目录
 	output := *outputDir
 	if output == "" {
@@ -149,6 +127,7 @@ func main() {
 
 	// 创建配置
 	config := &cfg.Config{
+		LogLevel:         *logLevel,
 		ExcelFile:        *excelFile,
 		OutputDir:        output,
 		FastqDir:         fastq,
@@ -181,6 +160,9 @@ func main() {
 		ContaminationDetection: *contaminationDetection,
 		OverlapLenRequire:      *overlap,
 	}
+
+	// 设置日志级别
+	config.SetLogLevel()
 
 	// 处理可选参数
 	for i := 4; i < len(os.Args); i++ {

@@ -1,13 +1,24 @@
 package cfg
 
-// 配置结构
+import (
+	"log/slog"
+	"os"
+)
+
+// Config 存放所有命令行参数及派生配置
 type Config struct {
-	ExcelFile        string
-	OutputDir        string
-	FastqDir         string
-	Threads          int
-	UseRC            bool   // 是否使用反向互补
+	// input
+	ExcelFile        string // sample info excel file
+	InputSheet       string // input sheet name
 	SampleNameSuffix string // 样品名称后缀列
+	FastqDir         string
+	InputDir         string // 与OutputDir相同
+
+	OutputDir string
+
+	Threads int
+
+	UseRC bool // 是否使用反向互补
 
 	// 匹配参数
 	SearchWindow int // 搜索窗口大小（从头、从尾搜索的距离）
@@ -35,6 +46,37 @@ type Config struct {
 	// --overlap_len_require
 	// the minimum length to detect overlapped region of PE reads. This will affect overlap analysis based PE merge, adapter trimming and correction. 30 by default. (int [=30])
 	OverlapLenRequire int
+
+	// bam-mut-analyzer 相关配置
+	LogLevel         string
+	HeadCut          int
+	TailCut          int
+	NMerSize         int
+	MaxSubstitutions int
+}
+
+func (cfg *Config) SetLogLevel() {
+	var level slog.Level
+	switch cfg.LogLevel {
+	case "debug":
+		level = slog.LevelDebug
+	case "info":
+		level = slog.LevelInfo
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+
+	// 创建新的logger配置
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: level,
+	}))
+
+	// 设置全局logger
+	slog.SetDefault(logger)
 }
 
 // 比对配置

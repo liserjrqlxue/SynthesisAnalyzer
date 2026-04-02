@@ -8,25 +8,11 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"SynthesisAnalyzer/pkg/cfg"
 	stats "SynthesisAnalyzer/pkg/stats"
 )
 
-// Config 存放所有命令行参数及派生配置
-type Config struct {
-	InputDir         string
-	InputSheet       string
-	OutputDir        string
-	ExcelFile        string
-	SampleNameSuffix string // 样品名称后缀列
-	LogLevel         string
-	HeadCut          int
-	TailCut          int
-	NMerSize         int
-	MaxSubstitutions int
-	MaxThreads       int
-}
-
-func (cfg *Config) NewBatchInfo() *stats.BatchInfo {
+func NewBatchInfo(cfg *cfg.Config) *stats.BatchInfo {
 	sampleInfo := stats.NewBatchInfo()
 	sampleInfo.InputExcel = cfg.ExcelFile
 	sampleInfo.InputSheet = cfg.InputSheet
@@ -36,7 +22,7 @@ func (cfg *Config) NewBatchInfo() *stats.BatchInfo {
 	sampleInfo.TailCuts = cfg.TailCut
 	sampleInfo.NMerSize = cfg.NMerSize
 	sampleInfo.MaxSubstitutions = cfg.MaxSubstitutions
-	sampleInfo.MaxThreads = cfg.MaxThreads
+	sampleInfo.MaxThreads = cfg.Threads
 
 	// 设置输出目录
 	sampleInfo.OutputDir = cfg.OutputDir
@@ -48,8 +34,8 @@ func (cfg *Config) NewBatchInfo() *stats.BatchInfo {
 }
 
 // parseFlags 解析命令行参数，返回配置对象
-func parseFlags() *Config {
-	cfg := &Config{}
+func parseFlags() *cfg.Config {
+	cfg := &cfg.Config{}
 
 	// 计算默认最大线程数: max(8, CPU个数/8)
 	defaultMaxThreads := max(runtime.NumCPU()/8, 8)
@@ -64,14 +50,14 @@ func parseFlags() *Config {
 	flag.IntVar(&cfg.MaxSubstitutions, "max-sub", 5, "最大替换个数阈值，用于定义比对良好reads")
 	flag.IntVar(&cfg.NMerSize, "n", 4, "N-mer 统计的 N 值（默认4，即统计5-mer准确率）")
 	flag.StringVar(&cfg.LogLevel, "log-level", "info", "日志级别 (debug, info, warn, error)")
-	flag.IntVar(&cfg.MaxThreads, "max-threads", defaultMaxThreads, "最大线程数，默认值为max(8, CPU个数/8)")
+	flag.IntVar(&cfg.Threads, "max-threads", defaultMaxThreads, "最大线程数，默认值为max(8, CPU个数/8)")
 
 	flag.Parse()
 	return cfg
 }
 
 // validateConfig 验证配置合法性，返回错误
-func validateConfig(cfg *Config) error {
+func validateConfig(cfg *cfg.Config) error {
 	if cfg.InputDir == "" {
 		return fmt.Errorf("必需参数缺失，请使用 -d 指定输入目录")
 	}
@@ -85,35 +71,10 @@ func validateConfig(cfg *Config) error {
 	return nil
 }
 
-// setLogLevel 设置slog日志级别
-func setupLogger(levelStr string) {
-	var level slog.Level
-	switch levelStr {
-	case "debug":
-		level = slog.LevelDebug
-	case "info":
-		level = slog.LevelInfo
-	case "warn":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
-	default:
-		level = slog.LevelInfo
-	}
-
-	// 创建新的logger配置
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: level,
-	}))
-
-	// 设置全局logger
-	slog.SetDefault(logger)
-}
-
 // run 执行核心业务逻辑，返回错误
-func run(cfg *Config) error {
+func run(cfg *cfg.Config) error {
 	// 初始化样本信息
-	sampleInfo := cfg.NewBatchInfo()
+	sampleInfo := NewBatchInfo(cfg)
 
 	// 读取 Excel 样本顺序（如果提供）
 	if cfg.ExcelFile != "" {
@@ -154,7 +115,7 @@ func main() {
 	cfg := parseFlags()
 
 	// 先设置日志，以便后续错误也能输出
-	setupLogger(cfg.LogLevel)
+	cfg.SetLogLevel()
 
 	// 验证配置
 	if err := validateConfig(cfg); err != nil {
