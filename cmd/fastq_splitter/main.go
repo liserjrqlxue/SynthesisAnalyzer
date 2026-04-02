@@ -149,7 +149,7 @@ func main() {
 
 		Alignment: cfg.AlignmentConfig{
 			UseMinimap2:    true,
-			AlignerThreads: 16,
+			AlignerThreads: runtime.NumCPU() / 2,
 			MapQThreshold:  10,
 			MinIdentity:    0.90,
 			SkipAlignment:  false,
@@ -171,8 +171,6 @@ func main() {
 			config.Alignment.SkipAlignment = true
 		case "--analysis-only":
 			config.Alignment.AnalysisOnly = true
-		case "--keep-bam":
-			config.Alignment.KeepSamFiles = true
 		case "--threads":
 			if i+1 < len(os.Args) {
 				threads, err := strconv.Atoi(os.Args[i+1])
@@ -209,7 +207,6 @@ func printUsage() {
 选项:
   --skip-alignment    跳过比对步骤（仅拆分）
   --analysis-only    仅分析已有的BAM文件
-  --keep-bam         保留BAM文件（默认清理）
   --threads N        设置线程数
   --contamination-detection  启用交叉污染检测功能
 
