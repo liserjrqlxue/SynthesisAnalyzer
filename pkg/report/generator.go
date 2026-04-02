@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 
+	"SynthesisAnalyzer/pkg/cfg"
+
 	"github.com/go-echarts/go-echarts/v2/charts"
 	"github.com/go-echarts/go-echarts/v2/opts"
 	"gonum.org/v1/gonum/stat"
@@ -17,11 +19,11 @@ import (
 
 // Generator 报告生成器
 type Generator struct {
-	config *Config
+	config *cfg.Config
 }
 
 // NewGenerator 创建新的报告生成器
-func NewGenerator(config *Config) *Generator {
+func NewGenerator(config *cfg.Config) *Generator {
 	return &Generator{
 		config: config,
 	}

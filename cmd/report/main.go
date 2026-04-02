@@ -24,6 +24,9 @@ func main() {
 	// 解析命令行参数
 	config := report.ParseArgs(execDir)
 
+	// 设置日志级别
+	config.SetLogLevel()
+
 	// 加载并处理数据
 	processor := report.NewProcessor(config)
 	reportData, err := processor.LoadData()

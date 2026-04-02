@@ -14,17 +14,19 @@ import (
 	"strings"
 	"sync"
 
+	"SynthesisAnalyzer/pkg/cfg"
+
 	"github.com/xuri/excelize/v2"
 	"gonum.org/v1/gonum/stat"
 )
 
 // Processor 数据处理器
 type Processor struct {
-	config *Config
+	config *cfg.Config
 }
 
 // NewProcessor 创建新的数据处理器
-func NewProcessor(config *Config) *Processor {
+func NewProcessor(config *cfg.Config) *Processor {
 	return &Processor{
 		config: config,
 	}
@@ -396,7 +398,7 @@ func (p *Processor) ReadBOMFile() (map[string]*Well, error) {
 	var (
 		sheetName = "引物订购单"
 		bomFile   = p.config.BomFile
-		suffixCol = p.config.SuffixCol
+		suffixCol = p.config.SampleNameSuffix
 	)
 
 	// 打开Excel文件

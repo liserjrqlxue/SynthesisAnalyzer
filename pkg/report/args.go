@@ -4,27 +4,12 @@ import (
 	"flag"
 	"log"
 	"path/filepath"
+
+	"SynthesisAnalyzer/pkg/cfg"
 )
 
-// Config 存储命令行参数
-type Config struct {
-	InputFile        string
-	Prefix           string // 输出文件前缀
-	MutationStatsDir string
-	BomFile          string
-	SuffixCol        string // 样品名称后缀列
-	BatchID          string // 手动指定BatchID
-	EmbedImage       bool
-	UseGoEcharts     bool
-	UseLocalEcharts  bool   // 是否使用本地echarts资源
-	EchartsPath      string // echarts资源路径
-	ConfigFile       string
-	Template         string
-	LogLevel         string
-}
-
 // ParseArgs 解析命令行参数
-func ParseArgs(execDir string) *Config {
+func ParseArgs(execDir string) *cfg.Config {
 	inputFile := flag.String("i", "", "输入JSON文件路径（可选）")
 	prefix := flag.String("p", "", "输出文件前缀（默认输出到stdout）")
 	mutationStatsDir := flag.String("m", "", "mutation_stats目录路径（必填）")
@@ -42,9 +27,6 @@ func ParseArgs(execDir string) *Config {
 	logLevel := flag.String("log-level", "info", "日志级别（可选：debug, info, warn, error）")
 	flag.Parse()
 
-	// 设置日志级别
-	setLogLevel(*logLevel)
-
 	// 检查必填参数
 	if *bomFile == "" {
 		log.Fatal("请使用 -b 指定BOM.xlsx文件")
@@ -53,12 +35,12 @@ func ParseArgs(execDir string) *Config {
 		log.Fatal("请使用 -m 指定mutation_stats目录")
 	}
 
-	return &Config{
+	return &cfg.Config{
 		InputFile:        *inputFile,
 		Prefix:           *prefix,
 		MutationStatsDir: *mutationStatsDir,
 		BomFile:          *bomFile,
-		SuffixCol:        *suffixCol,
+		SampleNameSuffix: *suffixCol,
 		BatchID:          *batchID,
 		EmbedImage:       *embedImage,
 		UseGoEcharts:     *useGoEcharts,
@@ -67,21 +49,5 @@ func ParseArgs(execDir string) *Config {
 		ConfigFile:       *configFile,
 		Template:         *template,
 		LogLevel:         *logLevel,
-	}
-}
-
-// setLogLevel 设置日志级别
-func setLogLevel(level string) {
-	switch level {
-	case "debug":
-		log.SetFlags(log.LstdFlags | log.Lshortfile)
-	case "info":
-		log.SetFlags(log.LstdFlags)
-	case "warn":
-		// 这里可以实现只显示警告及以上级别的日志
-	case "error":
-		// 这里可以实现只显示错误级别的日志
-	default:
-		log.SetFlags(log.LstdFlags)
 	}
 }

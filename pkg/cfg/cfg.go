@@ -53,6 +53,19 @@ type Config struct {
 	TailCut          int
 	NMerSize         int
 	MaxSubstitutions int
+
+	// report 相关配置
+	InputFile        string
+	Prefix           string // 输出文件前缀
+	MutationStatsDir string
+	BomFile          string
+	BatchID          string // 手动指定BatchID
+	EmbedImage       bool
+	UseGoEcharts     bool
+	UseLocalEcharts  bool   // 是否使用本地echarts资源
+	EchartsPath      string // echarts资源路径
+	ConfigFile       string
+	Template         string
 }
 
 func (cfg *Config) SetLogLevel() {
