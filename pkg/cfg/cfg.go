@@ -55,17 +55,12 @@ type Config struct {
 	MaxSubstitutions int
 
 	// report 相关配置
+	ReportConfig
 	InputFile        string
 	Prefix           string // 输出文件前缀
 	MutationStatsDir string
 	BomFile          string
 	BatchID          string // 手动指定BatchID
-	EmbedImage       bool
-	UseGoEcharts     bool
-	UseLocalEcharts  bool   // 是否使用本地echarts资源
-	EchartsPath      string // echarts资源路径
-	ConfigFile       string
-	Template         string
 }
 
 func (cfg *Config) SetLogLevel() {
@@ -101,4 +96,15 @@ type AlignmentConfig struct {
 	SkipAlignment  bool    // 是否跳过比对步骤
 	KeepSamFiles   bool    // 是否保留SAM文件
 	AnalysisOnly   bool    // 仅分析已有的BAM文件
+}
+
+// 报告配置
+type ReportConfig struct {
+	ConfigFile string
+	Template   string
+
+	EmbedImage      bool
+	UseGoEcharts    bool
+	UseLocalEcharts bool   // 是否使用本地echarts资源
+	EchartsPath     string // echarts资源路径
 }

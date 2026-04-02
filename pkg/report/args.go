@@ -42,12 +42,15 @@ func ParseArgs(execDir string) *cfg.Config {
 		BomFile:          *bomFile,
 		SampleNameSuffix: *suffixCol,
 		BatchID:          *batchID,
-		EmbedImage:       *embedImage,
-		UseGoEcharts:     *useGoEcharts,
-		UseLocalEcharts:  *useLocalEcharts,
-		EchartsPath:      *echartsPath,
-		ConfigFile:       *configFile,
-		Template:         *template,
 		LogLevel:         *logLevel,
+		ReportConfig: cfg.ReportConfig{
+			EmbedImage:      *embedImage,
+			UseGoEcharts:    *useGoEcharts,
+			UseLocalEcharts: *useLocalEcharts,
+			EchartsPath:     *echartsPath,
+
+			ConfigFile: *configFile,
+			Template:   *template,
+		},
 	}
 }
