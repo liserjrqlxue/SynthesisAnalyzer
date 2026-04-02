@@ -69,10 +69,7 @@ func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *SampleInfo) (
 		}
 
 		// 解析比对结果并获取错误类型
-		errorFlags := a.parseAlignmentWithErrors(
-			read.Cigar, mdTag, string(read.Seq.Seq), sample,
-			&positionStats, &totalMatches, &totalMismatches,
-		)
+		errorFlags := a.parseAlignmentWithErrors(read.Cigar, mdTag, string(read.Seq.Seq), &positionStats, &totalMatches, &totalMismatches)
 
 		// 根据错误类型分类read
 		a.classifyRead(errorFlags, readTypeCounts)
@@ -312,12 +309,12 @@ func (a *AlignmentAnalyzer) calculateSequenceOperations(cigar string) int {
 
 // 检查是否匹配
 // 简化的 isMatch 函数，调用 isMatchSafe
-func (a *AlignmentAnalyzer) isMatch(refPos int, base byte, mdTag string, currentRefPos *int) bool {
-	return a.isMatchSafe(refPos, base, mdTag, currentRefPos)
+func (a *AlignmentAnalyzer) isMatch(refPos int, mdTag string, currentRefPos *int) bool {
+	return a.isMatchSafe(refPos, mdTag, currentRefPos)
 }
 
 // 检查是否匹配的完整实现
-func (a *AlignmentAnalyzer) isMatchSafe(refPos int, seqBase byte, mdTag string, currentRefPos *int) bool {
+func (a *AlignmentAnalyzer) isMatchSafe(refPos int, mdTag string, currentRefPos *int) bool {
 	if refPos < 0 || currentRefPos == nil {
 		return false
 	}
@@ -328,11 +325,11 @@ func (a *AlignmentAnalyzer) isMatchSafe(refPos int, seqBase byte, mdTag string, 
 	}
 
 	// 解析 MD 标签
-	return a.parseMDTagForPosition(mdTag, refPos, seqBase, currentRefPos)
+	return a.parseMDTagForPosition(mdTag, refPos, currentRefPos)
 }
 
 // 解析 MD 标签判断指定位置是否匹配
-func (a *AlignmentAnalyzer) parseMDTagForPosition(mdTag string, refPos int, seqBase byte, currentRefPos *int) bool {
+func (a *AlignmentAnalyzer) parseMDTagForPosition(mdTag string, refPos int, currentRefPos *int) bool {
 	// MD 标签格式说明：
 	// - 数字表示匹配的连续长度
 	// - 字母表示参考序列中的碱基（错配）
@@ -499,7 +496,7 @@ func (a *AlignmentAnalyzer) baseToCode(base byte) byte {
 }
 
 // 使用预解析的 MD 标签检查匹配
-func (a *AlignmentAnalyzer) isMatchWithParser(refPos int, seqBase byte, parser *MDTagParser) bool {
+func (a *AlignmentAnalyzer) isMatchWithParser(refPos int, parser *MDTagParser) bool {
 	if refPos < 0 || refPos > parser.maxPosition {
 		return true // 超出范围，保守返回匹配
 	}
@@ -520,8 +517,7 @@ func (a *AlignmentAnalyzer) isMatchWithParser(refPos int, seqBase byte, parser *
 }
 
 // 解析比对结果（改进版）
-func (a *AlignmentAnalyzer) parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq string, sample *SampleInfo,
-	positionStats *[]PositionStat, totalMatches, totalMismatches *int64) *readErrorFlags {
+func (a *AlignmentAnalyzer) parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq string, positionStats *[]PositionStat, totalMatches, totalMismatches *int64) *readErrorFlags {
 
 	flags := &readErrorFlags{}
 	refPos := 0
@@ -548,7 +544,7 @@ func (a *AlignmentAnalyzer) parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq
 					(*positionStats)[refPos].TotalReads++
 
 					// 使用预解析的 MD 标签判断是否匹配
-					if op == sam.CigarEqual || (mdParser == nil || a.isMatchWithParser(refPos, seq[seqPos], mdParser)) {
+					if op == sam.CigarEqual || (mdParser == nil || a.isMatchWithParser(refPos, mdParser)) {
 						(*positionStats)[refPos].MatchCount++
 						(*totalMatches)++
 					} else {
@@ -661,8 +657,7 @@ func (a *AlignmentAnalyzer) ValidateReadTypeCounts(counts *ReadTypeCounts, mappe
 }
 
 // 带调试信息的版本
-func (a *AlignmentAnalyzer) parseAlignmentWithDebug(cigar sam.Cigar, mdTag, seq string, sample *SampleInfo,
-	positionStats *[]PositionStat, totalMatches, totalMismatches *int64, readID string) {
+func (a *AlignmentAnalyzer) parseAlignmentWithDebug(cigar sam.Cigar, mdTag, seq string, positionStats *[]PositionStat, totalMatches, totalMismatches *int64, readID string) {
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -676,7 +671,7 @@ func (a *AlignmentAnalyzer) parseAlignmentWithDebug(cigar sam.Cigar, mdTag, seq 
 	}()
 
 	// 调用正常的解析函数
-	a.parseAlignmentWithErrors(cigar, mdTag, seq, sample, positionStats, totalMatches, totalMismatches)
+	a.parseAlignmentWithErrors(cigar, mdTag, seq, positionStats, totalMatches, totalMismatches)
 }
 
 func safeSubstr(s string, start, length int) string {
