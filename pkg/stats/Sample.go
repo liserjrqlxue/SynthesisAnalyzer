@@ -8,17 +8,16 @@ import (
 	"strings"
 
 	"SynthesisAnalyzer/pkg/cfg"
-
-	"github.com/xuri/excelize/v2"
 )
 
 // 样本信息结构体
 type BatchInfo struct {
-	InputExcel       string // 输入Excel文件路径
-	InputSheet       string // 输入Sheet名称
-	InputDir         string // 输入目录路径
-	OutputDir        string // 输出目录路径
-	SampleNameSuffix string // 样品名称后缀列
+	Config           *cfg.Config // 配置信息
+	InputExcel       string      // 输入Excel文件路径
+	InputSheet       string      // 输入Sheet名称
+	InputDir         string      // 输入目录路径
+	OutputDir        string      // 输出目录路径
+	SampleNameSuffix string      // 样品名称后缀列
 
 	HeadCuts         int // 头切除长度
 	TailCuts         int // 尾切除长度
@@ -40,116 +39,14 @@ func NewBatchInfo() *BatchInfo {
 // readExcelSampleOrder 使用 excelize 读取 Excel 文件，基于表头确定列
 // 返回: 样品信息结构体, 错误
 func (s *BatchInfo) ReadExcel() error {
-	if s.InputExcel == "" {
-		slog.Warn("未指定Excel文件路径")
-		return nil
-	}
-
-	slog.Info("读取Excel文件", "filePath", s.InputExcel)
-	f, err := excelize.OpenFile(s.InputExcel)
+	samples, err := s.Config.LoadInputExcel()
 	if err != nil {
-		return fmt.Errorf("打开Excel文件失败: %v", err)
-	}
-	defer f.Close()
-
-	rows, err := f.GetRows(s.InputSheet)
-	if err != nil {
-		return fmt.Errorf("读取Sheet[%s]失败: %v", s.InputSheet, err)
-	}
-	if len(rows) < 2 {
-		return fmt.Errorf("Excel文件[%s]中至少需要表头和一行数据", s.InputSheet)
+		return fmt.Errorf("读取Excel文件失败: %v", err)
 	}
 
-	// 解析表头，找到各列索引
-	header := rows[0]
-	nameCol := -1
-	targetCol := -1
-	synthCol := -1
-	postCol := -1
-	suffixCol := -1
-
-	for i, colName := range header {
-		trimmed := strings.TrimSpace(colName)
-		switch trimmed {
-		case "样品名称":
-			nameCol = i
-		case "靶标序列":
-			targetCol = i
-		case "合成序列":
-			synthCol = i
-		case "后靶标":
-			postCol = i
-		default:
-			if s.SampleNameSuffix != "" && trimmed == s.SampleNameSuffix {
-				suffixCol = i
-			}
-		}
-	}
-
-	// 检查必需列
-	if nameCol == -1 {
-		return fmt.Errorf("未找到'样品名称'列")
-	}
-	if targetCol == -1 {
-		return fmt.Errorf("未找到'靶标序列'列")
-	}
-	if synthCol == -1 {
-		return fmt.Errorf("未找到'合成序列'列")
-	}
-	if postCol == -1 {
-		return fmt.Errorf("未找到'后靶标'列")
-	}
-	// 检查后缀列
-	if s.SampleNameSuffix != "" && suffixCol == -1 {
-		return fmt.Errorf("未找到指定的后缀列: %s", s.SampleNameSuffix)
-	}
-
-	// 遍历数据行（从第二行开始）
-	for i := 1; i < len(rows); i++ {
-		row := rows[i]
-		// 确保行长度足够
-		if len(row) <= nameCol || len(row) <= targetCol || len(row) <= synthCol || len(row) <= postCol {
-			fmt.Printf("警告: 第 %d 行缺少必要的列数据，跳过\n", i+1)
-			continue
-		}
-		// 检查后缀列长度
-		if s.SampleNameSuffix != "" && len(row) <= suffixCol {
-			fmt.Printf("警告: 第 %d 行缺少后缀列数据，跳过\n", i+1)
-			continue
-		}
-		sampleName := strings.TrimSpace(row[nameCol])
-		targetSeq := strings.TrimSpace(row[targetCol])
-		synthSeq := strings.TrimSpace(row[synthCol])
-		postSeq := strings.TrimSpace(row[postCol])
-
-		if sampleName == "" {
-			fmt.Printf("警告: 第 %d 行样品名称为空，跳过\n", i+1)
-			continue
-		}
-
-		// 拼接后缀列到样品名称
-		if s.SampleNameSuffix != "" {
-			suffix := strings.TrimSpace(row[suffixCol])
-			if suffix != "" {
-				sampleName = sampleName + "." + suffix
-			}
-		}
-
-		// 检查样品名称是否重复
-		if _, exists := s.Samples[sampleName]; exists {
-			return fmt.Errorf("第 %d 行样品名称重复: %s", i+1, sampleName)
-		}
-
-		fullSeq := strings.ToUpper(targetSeq + synthSeq + postSeq)
-		sample := &cfg.Sample{
-			Name:          sampleName,
-			FullReference: fullSeq,
-			RefLength:     len(fullSeq),
-			HeadCut:       len(targetSeq), // 头切除长度 = 靶标序列长度
-			TailCut:       len(postSeq),   // 尾切除长度 = 后靶标长度
-		}
-		s.Samples[sampleName] = sample
-		s.Order = append(s.Order, sampleName)
+	for _, sample := range samples {
+		s.Order = append(s.Order, sample.Name)
+		s.Samples[sample.Name] = sample
 	}
 
 	if len(s.Order) == 0 {

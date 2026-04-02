@@ -13,24 +13,26 @@ import (
 )
 
 func NewBatchInfo(cfg *cfg.Config) *stats.BatchInfo {
-	sampleInfo := stats.NewBatchInfo()
-	sampleInfo.InputExcel = cfg.ExcelFile
-	sampleInfo.InputSheet = cfg.InputSheet
-	sampleInfo.InputDir = cfg.InputDir
-	sampleInfo.SampleNameSuffix = cfg.SampleNameSuffix
-	sampleInfo.HeadCuts = cfg.HeadCut
-	sampleInfo.TailCuts = cfg.TailCut
-	sampleInfo.NMerSize = cfg.NMerSize
-	sampleInfo.MaxSubstitutions = cfg.MaxSubstitutions
-	sampleInfo.MaxThreads = cfg.Threads
+	batchInfo := stats.NewBatchInfo()
+	batchInfo.Config = cfg
+
+	batchInfo.InputExcel = cfg.ExcelFile
+	batchInfo.InputSheet = cfg.InputSheet
+	batchInfo.InputDir = cfg.InputDir
+	batchInfo.SampleNameSuffix = cfg.SampleNameSuffix
+	batchInfo.HeadCuts = cfg.HeadCut
+	batchInfo.TailCuts = cfg.TailCut
+	batchInfo.NMerSize = cfg.NMerSize
+	batchInfo.MaxSubstitutions = cfg.MaxSubstitutions
+	batchInfo.MaxThreads = cfg.Threads
 
 	// 设置输出目录
-	sampleInfo.OutputDir = cfg.OutputDir
-	if sampleInfo.OutputDir == "" {
-		sampleInfo.OutputDir = filepath.Join(sampleInfo.InputDir, "mutation_stats")
+	batchInfo.OutputDir = cfg.OutputDir
+	if batchInfo.OutputDir == "" {
+		batchInfo.OutputDir = filepath.Join(batchInfo.InputDir, "mutation_stats")
 	}
 
-	return sampleInfo
+	return batchInfo
 }
 
 // parseFlags 解析命令行参数，返回配置对象

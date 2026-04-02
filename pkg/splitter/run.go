@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -20,7 +19,6 @@ import (
 
 	// "compress/gzip"
 	gzip "github.com/klauspost/pgzip"
-	"github.com/xuri/excelize/v2"
 )
 
 // 创建比对分析器
@@ -266,116 +264,19 @@ func (s *EnhancedSplitter) createOutputDir() error {
 // 读取Excel文件
 func (s *EnhancedSplitter) loadSamplesFromExcel() error {
 	fmt.Printf("步骤1: 读取Excel文件: %s\n", s.config.ExcelFile)
-
-	xlFile, err := excelize.OpenFile(s.config.ExcelFile)
+	samples, err := s.config.LoadInputExcel()
 	if err != nil {
-		return fmt.Errorf("无法打开Excel文件: %v", err)
+		return fmt.Errorf("读取Excel文件失败: %v", err)
 	}
-	defer xlFile.Close()
+	s.samples = samples
 
-	// 获取第一个工作表
-	sheetName := xlFile.GetSheetName(0)
-	if sheetName == "" {
-		return fmt.Errorf("Excel文件中没有工作表")
-	}
-
-	sheet := xlFile.GetSheetName(0)
-	defer func() {
-		fmt.Printf("  工作表: %s, 成功读取 %d 个样品\n", sheet, len(s.samples))
-	}()
-
-	// 查找表头
-	rows, err := xlFile.GetRows(sheet)
-	if err != nil {
-		return fmt.Errorf("读取Excel行失败: %v", err)
-	}
-
-	if len(rows) == 0 {
-		return fmt.Errorf("Excel文件中没有数据")
-	}
-
-	// 构建表头映射
-	headerMap := make(map[string]int)
-	for col, header := range rows[0] {
-		headerMap[header] = col
-	}
-
-	// 检查必需列
-	requiredCols := []string{"样品名称", "靶标序列", "合成序列", "后靶标", "路径-R1", "路径-R2"}
-	for _, col := range requiredCols {
-		if _, ok := headerMap[col]; !ok {
-			return fmt.Errorf("缺少必需的列: %s:[%+v]", col, headerMap)
-		}
-	}
-
-	// 检查后缀列
-	var suffixColIndex int = -1
-	if s.config.SampleNameSuffix != "" {
-		if idx, ok := headerMap[s.config.SampleNameSuffix]; ok {
-			suffixColIndex = idx
-		} else {
-			return fmt.Errorf("未找到指定的后缀列: %s", s.config.SampleNameSuffix)
-		}
-	}
-
-	// 读取数据行
-	seenSampleNames := make(map[string]bool)
-	for rowIdx, row := range rows {
-		if rowIdx == 0 {
-			continue // 跳过表头
-		}
-
-		// 确保行有足够的列
-		if len(row) < len(rows[0]) {
-			continue // 跳过不完整的行
-		}
-
-		sampleName := row[headerMap["样品名称"]]
-		targetSeq := strings.ToUpper(row[headerMap["靶标序列"]])
-		synthSeq := strings.ToUpper(row[headerMap["合成序列"]])
-		postSeq := strings.ToUpper(row[headerMap["后靶标"]])
-		r1Path := row[headerMap["路径-R1"]]
-		r2Path := row[headerMap["路径-R2"]]
-
-		// 检查必需字段
-		if sampleName == "" {
-			continue // 跳过空行
-		}
-
-		// 拼接后缀列到样品名称
-		if s.config.SampleNameSuffix != "" && suffixColIndex != -1 {
-			if len(row) > suffixColIndex {
-				suffix := strings.TrimSpace(row[suffixColIndex])
-				if suffix != "" {
-					sampleName = sampleName + "." + suffix
-				}
-			}
-		}
-
-		// 检查样品名称是否重复
-		if seenSampleNames[sampleName] {
-			return fmt.Errorf("第 %d 行样品名称重复: %s", rowIdx+1, sampleName)
-		}
-		seenSampleNames[sampleName] = true
-
-		sample := &cfg.Sample{
-			Name:          sampleName,
-			TargetSeq:     targetSeq,
-			SynthesisSeq:  synthSeq,
-			PostTargetSeq: postSeq,
-			R1Path:        r1Path,
-			R2Path:        r2Path,
-		}
+	for _, sample := range samples {
 
 		// 创建输出目录
 		sample.OutputDir = filepath.Join(s.config.OutputDir, "samples", sample.Name)
 		if err := os.MkdirAll(sample.OutputDir, 0755); err != nil {
 			return fmt.Errorf("创建样品目录失败: %v", err)
 		}
-
-		s.samples = append(s.samples, sample)
-
-		slog.Debug("读取样品", "name", sample.Name, "R1", filepath.Base(sample.R1Path), "R2", filepath.Base(sample.R2Path))
 	}
 
 	fmt.Printf("  成功读取 %d 个样品\n", len(s.samples))
