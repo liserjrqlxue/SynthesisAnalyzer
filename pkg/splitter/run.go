@@ -434,13 +434,11 @@ func (s *EnhancedSplitter) splitReadsPipeline() error {
 
 		// 启动处理goroutine
 		for i := 0; i < runtime.NumCPU(); i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				for record := range recordChan {
 					sequence, found := extractSequence(record)
 					if found {
-						sample, direction := s.matchSequence(sequence, samples)
+						sample, direction := s.matchSequence(sequence)
 						if sample != nil {
 							resultChan <- struct {
 								sampleName string
@@ -455,7 +453,7 @@ func (s *EnhancedSplitter) splitReadsPipeline() error {
 					}
 					atomic.AddInt64(&totalProcessed, 1)
 				}
-			}()
+			})
 		}
 
 		// 启动写入goroutine
@@ -569,7 +567,7 @@ func extractSequence(record []byte) ([]byte, bool) {
 }
 
 // 匹配序列到样品
-func (s *EnhancedSplitter) matchSequence(sequence []byte, samples []*SampleInfo) (*SampleInfo, string) {
+func (s *EnhancedSplitter) matchSequence(sequence []byte) (*SampleInfo, string) {
 	seqStr := string(sequence)
 	// 完全匹配
 	sample, direction := s.exactMatch(seqStr)
