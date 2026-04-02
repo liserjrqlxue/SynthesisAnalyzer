@@ -7,7 +7,7 @@ type ReadType int
 
 const (
 	ReadTypeMatch              ReadType = iota // 匹配
-	ReadTypeMatchClip          ReadType = iota // 剪辑
+	ReadTypeMatchClip                          // 剪辑
 	ReadTypeInsert                             // 插入
 	ReadTypeDelete                             // 缺失
 	ReadTypeSubstitution                       // 替换
@@ -15,6 +15,7 @@ const (
 	ReadTypeInsertSubstitution                 // 插入+替换
 	ReadTypeDeleteSubstitution                 // 缺失+替换
 	ReadTypeAll                                // 插入+缺失+替换
+	ReadTypeOther                              // 其他组合或无法解析的reads
 )
 
 // ReadTypeNames ReadType对应的名称
@@ -28,6 +29,7 @@ var ReadTypeNames = map[ReadType]string{
 	ReadTypeInsertSubstitution: "插入+替换",
 	ReadTypeDeleteSubstitution: "缺失+替换",
 	ReadTypeAll:                "插入+缺失+替换",
+	ReadTypeOther:"其它",
 }
 
 // Order 读取顺序

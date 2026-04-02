@@ -148,17 +148,11 @@ func (a *AlignmentAnalyzer) generateSummaryReport(reportDir string) error {
 		"Average_Coverage",
 		"Average_Identity",
 		"Synthesis_Success",
-		"PerfectReads",
-		"MismatchOnly",
-		"InsertionOnly",
-		"DeletionOnly",
-		"MixedMismatchIns",
-		"MixedMismatchDel",
-		"MixedInsDel",
-		"AllErrors",
-		"Other",
-		"High_Error_Positions",
 	}
+	for i := range cfg.ReadTypeOther {
+		header = append(header, cfg.ReadTypeNames[i])
+	}
+	header = append(header, "High_Error_Positions")
 
 	if err := writer.Write(header); err != nil {
 		return err
@@ -185,17 +179,11 @@ func (a *AlignmentAnalyzer) generateSummaryReport(reportDir string) error {
 			fmt.Sprintf("%.3f", summary.AverageCoverage),
 			fmt.Sprintf("%.3f", summary.AverageIdentity),
 			fmt.Sprintf("%.3f", summary.SynthesisSuccess),
-			fmt.Sprintf("%d", summary.ReadTypeCounts.PerfectReads),
-			fmt.Sprintf("%d", summary.ReadTypeCounts.MismatchOnly),
-			fmt.Sprintf("%d", summary.ReadTypeCounts.InsertionOnly),
-			fmt.Sprintf("%d", summary.ReadTypeCounts.DeletionOnly),
-			fmt.Sprintf("%d", summary.ReadTypeCounts.MixedMismatchIns),
-			fmt.Sprintf("%d", summary.ReadTypeCounts.MixedMismatchDel),
-			fmt.Sprintf("%d", summary.ReadTypeCounts.MixedInsDel),
-			fmt.Sprintf("%d", summary.ReadTypeCounts.AllErrors),
-			fmt.Sprintf("%d", summary.ReadTypeCounts.Other),
-			errorPositions,
 		}
+		for i := range cfg.ReadTypeOther {
+			record = append(record, fmt.Sprintf("%d", summary.ReadTypeCounts[i]))
+		}
+		record = append(record, errorPositions)
 
 		if err := writer.Write(record); err != nil {
 			return err

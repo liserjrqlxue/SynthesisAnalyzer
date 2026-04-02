@@ -172,7 +172,7 @@ type SampleAlignment struct {
 	Summary        *AlignmentSummary
 	BamFile        string
 	BamIndex       string
-	ReadTypeCounts *ReadTypeCounts // 新增：记录各种类型的reads个数
+	ReadTypeCounts map[ReadType]int // 新增：记录各种类型的reads个数
 }
 
 // 比对汇总
@@ -182,21 +182,9 @@ type AlignmentSummary struct {
 	MappingRate      float64
 	AverageCoverage  float64
 	AverageIdentity  float64
-	SynthesisSuccess float64         // 合成成功率
-	ErrorPositions   []int           // 高错误率位置
-	ReadTypeCounts   *ReadTypeCounts // 新增
-}
-
-type ReadTypeCounts struct {
-	PerfectReads     int64 // 完全正确的reads
-	MismatchOnly     int64 // 只有错配的reads
-	InsertionOnly    int64 // 只有插入的reads
-	DeletionOnly     int64 // 只有缺失的reads
-	MixedMismatchIns int64 // 同时有错配和插入
-	MixedMismatchDel int64 // 同时有错配和缺失
-	MixedInsDel      int64 // 同时有插入和缺失
-	AllErrors        int64 // 三种错误都有
-	Other            int64 // 其他组合或无法解析的
+	SynthesisSuccess float64          // 合成成功率
+	ErrorPositions   []int            // 高错误率位置
+	ReadTypeCounts   map[ReadType]int // 新增
 }
 
 // 位置统计结构

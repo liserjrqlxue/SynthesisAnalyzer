@@ -35,7 +35,7 @@ func analyzeBamFile(bamFile string, sample *cfg.Sample, mapQThreshold int) (*cfg
 	}
 
 	// 初始化read类型计数器
-	readTypeCounts := &cfg.ReadTypeCounts{}
+	readTypeCounts := make(map[cfg.ReadType]int)
 
 	totalReads := int64(0)
 	mappedReads := int64(0)
@@ -71,10 +71,9 @@ func analyzeBamFile(bamFile string, sample *cfg.Sample, mapQThreshold int) (*cfg
 		}
 
 		// 解析比对结果并获取错误类型
-		errorFlags := parseAlignmentWithErrors(read.Cigar, mdTag, string(read.Seq.Seq), &positionStats, &totalMatches, &totalMismatches)
-
-		// 根据错误类型分类read
-		classifyRead(errorFlags, readTypeCounts)
+		parseAlignmentWithDebug(read.Cigar, mdTag, string(read.Seq.Seq), &positionStats, &totalMatches, &totalMismatches, read.Name)
+		mainType := cfg.AnalyzeReadType(read)
+		readTypeCounts[mainType]++
 	}
 
 	// 计算汇总统计
@@ -385,9 +384,7 @@ func isMatchWithParser(refPos int, parser *MDTagParser) bool {
 }
 
 // 解析比对结果（改进版）
-func parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq string, positionStats *[]cfg.PositionStat, totalMatches, totalMismatches *int64) *readErrorFlags {
-
-	flags := &readErrorFlags{}
+func parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq string, positionStats *[]cfg.PositionStat, totalMatches, totalMismatches *int64) {
 	refPos := 0
 	seqPos := 0
 	seqLen := len(seq)
@@ -405,7 +402,7 @@ func parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq string, positionStats 
 			for j := 0; j < length; j++ {
 				// 边界检查
 				if seqPos >= seqLen {
-					return flags
+					return
 				}
 
 				if refPos < len(*positionStats) {
@@ -418,7 +415,6 @@ func parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq string, positionStats 
 					} else {
 						(*positionStats)[refPos].MismatchCount++
 						(*totalMismatches)++
-						flags.hasMismatch = true
 					}
 				}
 				refPos++
@@ -427,7 +423,6 @@ func parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq string, positionStats 
 
 		case sam.CigarDeletion, sam.CigarSkipped:
 			// 缺失或跳过，只消耗参考序列
-			flags.hasDeletion = true
 			for j := 0; j < length; j++ {
 				if refPos < len(*positionStats) {
 					(*positionStats)[refPos].TotalReads++
@@ -438,7 +433,6 @@ func parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq string, positionStats 
 
 		case sam.CigarInsertion:
 			// 插入
-			flags.hasInsertion = true
 			if refPos > 0 && refPos-1 < len(*positionStats) {
 				(*positionStats)[refPos-1].InsertionCount++
 			}
@@ -446,86 +440,32 @@ func parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq string, positionStats 
 
 		case sam.CigarSoftClipped:
 			// 软裁剪，只消耗序列
-			flags.hasInsertion = true
 			seqPos += length
 
 		case sam.CigarHardClipped:
 			// 硬裁剪，不消耗序列或参考序列
-			flags.hasInsertion = true
 			continue
 		default:
 			slog.Error("未知的CIGAR操作符", "op", op)
 		}
 	}
-	return flags
-}
-
-// 新增：根据错误类型分类read
-func classifyRead(flags *readErrorFlags, counts *cfg.ReadTypeCounts) {
-	if flags == nil {
-		counts.Other++
-		return
-	}
-
-	// 统计错误类型
-	errorCount := 0
-	if flags.hasMismatch {
-		errorCount++
-	}
-	if flags.hasInsertion {
-		errorCount++
-	}
-	if flags.hasDeletion {
-		errorCount++
-	}
-
-	switch errorCount {
-	case 0:
-		// 完全正确的read
-		counts.PerfectReads++
-	case 1:
-		// 只有一种错误
-		if flags.hasMismatch {
-			counts.MismatchOnly++
-		} else if flags.hasInsertion {
-			counts.InsertionOnly++
-		} else if flags.hasDeletion {
-			counts.DeletionOnly++
-		}
-	case 2:
-		// 有两种错误
-		if flags.hasMismatch && flags.hasInsertion {
-			counts.MixedMismatchIns++
-		} else if flags.hasMismatch && flags.hasDeletion {
-			counts.MixedMismatchDel++
-		} else if flags.hasInsertion && flags.hasDeletion {
-			counts.MixedInsDel++
-		} else {
-			counts.Other++
-		}
-	case 3:
-		// 三种错误都有
-		counts.AllErrors++
-	default:
-		counts.Other++
-	}
 }
 
 // 新增：验证read类型统计的辅助函数
-func (a *AlignmentAnalyzer) ValidateReadTypeCounts(counts *cfg.ReadTypeCounts, mappedReads int64) bool {
+func (a *AlignmentAnalyzer) ValidateReadTypeCounts(counts map[cfg.ReadType]int, mappedReads int64) bool {
 	if counts == nil {
 		return false
 	}
 
-	calculatedTotal := counts.PerfectReads + counts.MismatchOnly + counts.InsertionOnly +
-		counts.DeletionOnly + counts.MixedMismatchIns + counts.MixedMismatchDel +
-		counts.MixedInsDel + counts.AllErrors + counts.Other
-
+	var calculatedTotal int64
+	for _, count := range counts {
+		calculatedTotal += int64(count)
+	}
 	return calculatedTotal == mappedReads
 }
 
 // 带调试信息的版本
-func (a *AlignmentAnalyzer) parseAlignmentWithDebug(cigar sam.Cigar, mdTag, seq string, positionStats *[]cfg.PositionStat, totalMatches, totalMismatches *int64, readID string) {
+func parseAlignmentWithDebug(cigar sam.Cigar, mdTag, seq string, positionStats *[]cfg.PositionStat, totalMatches, totalMismatches *int64, readID string) {
 
 	defer func() {
 		if r := recover(); r != nil {
