@@ -261,7 +261,7 @@ func (a *AlignmentAnalyzer) runContaminationAlignment(mergedRefFile string) (map
 			}()
 
 			// 使用通用比对方法进行污染检测比对
-			bamFile, err := a.alignSampleWithParams(s.OutputDir, mergedRefFile, "contamination")
+			bamFile, err := AlignSampleWithParams(s.OutputDir, mergedRefFile, "contamination", max(a.config.AlignerThreads/len(a.samples), 1))
 			if err != nil {
 				slog.Error("污染检测比对失败", "样本", s.Name, "err", err)
 			}

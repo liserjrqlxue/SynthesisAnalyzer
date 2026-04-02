@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -55,14 +56,11 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 				wg.Done()
 			}()
 
-			result, err := a.alignSample(s)
-			if err != nil {
-				fmt.Printf("  样本 %s 比对失败: %v\n", s.Name, err)
-				results <- &AlignmentResult{Sample: s, Error: err}
-				return
+			result := a.alignSample(s)
+			if result.Error != nil {
+				slog.Error("比对失败", "样本", s.Name, "err", result.Error)
 			}
-
-			results <- &AlignmentResult{Sample: s, Alignment: result}
+			results <- result
 		}(sample)
 	}
 
@@ -108,23 +106,28 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 }
 
 // 单个样品的比对
-func (a *AlignmentAnalyzer) alignSample(sample *cfg.Sample) (*cfg.SampleAlignment, error) {
+func (a *AlignmentAnalyzer) alignSample(sample *cfg.Sample) *AlignmentResult {
+	var result = &AlignmentResult{Sample: sample}
 	// 调用通用的比对方法
-	bamFile, err := a.alignSampleWithParams(sample.OutputDir, sample.ReferenceFile, sample.Name)
+	bamFile, err := AlignSampleWithParams(
+		sample.OutputDir,
+		sample.ReferenceFile,
+		sample.Name,
+		max(a.config.AlignerThreads/len(a.samples), 1),
+	)
 	if err != nil {
-		return nil, err
+		result.Error = err
+		return result
 	}
 
 	// 分析比对结果
-	alignment, err := a.analyzeBamFile(bamFile, sample)
-	if err != nil {
-		return nil, fmt.Errorf("分析BAM文件失败: %v", err)
-	}
-	return alignment, err
+	alignment, err := analyzeBamFile(bamFile, sample, a.config.MapQThreshold)
+	result.Error = err
+	result.Alignment = alignment
+	return result
 }
 
-// 通用的样品比对方法，可接受自定义参考序列和输出前缀
-func (a *AlignmentAnalyzer) alignSampleWithParams(workDir, referenceFile, outputPrefix string) (string, error) {
+func AlignSampleWithParams(workDir, referenceFile, outputPrefix string, threads int) (string, error) {
 	var (
 		fastqFile = filepath.Join(workDir, "target_only_reads.fastq.gz")
 
@@ -159,7 +162,7 @@ func (a *AlignmentAnalyzer) alignSampleWithParams(workDir, referenceFile, output
 		"--end-bonus=100",
 		"--eqx",
 		"--MD",
-		"-t", fmt.Sprintf("%d", a.config.AlignerThreads/len(a.samples)+1),
+		"-t", strconv.Itoa(threads),
 		"--secondary=no", // 不输出secondary比对
 		"-o", samFile,
 		referenceFile,
@@ -202,10 +205,7 @@ func (a *AlignmentAnalyzer) alignSampleWithParams(workDir, referenceFile, output
 		return bamFile, fmt.Errorf("索引BAM文件失败: %v", err)
 	}
 
-	// 4. 清理临时文件（可选）
-	if !a.config.KeepSamFiles {
-		os.Remove(samFile)
-	}
+	os.Remove(samFile)
 
 	// 5. 创建完成标签
 	doneContent := fmt.Sprintf("Created: %s\nReference: %s\nOutput: %s\n",

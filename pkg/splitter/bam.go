@@ -13,7 +13,7 @@ import (
 )
 
 // 分析BAM文件，统计合成成功率
-func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *cfg.Sample) (*cfg.SampleAlignment, error) {
+func analyzeBamFile(bamFile string, sample *cfg.Sample, mapQThreshold int) (*cfg.SampleAlignment, error) {
 	// 打开BAM文件
 	f, err := os.Open(bamFile)
 	if err != nil {
@@ -52,7 +52,7 @@ func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *cfg.Sample) (
 		totalReads++
 
 		// 检查比对质量
-		if int(read.MapQ) < a.config.MapQThreshold {
+		if int(read.MapQ) < mapQThreshold {
 			continue
 		}
 
@@ -71,10 +71,10 @@ func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *cfg.Sample) (
 		}
 
 		// 解析比对结果并获取错误类型
-		errorFlags := a.parseAlignmentWithErrors(read.Cigar, mdTag, string(read.Seq.Seq), &positionStats, &totalMatches, &totalMismatches)
+		errorFlags := parseAlignmentWithErrors(read.Cigar, mdTag, string(read.Seq.Seq), &positionStats, &totalMatches, &totalMismatches)
 
 		// 根据错误类型分类read
-		a.classifyRead(errorFlags, readTypeCounts)
+		classifyRead(errorFlags, readTypeCounts)
 	}
 
 	// 计算汇总统计
@@ -144,140 +144,6 @@ func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *cfg.Sample) (
 		ReadTypeCounts: readTypeCounts,
 	}, nil
 }
-
-/* // 解析比对结果
-func (a *AlignmentAnalyzer) parseAlignment(cigar, mdTag, seq string, sample *SampleInfo,
-	positionStats *[]PositionStat, totalMatches, totalMismatches *int64) error {
-
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("解析比对记录时发生panic: %v\n", r)
-			log.Printf("CIGAR: %s, MD: %s, Seq长度: %d\n", cigar, mdTag, len(seq))
-		}
-	}()
-
-	refPos := 0
-	seqPos := 0
-	seqLen := len(seq)
-
-	// 验证输入
-	if len(cigar) == 0 {
-		return fmt.Errorf("CIGAR字符串为空")
-	}
-
-	if seqLen == 0 {
-		return fmt.Errorf("序列为空")
-	}
-
-	// 记录原始值，用于调试
-	// originalSeqLen := seqLen
-	originalCigar := cigar
-
-	// 预检查：确保CIGAR操作消耗的序列长度不超过实际序列长度
-	totalSeqOps := a.calculateSequenceOperations(cigar)
-	if totalSeqOps > seqLen {
-		log.Printf("警告: CIGAR操作需要的序列长度(%d)大于实际序列长度(%d)，跳过该记录\n",
-			totalSeqOps, seqLen)
-		return fmt.Errorf("CIGAR操作需要的序列长度(%d)大于实际序列长度(%d)，跳过该记录\n",
-			totalSeqOps, seqLen)
-	}
-
-	// 解析CIGAR
-	i := 0
-	cigarIndex := 0
-
-	for i < len(cigar) {
-		cigarIndex++
-		if cigarIndex > 1000 {
-			log.Printf("警告: CIGAR解析循环可能陷入无限循环，CIGAR: %s\n", cigar)
-			break
-		}
-
-		// 解析数字
-		num := 0
-		for i < len(cigar) && cigar[i] >= '0' && cigar[i] <= '9' {
-			num = num*10 + int(cigar[i]-'0')
-			i++
-		}
-
-		if i >= len(cigar) {
-			return fmt.Errorf("CIGAR格式错误: 数字后没有操作符")
-
-		}
-
-		op := cigar[i]
-		i++
-
-		// 根据操作符处理
-		switch op {
-		case 'M', '=', 'X':
-			// 匹配/不匹配/错配，消耗序列和参考序列
-			for j := 0; j < num; j++ {
-				if seqPos >= seqLen {
-					return fmt.Errorf("序列位置越界: seqPos=%d, seqLen=%d, CIGAR=%s",
-						seqPos, seqLen, originalCigar)
-				}
-				if refPos < len(*positionStats) {
-					(*positionStats)[refPos].TotalReads++
-
-					// 使用安全的序列访问
-					seqChar := seq[seqPos]
-					if a.isMatchSafe(refPos, seqChar, mdTag) {
-						(*positionStats)[refPos].MatchCount++
-						(*totalMatches)++
-					} else {
-						(*positionStats)[refPos].MismatchCount++
-						(*totalMismatches)++
-					}
-				}
-				refPos++
-				seqPos++
-			}
-		case 'I':
-			// 插入，只消耗序列
-			if refPos > 0 && refPos-1 < len(*positionStats) {
-				(*positionStats)[refPos-1].InsertionCount++
-			}
-			if seqPos+num > seqLen {
-				return fmt.Errorf("插入操作导致序列越界: seqPos=%d, num=%d, seqLen=%d",
-					seqPos, num, seqLen)
-			}
-			seqPos += num
-		case 'D', 'N':
-			// 缺失或跳过，只消耗参考序列
-			for j := 0; j < num; j++ {
-				if refPos < len(*positionStats) {
-					(*positionStats)[refPos].TotalReads++
-					(*positionStats)[refPos].DeletionCount++
-				}
-				refPos++
-			}
-		case 'S':
-			// 软裁剪，只消耗序列
-			if seqPos+num > seqLen {
-				return fmt.Errorf("软裁剪导致序列越界: seqPos=%d, num=%d, seqLen=%d",
-					seqPos, num, seqLen)
-			}
-			seqPos += num
-
-		case 'H', 'P':
-			// 硬裁剪或填充，不消耗序列或参考序列
-			continue
-
-		default:
-			return fmt.Errorf("未知的CIGAR操作符: %c", op)
-		}
-	}
-
-	// 最终验证
-	if seqPos != seqLen {
-		log.Printf("警告: 序列未完全消耗: seqPos=%d, seqLen=%d, CIGAR=%s\n",
-			seqPos, seqLen, originalCigar)
-	}
-
-	return nil
-}
-*/
 
 // 添加辅助函数，计算CIGAR操作消耗的序列长度
 func (a *AlignmentAnalyzer) calculateSequenceOperations(cigar string) int {
@@ -422,7 +288,7 @@ type MDTagParser struct {
 }
 
 // 预解析 MD 标签
-func (a *AlignmentAnalyzer) parseMDTag(mdTag string) *MDTagParser {
+func parseMDTag(mdTag string) *MDTagParser {
 	parser := &MDTagParser{
 		positionInfo: make(map[int]byte),
 		maxPosition:  0,
@@ -466,7 +332,7 @@ func (a *AlignmentAnalyzer) parseMDTag(mdTag string) *MDTagParser {
 			i++
 
 			// 存储参考碱基
-			parser.positionInfo[pos] = a.baseToCode(refBase)
+			parser.positionInfo[pos] = baseToCode(refBase)
 			pos++
 
 		} else {
@@ -480,7 +346,7 @@ func (a *AlignmentAnalyzer) parseMDTag(mdTag string) *MDTagParser {
 }
 
 // 碱基字符转编码
-func (a *AlignmentAnalyzer) baseToCode(base byte) byte {
+func baseToCode(base byte) byte {
 	switch base {
 	case 'A', 'a':
 		return 1
@@ -498,7 +364,7 @@ func (a *AlignmentAnalyzer) baseToCode(base byte) byte {
 }
 
 // 使用预解析的 MD 标签检查匹配
-func (a *AlignmentAnalyzer) isMatchWithParser(refPos int, parser *MDTagParser) bool {
+func isMatchWithParser(refPos int, parser *MDTagParser) bool {
 	if refPos < 0 || refPos > parser.maxPosition {
 		return true // 超出范围，保守返回匹配
 	}
@@ -519,7 +385,7 @@ func (a *AlignmentAnalyzer) isMatchWithParser(refPos int, parser *MDTagParser) b
 }
 
 // 解析比对结果（改进版）
-func (a *AlignmentAnalyzer) parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq string, positionStats *[]cfg.PositionStat, totalMatches, totalMismatches *int64) *readErrorFlags {
+func parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq string, positionStats *[]cfg.PositionStat, totalMatches, totalMismatches *int64) *readErrorFlags {
 
 	flags := &readErrorFlags{}
 	refPos := 0
@@ -527,7 +393,7 @@ func (a *AlignmentAnalyzer) parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq
 	seqLen := len(seq)
 
 	// 预解析 MD 标签
-	mdParser := a.parseMDTag(mdTag)
+	mdParser := parseMDTag(mdTag)
 
 	// 解析 CIGAR
 	for _, cigarOp := range cigar {
@@ -546,7 +412,7 @@ func (a *AlignmentAnalyzer) parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq
 					(*positionStats)[refPos].TotalReads++
 
 					// 使用预解析的 MD 标签判断是否匹配
-					if op == sam.CigarEqual || (mdParser == nil || a.isMatchWithParser(refPos, mdParser)) {
+					if op == sam.CigarEqual || (mdParser == nil || isMatchWithParser(refPos, mdParser)) {
 						(*positionStats)[refPos].MatchCount++
 						(*totalMatches)++
 					} else {
@@ -595,7 +461,7 @@ func (a *AlignmentAnalyzer) parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq
 }
 
 // 新增：根据错误类型分类read
-func (a *AlignmentAnalyzer) classifyRead(flags *readErrorFlags, counts *cfg.ReadTypeCounts) {
+func classifyRead(flags *readErrorFlags, counts *cfg.ReadTypeCounts) {
 	if flags == nil {
 		counts.Other++
 		return
@@ -673,7 +539,7 @@ func (a *AlignmentAnalyzer) parseAlignmentWithDebug(cigar sam.Cigar, mdTag, seq 
 	}()
 
 	// 调用正常的解析函数
-	a.parseAlignmentWithErrors(cigar, mdTag, seq, positionStats, totalMatches, totalMismatches)
+	parseAlignmentWithErrors(cigar, mdTag, seq, positionStats, totalMatches, totalMismatches)
 }
 
 func safeSubstr(s string, start, length int) string {
