@@ -6,44 +6,9 @@ import (
 	"time"
 
 	"github.com/bits-and-blooms/bloom/v3"
+
+	"SynthesisAnalyzer/pkg/cfg"
 )
-
-// 配置结构
-type Config struct {
-	ExcelFile        string
-	OutputDir        string
-	FastqDir         string
-	Threads          int
-	UseRC            bool   // 是否使用反向互补
-	SampleNameSuffix string // 样品名称后缀列
-
-	// 匹配参数
-	SearchWindow int // 搜索窗口大小（从头、从尾搜索的距离）
-	Quality      int // fastp质量阈值
-	MergeLen     int // 合并后长度
-	// 模糊匹配参数
-	AllowMismatch  int // 允许的错配数（0表示完全匹配）
-	MatchThreshold int // 匹配分数阈值
-
-	// 运行选项
-	SkipExisting  bool // 是否跳过已存在的文件
-	Compression   bool // 是否压缩输出
-	CompressLevel int  // 压缩级别 1-9，默认6
-	CleanupTemp   bool // 是否清理临时文件
-
-	// 输出选项
-	OutputMode string // "full"或"target-only"
-
-	// 比对相关配置
-	Alignment AlignmentConfig
-
-	// 污染检测
-	ContaminationDetection bool // 是否启用交叉污染检测
-
-	// --overlap_len_require
-	// the minimum length to detect overlapped region of PE reads. This will affect overlap analysis based PE merge, adapter trimming and correction. 30 by default. (int [=30])
-	OverlapLenRequire int
-}
 
 // 合并文件与样品的关系
 type MergedFileInfo struct {
@@ -62,7 +27,7 @@ type MergedFileInfo struct {
 
 // 更新后的拆分处理器
 type EnhancedSplitter struct {
-	config    *Config
+	config    *cfg.Config
 	samples   []*SampleInfo
 	fileMap   map[string][]*SampleInfo // merged文件 -> 样品列表
 	sampleMap map[string]*SampleInfo   // 样品名称 -> 样品信息
@@ -110,7 +75,7 @@ type FileProcessStats struct {
 }
 
 // 创建正则表达式拆分器
-func NewEnhancedSplitter(config *Config) *EnhancedSplitter {
+func NewEnhancedSplitter(config *cfg.Config) *EnhancedSplitter {
 	return &EnhancedSplitter{
 		config:        config,
 		samples:       []*SampleInfo{},

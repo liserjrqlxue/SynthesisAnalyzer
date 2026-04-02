@@ -11,13 +11,15 @@ import (
 
 // 扩展SampleInfo结构，添加提取统计
 type SampleInfo struct {
-	Name          string
+	// from input Excel directly
+	Name          string // 样本名称
 	TargetSeq     string // 头靶标序列
 	SynthesisSeq  string // 合成序列
 	PostTargetSeq string // 尾靶标序列
 	R1Path        string
 	R2Path        string
-	OutputPath    string
+
+	OutputDir string
 
 	// 完整参考序列（用于分析）
 	FullReference string
@@ -57,7 +59,7 @@ type SampleInfo struct {
 
 // 生成位置详细统计
 func (sample *SampleInfo) generatePositionReport() error {
-	reportFile := filepath.Join(sample.OutputPath, "position_stats.csv")
+	reportFile := filepath.Join(sample.OutputDir, "position_stats.csv")
 	f, err := os.Create(reportFile)
 	if err != nil {
 		return err
@@ -125,7 +127,7 @@ func (sample *SampleInfo) generatePositionReport() error {
 // 添加缺失的比对分析器函数
 func (sample *SampleInfo) generateErrorDistribution() error {
 	// 生成错误率分布数据
-	reportFile := filepath.Join(sample.OutputPath, "error_distribution.csv")
+	reportFile := filepath.Join(sample.OutputDir, "error_distribution.csv")
 	f, err := os.Create(reportFile)
 	if err != nil {
 		return err

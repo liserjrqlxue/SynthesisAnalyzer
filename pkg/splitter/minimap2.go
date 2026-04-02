@@ -32,7 +32,7 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 
 	for _, sample := range a.samples {
 		// 检查输入文件是否存在
-		inputFile := filepath.Join(sample.OutputPath, "target_only_reads.fastq.gz")
+		inputFile := filepath.Join(sample.OutputDir, "target_only_reads.fastq.gz")
 		if _, err := os.Stat(inputFile); os.IsNotExist(err) {
 			fmt.Printf("  警告: 样本 %s 的输入文件不存在，跳过\n", sample.Name)
 			continue
@@ -109,7 +109,7 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 // 单个样品的比对
 func (a *AlignmentAnalyzer) alignSample(sample *SampleInfo) (*SampleAlignment, error) {
 	// 调用通用的比对方法
-	bamFile, err := a.alignSampleWithParams(sample.OutputPath, sample.ReferenceFile, sample.Name)
+	bamFile, err := a.alignSampleWithParams(sample.OutputDir, sample.ReferenceFile, sample.Name)
 	if err != nil {
 		return nil, err
 	}

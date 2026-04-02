@@ -1756,7 +1756,7 @@ func writeNMerStats(stats *MutationStats, outputDir string) error {
 		sampleStats.RLock()
 
 		// 使用完整的参考序列
-		fullSeq := sampleStats.Sample.RefSeqFull
+		fullSeq := sampleStats.Sample.FullReference
 		/* 		if fullSeq == "" {
 			fmt.Printf("  警告: 样本 %s 无参考序列，跳过 N-mer 统计\n", sampleName)
 			sampleStats.RUnlock()

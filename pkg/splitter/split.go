@@ -25,7 +25,7 @@ func (s *EnhancedSplitter) splitReads() error {
 	files := make(map[string]*os.File)
 
 	for _, sample := range s.samples {
-		outputFile := filepath.Join(sample.OutputPath, "split_reads.fastq.gz")
+		outputFile := filepath.Join(sample.OutputDir, "split_reads.fastq.gz")
 		f, err := os.Create(outputFile)
 		if err != nil {
 			return fmt.Errorf("创建输出文件失败: %v", err)
@@ -305,7 +305,7 @@ func (s *EnhancedSplitter) processEachFileSeparately() error {
 	outputFiles := make(map[string]*os.File)
 
 	for _, sample := range s.samples {
-		outputFile := filepath.Join(sample.OutputPath, "target_only_reads.fastq.gz")
+		outputFile := filepath.Join(sample.OutputDir, "target_only_reads.fastq.gz")
 		f, err := os.Create(outputFile)
 		if err != nil {
 			return fmt.Errorf("创建输出文件失败: %v", err)
@@ -746,7 +746,7 @@ func (s *EnhancedSplitter) printPerSampleStats() {
 			forwardRate = min(float64(sample.ForwardReads)/float64(sample.MatchedReads)*100, 100)
 		}
 
-		outputFile := filepath.Join(sample.OutputPath, "target_only_reads.fastq.gz")
+		outputFile := filepath.Join(sample.OutputDir, "target_only_reads.fastq.gz")
 
 		fmt.Printf("  %-15s  %10d  %8d  %8.2f  %8d  %8d  %8.2f  %6.2f  %6.2f  %10d  %s\n",
 			sample.Name,

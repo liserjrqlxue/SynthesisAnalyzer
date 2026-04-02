@@ -214,7 +214,7 @@ func (stats *MutationStats) UpdateStatsFromSampleStats(sampleStats *SampleStats)
 	stats.TotalReadsWithMuts += sampleStats.SubstitutionReads
 
 	// 合并 ACGT 统计
-	if sampleStats.Sample.RefSeqFull != "" {
+	if sampleStats.Sample.FullReference != "" {
 		stats.TotalRefACGTCounts['A'] += sampleStats.RefACGTCounts['A']
 		stats.TotalRefACGTCounts['C'] += sampleStats.RefACGTCounts['C']
 		stats.TotalRefACGTCounts['G'] += sampleStats.RefACGTCounts['G']

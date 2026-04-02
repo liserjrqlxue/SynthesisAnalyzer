@@ -12,9 +12,17 @@ import (
 
 // 样本结构体
 type Sample struct {
-	Name       string // 样本名称
-	RefSeqFull string // 全长参考序列
-	BamFile    string // BAM文件路径
+	// from input Excel directly
+	Name          string // 样本名称
+	TargetSeq     string // 头靶标序列
+	SynthesisSeq  string // 合成序列
+	PostTargetSeq string // 尾靶标序列
+	R1Path        string
+	R2Path        string
+
+	FullReference string // 全长参考序列
+	OutputDir     string
+	BamFile       string // BAM文件路径
 
 	RefLength int // 参考序列长度
 	HeadCut   int // 头切除长度
@@ -29,7 +37,7 @@ func (sample *Sample) UpdateFullSeqs() (err error) {
 	}
 	for _, refPath := range refCandidates {
 		if _, err = os.Stat(refPath); err == nil {
-			sample.RefSeqFull, err = readRefFasta(refPath)
+			sample.FullReference, err = readRefFasta(refPath)
 			if err != nil {
 				slog.Error("读取参考文件失败", "样品", sample.Name, "参考文件", refPath, "错误", err)
 				return err
@@ -37,7 +45,7 @@ func (sample *Sample) UpdateFullSeqs() (err error) {
 			break
 		}
 	}
-	if sample.RefSeqFull == "" {
+	if sample.FullReference == "" {
 		slog.Error("未找到参考序列文件", "样品", sample.Name)
 		err = fmt.Errorf("未找到参考序列文件 %s:[%v]", sample.Name, err)
 		return err
@@ -49,12 +57,12 @@ func (sample *Sample) NewSampleStats() *SampleStats {
 	sampleStats := NewSampleStats()
 
 	sampleStats.Sample = sample
-	sample.RefLength = len(sample.RefSeqFull)
+	sample.RefLength = len(sample.FullReference)
 
 	// 预计算参考序列信息
-	if sample.RefSeqFull != "" {
+	if sample.FullReference != "" {
 		if sample.HeadCut+sample.TailCut < sample.RefLength {
-			trimmedSeq := sample.RefSeqFull[sample.HeadCut : sample.RefLength-sample.TailCut]
+			trimmedSeq := sample.FullReference[sample.HeadCut : sample.RefLength-sample.TailCut]
 			acgtCounts := make(map[byte]int, 4)
 			for i := range trimmedSeq {
 				b := trimmedSeq[i]
@@ -96,7 +104,7 @@ type BatchInfo struct {
 	Samples map[string]*Sample // 样本名->样本信息
 }
 
-func NewSampleInfo() *BatchInfo {
+func NewBatchInfo() *BatchInfo {
 	return &BatchInfo{
 		Order:   []string{},
 		Samples: make(map[string]*Sample),
@@ -208,11 +216,11 @@ func (s *BatchInfo) ReadExcel() error {
 
 		fullSeq := strings.ToUpper(targetSeq + synthSeq + postSeq)
 		sample := &Sample{
-			Name:       sampleName,
-			RefSeqFull: fullSeq,
-			RefLength:  len(fullSeq),
-			HeadCut:    len(targetSeq), // 头切除长度 = 靶标序列长度
-			TailCut:    len(postSeq),   // 尾切除长度 = 后靶标长度
+			Name:          sampleName,
+			FullReference: fullSeq,
+			RefLength:     len(fullSeq),
+			HeadCut:       len(targetSeq), // 头切除长度 = 靶标序列长度
+			TailCut:       len(postSeq),   // 尾切除长度 = 后靶标长度
 		}
 		s.Samples[sampleName] = sample
 		s.Order = append(s.Order, sampleName)
@@ -260,7 +268,7 @@ func (s *BatchInfo) findBAMFilesFromExcel() (err error) {
 		sample.BamFile = bamPath
 
 		// 若样本中尚无参考序列，尝试查找 .ref.fa 文件
-		if sample.RefSeqFull == "" {
+		if sample.FullReference == "" {
 			err = sample.UpdateFullSeqs()
 			if err != nil {
 				return err
@@ -298,7 +306,7 @@ func (s *BatchInfo) findBAMFilesFromWalk() (err error) {
 			sample.BamFile = path
 
 			// 若样本中尚无参考序列，尝试查找 .ref.fa 文件
-			if sample.RefSeqFull == "" {
+			if sample.FullReference == "" {
 				err = sample.UpdateFullSeqs()
 				if err != nil {
 					return err

@@ -1,6 +1,7 @@
 package splitter
 
 import (
+	"SynthesisAnalyzer/pkg/cfg"
 	"encoding/csv"
 	"fmt"
 	"log/slog"
@@ -13,20 +14,9 @@ import (
 	"time"
 )
 
-// 比对配置
-type AlignmentConfig struct {
-	UseMinimap2    bool    // 使用minimap2而不是BWA
-	AlignerThreads int     // 比对线程数
-	MapQThreshold  int     // 比对质量阈值
-	MinIdentity    float64 // 最小identity百分比
-	SkipAlignment  bool    // 是否跳过比对步骤
-	KeepSamFiles   bool    // 是否保留SAM文件
-	AnalysisOnly   bool    // 仅分析已有的BAM文件
-}
-
 // 比对分析器
 type AlignmentAnalyzer struct {
-	config    *AlignmentConfig
+	config    *cfg.AlignmentConfig
 	samples   []*SampleInfo
 	outputDir string
 	stats     *AlignmentStats
@@ -167,7 +157,6 @@ func (a *AlignmentAnalyzer) generateSummaryReport(reportDir string) error {
 		"AllErrors",
 		"Other",
 		"High_Error_Positions",
-		"BAM_File",
 	}
 
 	if err := writer.Write(header); err != nil {
@@ -205,7 +194,6 @@ func (a *AlignmentAnalyzer) generateSummaryReport(reportDir string) error {
 			fmt.Sprintf("%d", summary.ReadTypeCounts.AllErrors),
 			fmt.Sprintf("%d", summary.ReadTypeCounts.Other),
 			errorPositions,
-			filepath.Base(sample.BamFile),
 		}
 
 		if err := writer.Write(record); err != nil {
@@ -254,7 +242,7 @@ func (a *AlignmentAnalyzer) runContaminationAlignment(mergedRefFile string) (map
 
 	for _, sample := range a.samples {
 		// 检查输入文件是否存在
-		inputFile := filepath.Join(sample.OutputPath, "target_only_reads.fastq.gz")
+		inputFile := filepath.Join(sample.OutputDir, "target_only_reads.fastq.gz")
 		if _, err := os.Stat(inputFile); os.IsNotExist(err) {
 			fmt.Printf("  警告: 样本 %s 的输入文件不存在，跳过\n", sample.Name)
 			slog.Warn("拆分文件不存在，跳过\n", "Name", sample.Name, "path", inputFile)
@@ -272,7 +260,7 @@ func (a *AlignmentAnalyzer) runContaminationAlignment(mergedRefFile string) (map
 			}()
 
 			// 使用通用比对方法进行污染检测比对
-			bamFile, err := a.alignSampleWithParams(s.OutputPath, mergedRefFile, "contamination")
+			bamFile, err := a.alignSampleWithParams(s.OutputDir, mergedRefFile, "contamination")
 			if err != nil {
 				slog.Error("污染检测比对失败", "样本", s.Name, "err", err)
 			}

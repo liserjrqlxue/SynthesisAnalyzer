@@ -14,6 +14,7 @@ import (
 
 	// "compress/gzip"
 
+	"SynthesisAnalyzer/pkg/cfg"
 	"SynthesisAnalyzer/pkg/splitter"
 )
 
@@ -147,7 +148,7 @@ func main() {
 	}
 
 	// 创建配置
-	config := &splitter.Config{
+	config := &cfg.Config{
 		ExcelFile:        *excelFile,
 		OutputDir:        output,
 		FastqDir:         fastq,
@@ -167,7 +168,7 @@ func main() {
 		MatchThreshold: 30,            // 匹配分数阈值
 		OutputMode:     "target-only", // 只输出靶标间序列
 
-		Alignment: splitter.AlignmentConfig{
+		Alignment: cfg.AlignmentConfig{
 			UseMinimap2:    true,
 			AlignerThreads: 16,
 			MapQThreshold:  10,

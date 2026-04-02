@@ -28,7 +28,7 @@ func (s *EnhancedSplitter) createOutputDirs() error {
 
 	// 为每个样品创建输出目录
 	for _, sample := range s.samples {
-		if err := os.MkdirAll(sample.OutputPath, 0755); err != nil {
+		if err := os.MkdirAll(sample.OutputDir, 0755); err != nil {
 			return fmt.Errorf("创建样品目录失败(%s): %v", sample.Name, err)
 		}
 	}

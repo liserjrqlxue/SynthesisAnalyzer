@@ -1,6 +1,7 @@
 package splitter
 
 import (
+	"SynthesisAnalyzer/pkg/cfg"
 	"bufio"
 	"bytes"
 	"fmt"
@@ -22,7 +23,7 @@ import (
 )
 
 // 创建比对分析器
-func NewAlignmentAnalyzer(config *AlignmentConfig, samples []*SampleInfo, outputDir string) *AlignmentAnalyzer {
+func NewAlignmentAnalyzer(config *cfg.AlignmentConfig, samples []*SampleInfo, outputDir string) *AlignmentAnalyzer {
 	return &AlignmentAnalyzer{
 		config:    config,
 		samples:   samples,
@@ -366,8 +367,8 @@ func (s *EnhancedSplitter) loadSamplesFromExcel() error {
 		}
 
 		// 创建输出目录
-		sample.OutputPath = filepath.Join(s.config.OutputDir, "samples", sample.Name)
-		if err := os.MkdirAll(sample.OutputPath, 0755); err != nil {
+		sample.OutputDir = filepath.Join(s.config.OutputDir, "samples", sample.Name)
+		if err := os.MkdirAll(sample.OutputDir, 0755); err != nil {
 			return fmt.Errorf("创建样品目录失败: %v", err)
 		}
 
@@ -461,7 +462,7 @@ func (s *EnhancedSplitter) splitReadsPipeline() error {
 		writerFiles := make(map[string]*os.File)
 
 		for _, sample := range samples {
-			outputFile := filepath.Join(sample.OutputPath, "split_reads.fastq.gz")
+			outputFile := filepath.Join(sample.OutputDir, "split_reads.fastq.gz")
 			f, err := os.Create(outputFile)
 			if err != nil {
 				return fmt.Errorf("创建输出文件失败: %v", err)

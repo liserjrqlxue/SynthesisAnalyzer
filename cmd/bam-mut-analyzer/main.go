@@ -26,6 +26,27 @@ type Config struct {
 	MaxThreads       int
 }
 
+func (cfg *Config) NewBatchInfo() *stats.BatchInfo {
+	sampleInfo := stats.NewBatchInfo()
+	sampleInfo.InputExcel = cfg.ExcelFile
+	sampleInfo.InputSheet = cfg.InputSheet
+	sampleInfo.InputDir = cfg.InputDir
+	sampleInfo.SampleNameSuffix = cfg.SampleNameSuffix
+	sampleInfo.HeadCuts = cfg.HeadCut
+	sampleInfo.TailCuts = cfg.TailCut
+	sampleInfo.NMerSize = cfg.NMerSize
+	sampleInfo.MaxSubstitutions = cfg.MaxSubstitutions
+	sampleInfo.MaxThreads = cfg.MaxThreads
+
+	// 设置输出目录
+	sampleInfo.OutputDir = cfg.OutputDir
+	if sampleInfo.OutputDir == "" {
+		sampleInfo.OutputDir = filepath.Join(sampleInfo.InputDir, "mutation_stats")
+	}
+
+	return sampleInfo
+}
+
 // parseFlags 解析命令行参数，返回配置对象
 func parseFlags() *Config {
 	cfg := &Config{}
@@ -92,22 +113,7 @@ func setupLogger(levelStr string) {
 // run 执行核心业务逻辑，返回错误
 func run(cfg *Config) error {
 	// 初始化样本信息
-	sampleInfo := stats.NewSampleInfo()
-	sampleInfo.InputExcel = cfg.ExcelFile
-	sampleInfo.InputSheet = cfg.InputSheet
-	sampleInfo.InputDir = cfg.InputDir
-	sampleInfo.SampleNameSuffix = cfg.SampleNameSuffix
-	sampleInfo.HeadCuts = cfg.HeadCut
-	sampleInfo.TailCuts = cfg.TailCut
-	sampleInfo.NMerSize = cfg.NMerSize
-	sampleInfo.MaxSubstitutions = cfg.MaxSubstitutions
-	sampleInfo.MaxThreads = cfg.MaxThreads
-
-	// 设置输出目录
-	sampleInfo.OutputDir = cfg.OutputDir
-	if sampleInfo.OutputDir == "" {
-		sampleInfo.OutputDir = filepath.Join(sampleInfo.InputDir, "mutation_stats")
-	}
+	sampleInfo := cfg.NewBatchInfo()
 
 	// 读取 Excel 样本顺序（如果提供）
 	if cfg.ExcelFile != "" {

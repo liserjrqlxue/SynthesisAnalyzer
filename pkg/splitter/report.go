@@ -134,7 +134,7 @@ Excel文件: %s
 		sampleInfo += fmt.Sprintf("   总参考长度: %d\n", len(sample.TargetSeq)+len(sample.SynthesisSeq)+len(sample.PostTargetSeq))
 		sampleInfo += fmt.Sprintf("   处理reads数: %d\n", sample.TotalReads)
 		sampleInfo += fmt.Sprintf("   匹配reads数: %d (%.1f%%)\n", sample.MatchedReads, matchRate)
-		sampleInfo += fmt.Sprintf("   输出文件: %s/target_only_reads.fastq.gz\n", sample.OutputPath)
+		sampleInfo += fmt.Sprintf("   输出文件: %s/target_only_reads.fastq.gz\n", sample.OutputDir)
 		sampleInfo += fmt.Sprintf("   来源文件: %s + %s\n", filepath.Base(sample.R1Path), filepath.Base(sample.R2Path))
 
 		if sample.MergedFile != "" {
@@ -457,7 +457,7 @@ Excel文件: %s
 			sample.MinExtractedLen,
 			sample.MaxExtractedLen,
 			avgLength,
-			sample.OutputPath)
+			sample.OutputDir)
 
 		writer.WriteString(sampleInfo)
 	}

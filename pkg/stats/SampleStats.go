@@ -134,13 +134,13 @@ func NewSampleStats() *SampleStats {
 func (s *SampleStats) NormalizeDeletionsByContinuousBases() {
 
 	// 获取切除后的参考序列
-	if s.Sample.RefSeqFull == "" || s.Sample.RefLength == 0 {
+	if s.Sample.FullReference == "" || s.Sample.RefLength == 0 {
 		return // 无参考序列信息，无法修正
 	}
 	if s.Sample.HeadCut < 0 || s.Sample.TailCut < 0 || s.Sample.HeadCut+s.Sample.TailCut >= s.Sample.RefLength {
 		return // 切除参数不合理
 	}
-	trimmedRef := s.Sample.RefSeqFull[s.Sample.HeadCut : s.Sample.RefLength-s.Sample.TailCut]
+	trimmedRef := s.Sample.FullReference[s.Sample.HeadCut : s.Sample.RefLength-s.Sample.TailCut]
 	refLen := len(trimmedRef)
 
 	// 遍历参考序列的每个位置（1-based 对应切除后的坐标，但 PositionStats 使用原始坐标）
@@ -428,7 +428,7 @@ func (sampleStats *SampleStats) ProcessSamRecord(read *sam.Record, NMerSize, Max
 	}
 
 	// 分析详细的read类型
-	readInfo := analyzeReadDetailedInfo(read, mdMap, mdStr, sampleStats.Sample.RefSeqFull)
+	readInfo := analyzeReadDetailedInfo(read, mdMap, mdStr, sampleStats.Sample.FullReference)
 	sampleStats.ReadTypeCounts[readInfo.MainType]++
 	sampleStats.AlignedBases += alignedBasesThisRead
 
@@ -518,12 +518,12 @@ func (sampleStats *SampleStats) UpdateDeletetionSubtypeStats(subtype *DeleteSubt
 		}
 
 		// Del3 统计
-		if st == Del3 && sampleStats.Sample.RefSeqFull != "" {
+		if st == Del3 && sampleStats.Sample.FullReference != "" {
 			pos := del.Position
 			var prevBase byte
 			var firstBase byte
-			if pos-1 >= 1 && pos-1 <= len(sampleStats.Sample.RefSeqFull) {
-				prevBase = sampleStats.Sample.RefSeqFull[pos-2]
+			if pos-1 >= 1 && pos-1 <= len(sampleStats.Sample.FullReference) {
+				prevBase = sampleStats.Sample.FullReference[pos-2]
 				sampleStats.Del3PrevBaseCounts[prevBase]++
 			}
 			if len(del.Bases) > 0 {
