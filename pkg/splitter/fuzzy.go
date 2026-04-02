@@ -1,9 +1,13 @@
 package splitter
 
-import "strings"
+import (
+	"strings"
+
+	"SynthesisAnalyzer/pkg/cfg"
+)
 
 // 增强的提取函数，处理更多边界情况
-func (s *EnhancedSplitter) extractTargetRegionEnhanced(sequence string, matcher *FileMatcher) (string, *SampleInfo, string, string) {
+func (s *EnhancedSplitter) extractTargetRegionEnhanced(sequence string, matcher *FileMatcher) (string, *cfg.Sample, string, string) {
 	// 尝试多种匹配策略
 
 	// 策略1：精确正则匹配
@@ -30,9 +34,9 @@ func (s *EnhancedSplitter) extractTargetRegionEnhanced(sequence string, matcher 
 }
 
 // 模糊提取（允许错配）
-func (s *EnhancedSplitter) fuzzyExtractTargetRegion(sequence string) (string, *SampleInfo, string) {
+func (s *EnhancedSplitter) fuzzyExtractTargetRegion(sequence string) (string, *cfg.Sample, string) {
 	bestMatch := ""
-	var bestSample *SampleInfo
+	var bestSample *cfg.Sample
 	bestDirection := ""
 	bestScore := 0
 
@@ -155,7 +159,7 @@ func (s *EnhancedSplitter) calculateMatchScore(region, headSeq, tailSeq string) 
 }
 
 // 定义 positionBasedExtract 函数
-func (s *EnhancedSplitter) positionBasedExtract(sequence string) (string, *SampleInfo, string) {
+func (s *EnhancedSplitter) positionBasedExtract(sequence string) (string, *cfg.Sample, string) {
 	// 基于位置的提取方法，不依赖正则表达式
 	// 直接在序列中搜索头尾靶标，然后提取中间部分
 
@@ -165,7 +169,7 @@ func (s *EnhancedSplitter) positionBasedExtract(sequence string) (string, *Sampl
 	}
 
 	bestMatch := ""
-	var bestSample *SampleInfo
+	var bestSample *cfg.Sample
 	bestDirection := ""
 	bestScore := 0
 

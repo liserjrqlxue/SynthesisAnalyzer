@@ -7,6 +7,8 @@ import (
 	"sort"
 	"sync"
 
+	"SynthesisAnalyzer/pkg/cfg"
+
 	"golang.org/x/sync/errgroup"
 )
 
@@ -114,7 +116,7 @@ func NewMutationStats() *MutationStats {
 }
 
 // GetOrCreateSampleStats 获取或创建样本统计对象
-func (stats *MutationStats) GetOrCreateSampleStats(sample *Sample) *SampleStats {
+func (stats *MutationStats) GetOrCreateSampleStats(sample *cfg.Sample) *SampleStats {
 	stats.Lock()
 	defer stats.Unlock()
 
@@ -123,7 +125,7 @@ func (stats *MutationStats) GetOrCreateSampleStats(sample *Sample) *SampleStats 
 	}
 
 	// 初始化样本统计对象
-	sampleStats := sample.NewSampleStats()
+	sampleStats := NewSampleStatsFromSample(sample)
 
 	stats.Samples[sample.Name] = sampleStats
 	stats.SampleNames = append(stats.SampleNames, sample.Name)

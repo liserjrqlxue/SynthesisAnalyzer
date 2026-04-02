@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"SynthesisAnalyzer/pkg/cfg"
 )
 
 // 更新合并流程，建立正确的文件-样品关系
@@ -16,7 +18,7 @@ func (s *EnhancedSplitter) mergeAndMapFiles() error {
 	// fmt.Println("合并PE reads并建立文件-样品映射...")
 
 	// 去重R1/R2文件对
-	filePairs := make(map[string][]*SampleInfo) // key: "R1|R2" -> 样品列表
+	filePairs := make(map[string][]*cfg.Sample) // key: "R1|R2" -> 样品列表
 
 	for _, sample := range s.samples {
 		key := sample.R1Path + "|" + sample.R2Path
@@ -48,7 +50,7 @@ func (s *EnhancedSplitter) mergeAndMapFiles() error {
 		wg.Add(1)
 		sem <- struct{}{}
 
-		go func(k string, samps []*SampleInfo) {
+		go func(k string, samps []*cfg.Sample) {
 			defer func() {
 				<-sem
 				wg.Done()
@@ -171,7 +173,7 @@ func (s *EnhancedSplitter) mergeAndMapFiles() error {
 }
 
 // 生成合并文件名
-func (s *EnhancedSplitter) getMergedFileName(sample *SampleInfo) (string, bool) {
+func (s *EnhancedSplitter) getMergedFileName(sample *cfg.Sample) (string, bool) {
 	// 基于R1和R2路径生成唯一的文件名
 	base1 := filepath.Base(sample.R1Path)
 	base2 := filepath.Base(sample.R2Path)

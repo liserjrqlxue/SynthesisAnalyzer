@@ -1,7 +1,6 @@
 package splitter
 
 import (
-	"SynthesisAnalyzer/pkg/cfg"
 	"encoding/csv"
 	"fmt"
 	"log/slog"
@@ -12,12 +11,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"SynthesisAnalyzer/pkg/cfg"
 )
 
 // 比对分析器
 type AlignmentAnalyzer struct {
 	config    *cfg.AlignmentConfig
-	samples   []*SampleInfo
+	samples   []*cfg.Sample
 	outputDir string
 	stats     *AlignmentStats
 }
@@ -213,12 +214,12 @@ func (a *AlignmentAnalyzer) generatePerSampleReports() error {
 		}
 
 		// 生成位置详细统计
-		if err := sample.generatePositionReport(); err != nil {
+		if err := sample.GeneratePositionReport(); err != nil {
 			return err
 		}
 
 		// 生成错误率分布图数据
-		if err := sample.generateErrorDistribution(); err != nil {
+		if err := sample.GenerateErrorDistribution(); err != nil {
 			return err
 		}
 	}
@@ -252,7 +253,7 @@ func (a *AlignmentAnalyzer) runContaminationAlignment(mergedRefFile string) (map
 		wg.Add(1)
 		sem <- struct{}{}
 
-		go func(s *SampleInfo) {
+		go func(s *cfg.Sample) {
 			defer func() {
 				fmt.Print(".")
 				<-sem

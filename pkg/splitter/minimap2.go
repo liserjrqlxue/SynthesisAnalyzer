@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"SynthesisAnalyzer/pkg/cfg"
 )
 
 // 使用minimap2进行比对
@@ -47,7 +49,7 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 		wg.Add(1)
 		sem <- struct{}{}
 
-		go func(s *SampleInfo) {
+		go func(s *cfg.Sample) {
 			defer func() {
 				<-sem
 				wg.Done()
@@ -85,7 +87,6 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 
 		// 更新样品信息
 		result.Sample.AlignmentResult = result.Alignment
-		result.Sample.BamFile = result.Alignment.BamFile
 		result.Sample.PositionStats = result.Alignment.PositionStats
 
 		// fmt.Printf("  样本 %s: 比对完成 (%d reads, %.1f%% mapping rate)\n",
@@ -107,7 +108,7 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 }
 
 // 单个样品的比对
-func (a *AlignmentAnalyzer) alignSample(sample *SampleInfo) (*SampleAlignment, error) {
+func (a *AlignmentAnalyzer) alignSample(sample *cfg.Sample) (*cfg.SampleAlignment, error) {
 	// 调用通用的比对方法
 	bamFile, err := a.alignSampleWithParams(sample.OutputDir, sample.ReferenceFile, sample.Name)
 	if err != nil {

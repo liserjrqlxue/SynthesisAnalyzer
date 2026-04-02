@@ -6,12 +6,14 @@ import (
 	"os"
 	"strings"
 
+	"SynthesisAnalyzer/pkg/cfg"
+
 	"github.com/biogo/hts/bam"
 	"github.com/biogo/hts/sam"
 )
 
 // 分析BAM文件，统计合成成功率
-func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *SampleInfo) (*SampleAlignment, error) {
+func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *cfg.Sample) (*cfg.SampleAlignment, error) {
 	// 打开BAM文件
 	f, err := os.Open(bamFile)
 	if err != nil {
@@ -27,13 +29,13 @@ func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *SampleInfo) (
 	defer br.Close()
 
 	// 初始化位置统计
-	positionStats := make([]PositionStat, sample.ReferenceLen)
+	positionStats := make([]cfg.PositionStat, sample.ReferenceLen)
 	for i := range positionStats {
 		positionStats[i].Position = i + 1 // 1-based position
 	}
 
 	// 初始化read类型计数器
-	readTypeCounts := &ReadTypeCounts{}
+	readTypeCounts := &cfg.ReadTypeCounts{}
 
 	totalReads := int64(0)
 	mappedReads := int64(0)
@@ -76,7 +78,7 @@ func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *SampleInfo) (
 	}
 
 	// 计算汇总统计
-	summary := &AlignmentSummary{
+	summary := &cfg.AlignmentSummary{
 		TotalReads:      totalReads,
 		MappedReads:     mappedReads,
 		AverageCoverage: 0,
@@ -131,7 +133,7 @@ func (a *AlignmentAnalyzer) analyzeBamFile(bamFile string, sample *SampleInfo) (
 		summary.SynthesisSuccess = float64(totalMatches) / float64(totalMatches+totalMismatches+totalErrors) * 100
 	}
 
-	return &SampleAlignment{
+	return &cfg.SampleAlignment{
 		SampleName:     sample.Name,
 		ReferenceSeq:   sample.ReferenceSeq,
 		ReferenceLen:   sample.ReferenceLen,
@@ -517,7 +519,7 @@ func (a *AlignmentAnalyzer) isMatchWithParser(refPos int, parser *MDTagParser) b
 }
 
 // 解析比对结果（改进版）
-func (a *AlignmentAnalyzer) parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq string, positionStats *[]PositionStat, totalMatches, totalMismatches *int64) *readErrorFlags {
+func (a *AlignmentAnalyzer) parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq string, positionStats *[]cfg.PositionStat, totalMatches, totalMismatches *int64) *readErrorFlags {
 
 	flags := &readErrorFlags{}
 	refPos := 0
@@ -593,7 +595,7 @@ func (a *AlignmentAnalyzer) parseAlignmentWithErrors(cigar sam.Cigar, mdTag, seq
 }
 
 // 新增：根据错误类型分类read
-func (a *AlignmentAnalyzer) classifyRead(flags *readErrorFlags, counts *ReadTypeCounts) {
+func (a *AlignmentAnalyzer) classifyRead(flags *readErrorFlags, counts *cfg.ReadTypeCounts) {
 	if flags == nil {
 		counts.Other++
 		return
@@ -644,7 +646,7 @@ func (a *AlignmentAnalyzer) classifyRead(flags *readErrorFlags, counts *ReadType
 }
 
 // 新增：验证read类型统计的辅助函数
-func (a *AlignmentAnalyzer) ValidateReadTypeCounts(counts *ReadTypeCounts, mappedReads int64) bool {
+func (a *AlignmentAnalyzer) ValidateReadTypeCounts(counts *cfg.ReadTypeCounts, mappedReads int64) bool {
 	if counts == nil {
 		return false
 	}
@@ -657,7 +659,7 @@ func (a *AlignmentAnalyzer) ValidateReadTypeCounts(counts *ReadTypeCounts, mappe
 }
 
 // 带调试信息的版本
-func (a *AlignmentAnalyzer) parseAlignmentWithDebug(cigar sam.Cigar, mdTag, seq string, positionStats *[]PositionStat, totalMatches, totalMismatches *int64, readID string) {
+func (a *AlignmentAnalyzer) parseAlignmentWithDebug(cigar sam.Cigar, mdTag, seq string, positionStats *[]cfg.PositionStat, totalMatches, totalMismatches *int64, readID string) {
 
 	defer func() {
 		if r := recover(); r != nil {

@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 
+	"SynthesisAnalyzer/pkg/cfg"
+
 	"github.com/bits-and-blooms/bloom/v3"
 )
 
@@ -116,7 +118,7 @@ func (s *EnhancedSplitter) escapeRegexp(seq string) string {
 }
 
 // 修改匹配函数，提取靶标间序列
-func (matcher *FileMatcher) extractTargetRegion(sequence string) (string, string, *SampleInfo) {
+func (matcher *FileMatcher) extractTargetRegion(sequence string) (string, string, *cfg.Sample) {
 	// 只在该文件的样品中匹配
 	for _, sample := range matcher.fileInfo.Samples {
 		// 尝试正向匹配
@@ -145,7 +147,7 @@ func (matcher *FileMatcher) extractTargetRegion(sequence string) (string, string
 
 // 增强的处理记录函数
 // 为特定文件的记录处理
-func (s *EnhancedSplitter) processRecordForFile(record []byte, matcher *FileMatcher) (*SampleInfo, string, []byte) {
+func (s *EnhancedSplitter) processRecordForFile(record []byte, matcher *FileMatcher) (*cfg.Sample, string, []byte) {
 	// 解析FASTQ记录，提取序列
 	lines := bytes.SplitN(record, []byte{'\n'}, 4)
 	if len(lines) < 4 {
@@ -326,7 +328,7 @@ func findTailBarcode(sequence, tailBarcode string, searchWindow int) (int, bool)
 }
 
 // 完全匹配函数（支持正向和反向）
-func (s *EnhancedSplitter) exactMatch(sequence string) (*SampleInfo, string) {
+func (s *EnhancedSplitter) exactMatch(sequence string) (*cfg.Sample, string) {
 	seqLen := len(sequence)
 	if seqLen < 20 { // 序列太短
 		return nil, ""
@@ -346,13 +348,13 @@ func (s *EnhancedSplitter) exactMatch(sequence string) (*SampleInfo, string) {
 }
 
 // 正向匹配
-func (s *EnhancedSplitter) matchForward(sequence string) (*SampleInfo, string) {
+func (s *EnhancedSplitter) matchForward(sequence string) (*cfg.Sample, string) {
 	// 快速过滤：检查是否有可能匹配
 	if !s.mightContainAnyBarcode(sequence) {
 		return nil, ""
 	}
 
-	var matchedSamples []*SampleInfo
+	var matchedSamples []*cfg.Sample
 
 	// 检查每个样本
 	for _, sample := range s.samples {
@@ -387,11 +389,11 @@ func (s *EnhancedSplitter) matchForward(sequence string) (*SampleInfo, string) {
 }
 
 // 反向匹配
-func (s *EnhancedSplitter) matchReverse(sequence string) (*SampleInfo, string) {
+func (s *EnhancedSplitter) matchReverse(sequence string) (*cfg.Sample, string) {
 	// 计算反向互补序列
 	rcSequence := reverseComplement(sequence)
 
-	var matchedSamples []*SampleInfo
+	var matchedSamples []*cfg.Sample
 
 	// 检查每个样本的反向序列
 	for _, sample := range s.samples {

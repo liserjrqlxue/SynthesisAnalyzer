@@ -1,7 +1,6 @@
 package splitter
 
 import (
-	"SynthesisAnalyzer/pkg/cfg"
 	"bufio"
 	"bytes"
 	"fmt"
@@ -17,13 +16,15 @@ import (
 	"sync/atomic"
 	"time"
 
+	"SynthesisAnalyzer/pkg/cfg"
+
 	// "compress/gzip"
 	gzip "github.com/klauspost/pgzip"
 	"github.com/xuri/excelize/v2"
 )
 
 // 创建比对分析器
-func NewAlignmentAnalyzer(config *cfg.AlignmentConfig, samples []*SampleInfo, outputDir string) *AlignmentAnalyzer {
+func NewAlignmentAnalyzer(config *cfg.AlignmentConfig, samples []*cfg.Sample, outputDir string) *AlignmentAnalyzer {
 	return &AlignmentAnalyzer{
 		config:    config,
 		samples:   samples,
@@ -357,7 +358,7 @@ func (s *EnhancedSplitter) loadSamplesFromExcel() error {
 		}
 		seenSampleNames[sampleName] = true
 
-		sample := &SampleInfo{
+		sample := &cfg.Sample{
 			Name:          sampleName,
 			TargetSeq:     targetSeq,
 			SynthesisSeq:  synthSeq,
@@ -568,7 +569,7 @@ func extractSequence(record []byte) ([]byte, bool) {
 }
 
 // 匹配序列到样品
-func (s *EnhancedSplitter) matchSequence(sequence []byte) (*SampleInfo, string) {
+func (s *EnhancedSplitter) matchSequence(sequence []byte) (*cfg.Sample, string) {
 	seqStr := string(sequence)
 	// 完全匹配
 	sample, direction := s.exactMatch(seqStr)

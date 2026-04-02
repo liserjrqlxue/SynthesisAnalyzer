@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"SynthesisAnalyzer/pkg/cfg"
+
 	gzip "github.com/klauspost/pgzip"
 )
 
@@ -161,7 +163,7 @@ func (s *EnhancedSplitter) processGzippedFile(filename string,
 
 // 处理单个记录
 func (s *EnhancedSplitter) processRecord(record []byte,
-	writers map[string]*gzip.Writer) (*SampleInfo, string) {
+	writers map[string]*gzip.Writer) (*cfg.Sample, string) {
 
 	// 解析FASTQ记录，提取序列
 	lines := bytes.SplitN(record, []byte{'\n'}, 4)
@@ -560,7 +562,7 @@ func (s *EnhancedSplitter) processSingleFile(fileInfo *MergedFileInfo,
 
 // 匹配结果
 type MatchResult struct {
-	sample          *SampleInfo
+	sample          *cfg.Sample
 	method          string
 	processedRecord []byte
 }
@@ -639,7 +641,7 @@ func (s *EnhancedSplitter) buildFileMatchers() error {
 }
 
 // 优化的匹配函数
-func (s *FileMatcher) optimizedMatch(sequence string) (*SampleInfo, string) {
+func (s *FileMatcher) optimizedMatch(sequence string) (*cfg.Sample, string) {
 	// 快速检查：如果序列太短，跳过
 	if len(sequence) < 50 {
 		return nil, ""

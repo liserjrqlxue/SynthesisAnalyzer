@@ -7,84 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"SynthesisAnalyzer/pkg/cfg"
+
 	"github.com/xuri/excelize/v2"
 )
-
-// 样本结构体
-type Sample struct {
-	// from input Excel directly
-	Name          string // 样本名称
-	TargetSeq     string // 头靶标序列
-	SynthesisSeq  string // 合成序列
-	PostTargetSeq string // 尾靶标序列
-	R1Path        string
-	R2Path        string
-
-	FullReference string // 全长参考序列
-	OutputDir     string
-	BamFile       string // BAM文件路径
-
-	RefLength int // 参考序列长度
-	HeadCut   int // 头切除长度
-	TailCut   int // 尾切除长度
-}
-
-func (sample *Sample) UpdateFullSeqs() (err error) {
-	// 构造可能的参考文件路径
-	refCandidates := []string{
-		filepath.Join(filepath.Dir(sample.BamFile), sample.Name+".ref.fa"),
-		filepath.Join(filepath.Dir(sample.BamFile), "ref.fa"),
-	}
-	for _, refPath := range refCandidates {
-		if _, err = os.Stat(refPath); err == nil {
-			sample.FullReference, err = readRefFasta(refPath)
-			if err != nil {
-				slog.Error("读取参考文件失败", "样品", sample.Name, "参考文件", refPath, "错误", err)
-				return err
-			}
-			break
-		}
-	}
-	if sample.FullReference == "" {
-		slog.Error("未找到参考序列文件", "样品", sample.Name)
-		err = fmt.Errorf("未找到参考序列文件 %s:[%v]", sample.Name, err)
-		return err
-	}
-	return
-}
-
-func (sample *Sample) NewSampleStats() *SampleStats {
-	sampleStats := NewSampleStats()
-
-	sampleStats.Sample = sample
-	sample.RefLength = len(sample.FullReference)
-
-	// 预计算参考序列信息
-	if sample.FullReference != "" {
-		if sample.HeadCut+sample.TailCut < sample.RefLength {
-			trimmedSeq := sample.FullReference[sample.HeadCut : sample.RefLength-sample.TailCut]
-			acgtCounts := make(map[byte]int, 4)
-			for i := range trimmedSeq {
-				b := trimmedSeq[i]
-				if b == 'A' || b == 'C' || b == 'G' || b == 'T' {
-					acgtCounts[b]++
-				}
-			}
-			sampleStats.RefACGTCounts = acgtCounts
-			sampleStats.RefLengthAfterTrim = len(trimmedSeq)
-		} else {
-			fmt.Printf("  警告: 样本 %s 的切除长度超过序列全长\n", sample.Name)
-		}
-
-		// 基于参考序列长度预定义PositionStats
-		sampleStats.PositionStats = make(map[int]*PositionDetail, sample.RefLength)
-		for pos := 1; pos <= sample.RefLength; pos++ {
-			sampleStats.PositionStats[pos] = &PositionDetail{}
-		}
-	}
-
-	return sampleStats
-}
 
 // 样本信息结构体
 type BatchInfo struct {
@@ -100,14 +26,14 @@ type BatchInfo struct {
 	MaxSubstitutions int // 最大错配次数
 	MaxThreads       int // 最大线程数
 
-	Order   []string           // 样本顺序列表
-	Samples map[string]*Sample // 样本名->样本信息
+	Order   []string               // 样本顺序列表
+	Samples map[string]*cfg.Sample // 样本名->样本信息
 }
 
 func NewBatchInfo() *BatchInfo {
 	return &BatchInfo{
 		Order:   []string{},
-		Samples: make(map[string]*Sample),
+		Samples: make(map[string]*cfg.Sample),
 	}
 }
 
@@ -215,7 +141,7 @@ func (s *BatchInfo) ReadExcel() error {
 		}
 
 		fullSeq := strings.ToUpper(targetSeq + synthSeq + postSeq)
-		sample := &Sample{
+		sample := &cfg.Sample{
 			Name:          sampleName,
 			FullReference: fullSeq,
 			RefLength:     len(fullSeq),
@@ -293,7 +219,7 @@ func (s *BatchInfo) findBAMFilesFromWalk() (err error) {
 			// 检查样本是否已存在，不存在则创建
 			sample, ok := s.Samples[sampleName]
 			if !ok {
-				sample = &Sample{
+				sample = &cfg.Sample{
 					Name:    sampleName,
 					HeadCut: s.HeadCuts,
 					TailCut: s.TailCuts,
