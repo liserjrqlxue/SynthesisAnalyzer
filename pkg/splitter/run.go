@@ -18,7 +18,7 @@ import (
 
 	// "compress/gzip"
 	gzip "github.com/klauspost/pgzip"
-	"github.com/tealeg/xlsx"
+	"github.com/xuri/excelize/v2"
 )
 
 // 创建比对分析器
@@ -265,25 +265,37 @@ func (s *EnhancedSplitter) createOutputDir() error {
 func (s *EnhancedSplitter) loadSamplesFromExcel() error {
 	fmt.Printf("步骤1: 读取Excel文件: %s\n", s.config.ExcelFile)
 
-	xlFile, err := xlsx.OpenFile(s.config.ExcelFile)
+	xlFile, err := excelize.OpenFile(s.config.ExcelFile)
 	if err != nil {
 		return fmt.Errorf("无法打开Excel文件: %v", err)
 	}
+	defer xlFile.Close()
 
-	if len(xlFile.Sheets) == 0 {
+	// 获取第一个工作表
+	sheetName := xlFile.GetSheetName(0)
+	if sheetName == "" {
 		return fmt.Errorf("Excel文件中没有工作表")
 	}
 
-	sheet := xlFile.Sheets[0]
+	sheet := xlFile.GetSheetName(0)
 	defer func() {
-		fmt.Printf("  工作表: %s, 行数: %d, 成功读取 %d 个样品\n", sheet.Name, sheet.MaxRow, len(s.samples))
+		fmt.Printf("  工作表: %s, 成功读取 %d 个样品\n", sheet, len(s.samples))
 	}()
 
 	// 查找表头
-	var headerMap = make(map[string]int)
-	for col := 0; col < sheet.MaxCol; col++ {
-		cell := sheet.Cell(0, col)
-		headerMap[cell.Value] = col
+	rows, err := xlFile.GetRows(sheet)
+	if err != nil {
+		return fmt.Errorf("读取Excel行失败: %v", err)
+	}
+
+	if len(rows) == 0 {
+		return fmt.Errorf("Excel文件中没有数据")
+	}
+
+	// 构建表头映射
+	headerMap := make(map[string]int)
+	for col, header := range rows[0] {
+		headerMap[header] = col
 	}
 
 	// 检查必需列
@@ -306,13 +318,22 @@ func (s *EnhancedSplitter) loadSamplesFromExcel() error {
 
 	// 读取数据行
 	seenSampleNames := make(map[string]bool)
-	for row := 1; row < sheet.MaxRow; row++ {
-		sampleName := sheet.Cell(row, headerMap["样品名称"]).Value
-		targetSeq := strings.ToUpper(sheet.Cell(row, headerMap["靶标序列"]).Value)
-		synthSeq := strings.ToUpper(sheet.Cell(row, headerMap["合成序列"]).Value)
-		postSeq := strings.ToUpper(sheet.Cell(row, headerMap["后靶标"]).Value)
-		r1Path := sheet.Cell(row, headerMap["路径-R1"]).Value
-		r2Path := sheet.Cell(row, headerMap["路径-R2"]).Value
+	for rowIdx, row := range rows {
+		if rowIdx == 0 {
+			continue // 跳过表头
+		}
+
+		// 确保行有足够的列
+		if len(row) < len(rows[0]) {
+			continue // 跳过不完整的行
+		}
+
+		sampleName := row[headerMap["样品名称"]]
+		targetSeq := strings.ToUpper(row[headerMap["靶标序列"]])
+		synthSeq := strings.ToUpper(row[headerMap["合成序列"]])
+		postSeq := strings.ToUpper(row[headerMap["后靶标"]])
+		r1Path := row[headerMap["路径-R1"]]
+		r2Path := row[headerMap["路径-R2"]]
 
 		// 检查必需字段
 		if sampleName == "" {
@@ -321,15 +342,17 @@ func (s *EnhancedSplitter) loadSamplesFromExcel() error {
 
 		// 拼接后缀列到样品名称
 		if s.config.SampleNameSuffix != "" && suffixColIndex != -1 {
-			suffix := strings.TrimSpace(sheet.Cell(row, suffixColIndex).Value)
-			if suffix != "" {
-				sampleName = sampleName + "." + suffix
+			if len(row) > suffixColIndex {
+				suffix := strings.TrimSpace(row[suffixColIndex])
+				if suffix != "" {
+					sampleName = sampleName + "." + suffix
+				}
 			}
 		}
 
 		// 检查样品名称是否重复
 		if seenSampleNames[sampleName] {
-			return fmt.Errorf("第 %d 行样品名称重复: %s", row+1, sampleName)
+			return fmt.Errorf("第 %d 行样品名称重复: %s", rowIdx+1, sampleName)
 		}
 		seenSampleNames[sampleName] = true
 
