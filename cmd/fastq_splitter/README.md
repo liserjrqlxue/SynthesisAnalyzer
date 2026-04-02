@@ -61,7 +61,7 @@ fastq_splitter -i samples.xlsx -o ./output -fq ./fastq
 fastq_splitter -i samples.xlsx
 
 #### 完整参数
-fastq_splitter -i <Excel文件> [-o <输出目录>] [-fq <Fastq目录>] [-m <最小重叠长度>] [--skip-alignment] [--analysis-only] [--threads N]
+fastq_splitter -i <Excel文件> [-o <输出目录>] [-fq <Fastq目录>] [-m <最小重叠长度>] 
 ```
 
 ### 参数说明
@@ -72,9 +72,6 @@ fastq_splitter -i <Excel文件> [-o <输出目录>] [-fq <Fastq目录>] [-m <最
 | `-o` | 输出目录，默认使用Excel文件名（不含.xlsx后缀） | Excel文件名 |
 | `-fq` | Fastq文件目录，默认从同目录下的*path.txt文件读取 | 从*path.txt读取 |
 | `-m` | 最小重叠长度（影响PE reads合并） | 30 |
-| `--skip-alignment` | 跳过比对步骤（仅拆分） | false |
-| `--analysis-only` | 仅分析已有的BAM文件 | false |
-| `--threads` | 设置线程数 | CPU核心数 |
 
 ## 4. 输入文件格式
 
@@ -277,11 +274,8 @@ fastq_splitter -i samples.xlsx
 # 手动指定目录
 fastq_splitter -i samples.xlsx -o ./output -fq ./fastq
 
-# 跳过比对步骤（仅拆分）
-fastq_splitter -i samples.xlsx --skip-alignment
-
 # 增加线程数
-fastq_splitter -i samples.xlsx --threads 32
+fastq_splitter -i samples.xlsx -threads 128
 
 # 查看运行进度
 # 程序会显示各阶段的处理进度和统计信息

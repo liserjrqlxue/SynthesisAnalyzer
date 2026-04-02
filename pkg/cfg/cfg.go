@@ -20,9 +20,6 @@ type AlignmentConfig struct {
 	AlignerThreads int     // 比对线程数
 	MapQThreshold  int     // 比对质量阈值
 	MinIdentity    float64 // 最小identity百分比
-	SkipAlignment  bool    // 是否跳过比对步骤
-	KeepSamFiles   bool    // 是否保留SAM文件
-	AnalysisOnly   bool    // 仅分析已有的BAM文件
 }
 
 // 报告配置

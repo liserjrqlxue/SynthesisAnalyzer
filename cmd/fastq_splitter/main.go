@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 
 	// "compress/gzip"
@@ -52,6 +51,11 @@ var (
 		"log-level",
 		"info",
 		"日志级别: debug, info, warn, error",
+	)
+	threads = flag.Int(
+		"threads",
+		runtime.NumCPU()/2,
+		"设置线程数，默认CPU核心数的一半",
 	)
 )
 
@@ -131,7 +135,7 @@ func main() {
 		ExcelFile:        *excelFile,
 		OutputDir:        output,
 		FastqDir:         fastq,
-		Threads:          runtime.NumCPU(),
+		Threads:          *threads,
 		SampleNameSuffix: *suffixCol,
 		SearchWindow:     200, // 从头/尾搜索50bp
 		Quality:          20,
@@ -149,12 +153,9 @@ func main() {
 
 		Alignment: cfg.AlignmentConfig{
 			UseMinimap2:    true,
-			AlignerThreads: runtime.NumCPU() / 2,
+			AlignerThreads: *threads,
 			MapQThreshold:  10,
 			MinIdentity:    0.90,
-			SkipAlignment:  false,
-			KeepSamFiles:   false,
-			AnalysisOnly:   false,
 		},
 
 		ContaminationDetection: *contaminationDetection,
@@ -164,29 +165,11 @@ func main() {
 	// 设置日志级别
 	config.SetLogLevel()
 
-	// 处理可选参数
-	for i := 4; i < len(os.Args); i++ {
-		switch os.Args[i] {
-		case "--skip-alignment":
-			config.Alignment.SkipAlignment = true
-		case "--analysis-only":
-			config.Alignment.AnalysisOnly = true
-		case "--threads":
-			if i+1 < len(os.Args) {
-				threads, err := strconv.Atoi(os.Args[i+1])
-				if err == nil && threads > 0 {
-					config.Threads = threads
-				}
-				i++
-			}
-		}
-	}
-
 	// 创建处理器
 	splitter := splitter.NewEnhancedSplitter(config)
 
 	// 运行处理流程
-	if err := splitter.RunWithAlignment(); err != nil {
+	if err := splitter.RunAll(); err != nil {
 		fmt.Printf("处理失败: %v\n", err)
 		os.Exit(1)
 	}
@@ -202,13 +185,10 @@ func printUsage() {
 
 示例:
   fastq_analyzer samples.xlsx ./results
-  fastq_analyzer samples.xlsx ./output ./fastq --skip-alignment --threads 32
+  fastq_analyzer samples.xlsx ./output ./fastq 
 
 选项:
-  --skip-alignment    跳过比对步骤（仅拆分）
-  --analysis-only    仅分析已有的BAM文件
-  --threads N        设置线程数
-  --contamination-detection  启用交叉污染检测功能
+  -contamination-detection  启用交叉污染检测功能
 
 输入Excel格式:
   Sheet1必须包含以下列：

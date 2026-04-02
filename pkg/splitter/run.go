@@ -85,7 +85,7 @@ func (s *EnhancedSplitter) calculateSequencingTime() error {
 }
 
 // 扩展的主运行函数，包含比对步骤
-func (s *EnhancedSplitter) RunWithAlignment() error {
+func (s *EnhancedSplitter) RunAll() error {
 	fmt.Println("=== FASTQ拆分与比对分析完整流程 ===")
 
 	// 计算测序时间
@@ -95,45 +95,14 @@ func (s *EnhancedSplitter) RunWithAlignment() error {
 
 	// 阶段1: 拆分
 	fmt.Println("\n--- 阶段1: FASTQ拆分 ---")
-	if err := s.Run(); err != nil {
+	if err := s.RunSplitter(); err != nil {
 		return fmt.Errorf("拆分阶段失败: %v", err)
 	}
 
 	// 阶段2: 比对分析（如果启用）
-	if !s.config.Alignment.SkipAlignment {
-		fmt.Println("\n--- 阶段2: 序列比对分析 ---")
-
-		// 创建比对分析器
-		analyzer := NewAlignmentAnalyzer(&s.config.Alignment, s.samples, s.config.OutputDir)
-
-		// 步骤1: 创建参考序列
-		if err := analyzer.createReferenceFiles(); err != nil {
-			return fmt.Errorf("创建参考序列失败: %v", err)
-		}
-
-		// 步骤2: 运行比对
-		if !s.config.Alignment.AnalysisOnly {
-			if err := analyzer.runAlignment(); err != nil {
-				return fmt.Errorf("比对失败: %v", err)
-			}
-		}
-
-		// 步骤3: 生成报告
-		if err := analyzer.generateAlignmentReport(); err != nil {
-			return fmt.Errorf("生成报告失败: %v", err)
-		}
-
-		// 步骤4: 生成质量控制报告
-		if err := analyzer.generateQCReport(); err != nil {
-			fmt.Printf("警告: 生成QC报告失败: %v\n", err)
-		}
-
-		// 步骤5: 执行交叉污染检测（如果启用）
-		if s.config.ContaminationDetection {
-			if err := analyzer.performContaminationDetection(); err != nil {
-				fmt.Printf("警告: 交叉污染检测失败: %v\n", err)
-			}
-		}
+	fmt.Println("\n--- 阶段2: 序列比对分析 ---")
+	if err := s.RunAlignment(); err != nil {
+		return fmt.Errorf("比对分析失败: %v", err)
 	}
 
 	// 生成最终汇总
@@ -145,8 +114,44 @@ func (s *EnhancedSplitter) RunWithAlignment() error {
 	return nil
 }
 
+// 扩展的主运行函数，包含比对步骤
+func (s *EnhancedSplitter) RunAlignment() error {
+	// 阶段2: 比对分析
+	fmt.Println("\n--- 阶段2: 序列比对分析 ---")
+	// 创建比对分析器
+	analyzer := NewAlignmentAnalyzer(&s.config.Alignment, s.samples, s.config.OutputDir)
+
+	// 步骤1: 创建参考序列
+	if err := analyzer.createReferenceFiles(); err != nil {
+		return fmt.Errorf("创建参考序列失败: %v", err)
+	}
+
+	// 步骤2: 运行比对
+	if err := analyzer.runAlignment(); err != nil {
+		return fmt.Errorf("比对失败: %v", err)
+	}
+
+	// 步骤3: 生成报告
+	if err := analyzer.generateAlignmentReport(); err != nil {
+		return fmt.Errorf("生成报告失败: %v", err)
+	}
+
+	// 步骤4: 生成质量控制报告
+	if err := analyzer.generateQCReport(); err != nil {
+		fmt.Printf("警告: 生成QC报告失败: %v\n", err)
+	}
+
+	// 步骤5: 执行交叉污染检测（如果启用）
+	if s.config.ContaminationDetection {
+		if err := analyzer.performContaminationDetection(); err != nil {
+			fmt.Printf("警告: 交叉污染检测失败: %v\n", err)
+		}
+	}
+	return nil
+}
+
 // 主运行流程
-func (s *EnhancedSplitter) Run() error {
+func (s *EnhancedSplitter) RunSplitter() error {
 	// 初始化统计
 	s.stats = &SplitStats{
 		startTime: time.Now(),
