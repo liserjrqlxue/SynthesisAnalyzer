@@ -50,7 +50,7 @@ func (s *EnhancedSplitter) runFastp(r1Path, r2Path, outputFile string) (string, 
 	}
 
 	defer func() {
-		if !s.config.CleanupTemp {
+		if !s.Config.CleanupTemp {
 			fmt.Printf("    临时文件保留在: %s\n", tempDir)
 			return
 		}
@@ -60,9 +60,9 @@ func (s *EnhancedSplitter) runFastp(r1Path, r2Path, outputFile string) (string, 
 		}
 	}()
 
-	if s.config.FastqDir != "" {
-		r1Path = filepath.Join(s.config.FastqDir, r1Path)
-		r2Path = filepath.Join(s.config.FastqDir, r2Path)
+	if s.Config.FastqDir != "" {
+		r1Path = filepath.Join(s.Config.FastqDir, r1Path)
+		r2Path = filepath.Join(s.Config.FastqDir, r2Path)
 	}
 	// 检查文件是否存在
 	if _, err := os.Stat(r1Path); os.IsNotExist(err) {
@@ -130,10 +130,10 @@ func (s *EnhancedSplitter) buildFastpCommand(r1Path, r2Path, outputFile, tempDir
 		"--merged_out", outputFile,
 		"--thread", "4",
 		"--merge",
-		"--overlap_len_require", strconv.Itoa(s.config.OverlapLenRequire),
+		"--overlap_len_require", strconv.Itoa(s.Config.OverlapLenRequire),
 		"--overlap_diff_limit", "5",
-		"--qualified_quality_phred", fmt.Sprintf("%d", s.config.Quality),
-		"--length_required", fmt.Sprintf("%d", s.config.MergeLen-50),
+		"--qualified_quality_phred", fmt.Sprintf("%d", s.Config.Quality),
+		"--length_required", fmt.Sprintf("%d", s.Config.MergeLen-50),
 		"--correction",
 		"--detect_adapter_for_pe",
 		"--html", outputFile + ".fastp.html",
@@ -143,7 +143,7 @@ func (s *EnhancedSplitter) buildFastpCommand(r1Path, r2Path, outputFile, tempDir
 
 	// 添加压缩选项
 	if strings.HasSuffix(outputFile, ".gz") {
-		args = append(args, "--compression", fmt.Sprintf("%d", s.config.CompressLevel))
+		args = append(args, "--compression", fmt.Sprintf("%d", s.Config.CompressLevel))
 	} else {
 		args = append(args, "--uncompressed")
 	}

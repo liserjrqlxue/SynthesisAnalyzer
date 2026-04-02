@@ -16,7 +16,7 @@ func (s *EnhancedSplitter) buildIndex() error {
 	fmt.Println("构建正则表达式索引...")
 
 	// 创建Bloom过滤器
-	expectedElements := uint(len(s.samples) * 4) // 正向+反向各2个序列
+	expectedElements := uint(len(s.Samples) * 4) // 正向+反向各2个序列
 	s.bloomFilter = bloom.NewWithEstimates(
 		expectedElements, // 估计元素数量
 		0.001,            // 误报率
@@ -26,7 +26,7 @@ func (s *EnhancedSplitter) buildIndex() error {
 			fileInfo:     mergedInfo,
 			forwardRegex: make(map[string]*regexp.Regexp),
 			reverseRegex: make(map[string]*regexp.Regexp),
-			useRC:        s.config.UseRC,
+			useRC:        s.Config.UseRC,
 		}
 
 		// 只为该文件的样品构建正则表达式
@@ -45,7 +45,7 @@ func (s *EnhancedSplitter) buildIndex() error {
 			// 2. 如果需要，构建反向互补正则表达式
 			var reverseRegex *regexp.Regexp
 			var reversePattern string
-			if s.config.UseRC {
+			if s.Config.UseRC {
 				// 计算反向互补序列
 				rcTarget := reverseComplement(sample.TargetSeq)
 				rcPostTarget := reverseComplement(sample.PostTargetSeq)
@@ -61,11 +61,11 @@ func (s *EnhancedSplitter) buildIndex() error {
 
 			fmt.Printf("  样本 %s: 正则表达式构建成功\n", sample.Name)
 			fmt.Printf("    正向: %s\n", forwardPattern)
-			if s.config.UseRC && reverseRegex != nil {
+			if s.Config.UseRC && reverseRegex != nil {
 				fmt.Printf("    反向: %s\n", reversePattern)
 			}
 
-			fmt.Printf("正则表达式索引构建完成: %d 个样本\n", len(s.samples))
+			fmt.Printf("正则表达式索引构建完成: %d 个样本\n", len(s.Samples))
 
 			// 构建完整参考序列（用于后续分析）
 			sample.FullReference = sample.TargetSeq + sample.SynthesisSeq + sample.PostTargetSeq
@@ -100,7 +100,7 @@ func (s *EnhancedSplitter) buildIndex() error {
 		}
 	}
 
-	fmt.Printf("索引构建完成: %d 个样本\n", len(s.samples))
+	fmt.Printf("索引构建完成: %d 个样本\n", len(s.Samples))
 	return nil
 }
 
@@ -357,15 +357,15 @@ func (s *EnhancedSplitter) matchForward(sequence string) (*cfg.Sample, string) {
 	var matchedSamples []*cfg.Sample
 
 	// 检查每个样本
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		// 搜索头靶标（从头部向后）
-		headPos, headFound := findHeadBarcode(sequence, sample.TargetSeq, s.config.SearchWindow)
+		headPos, headFound := findHeadBarcode(sequence, sample.TargetSeq, s.Config.SearchWindow)
 		if !headFound {
 			continue
 		}
 
 		// 搜索尾靶标（从尾部向前）
-		tailPos, tailFound := findTailBarcode(sequence, sample.PostTargetSeq, s.config.SearchWindow)
+		tailPos, tailFound := findTailBarcode(sequence, sample.PostTargetSeq, s.Config.SearchWindow)
 		if !tailFound {
 			continue
 		}
@@ -396,15 +396,15 @@ func (s *EnhancedSplitter) matchReverse(sequence string) (*cfg.Sample, string) {
 	var matchedSamples []*cfg.Sample
 
 	// 检查每个样本的反向序列
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		// 搜索反向头靶标（在反向序列中从头部向后）
-		headPos, headFound := findHeadBarcode(rcSequence, sample.ReverseTarget, s.config.SearchWindow)
+		headPos, headFound := findHeadBarcode(rcSequence, sample.ReverseTarget, s.Config.SearchWindow)
 		if !headFound {
 			continue
 		}
 
 		// 搜索反向尾靶标（在反向序列中从尾部向前）
-		tailPos, tailFound := findTailBarcode(rcSequence, sample.ReversePostTarget, s.config.SearchWindow)
+		tailPos, tailFound := findTailBarcode(rcSequence, sample.ReversePostTarget, s.Config.SearchWindow)
 		if !tailFound {
 			continue
 		}

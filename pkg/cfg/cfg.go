@@ -16,10 +16,9 @@ var (
 
 // 比对配置
 type AlignmentConfig struct {
-	UseMinimap2    bool    // 使用minimap2而不是BWA
-	AlignerThreads int     // 比对线程数
-	MapQThreshold  int     // 比对质量阈值
-	MinIdentity    float64 // 最小identity百分比
+	UseMinimap2   bool    // 使用minimap2而不是BWA
+	MapQThreshold int     // 比对质量阈值
+	MinIdentity   float64 // 最小identity百分比
 }
 
 // 报告配置

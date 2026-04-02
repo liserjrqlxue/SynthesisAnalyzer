@@ -71,14 +71,14 @@ func run(cfg *cfg.Config) error {
 		if err := batchInfo.ReadExcel(); err != nil {
 			return fmt.Errorf("读取Excel文件失败: %w", err)
 		}
-		slog.Info("从Excel读取样本", "count", len(batchInfo.Order))
+		slog.Info("从Excel读取样本", "count", len(batchInfo.SampleList))
 	}
 
 	// 查找所有BAM文件
 	if err := batchInfo.FindBAMFiles(); err != nil {
 		return fmt.Errorf("查找BAM文件失败: %w", err)
 	}
-	slog.Info("找到BAM文件", "count", len(batchInfo.Order))
+	slog.Info("找到BAM文件", "count", len(batchInfo.SampleList))
 
 	// 创建输出目录
 	if err := os.MkdirAll(batchInfo.Config.OutputDir, 0755); err != nil {

@@ -14,14 +14,15 @@ import (
 type BatchInfo struct {
 	Config *cfg.Config // 配置信息
 
-	Order   []string               // 样本顺序列表
-	Samples map[string]*cfg.Sample // 样本名->样本信息
+	SampleList []string               // 样本顺序列表
+	Samples    []*cfg.Sample          // 样本列表
+	SampleMap  map[string]*cfg.Sample // 样本名->样本信息
 }
 
 func NewBatchInfo() *BatchInfo {
 	return &BatchInfo{
-		Order:   []string{},
-		Samples: make(map[string]*cfg.Sample),
+		SampleList: []string{},
+		SampleMap:  make(map[string]*cfg.Sample),
 	}
 }
 
@@ -33,12 +34,13 @@ func (s *BatchInfo) ReadExcel() error {
 		return fmt.Errorf("读取Excel文件失败: %v", err)
 	}
 
+	s.Samples = samples
 	for _, sample := range samples {
-		s.Order = append(s.Order, sample.Name)
-		s.Samples[sample.Name] = sample
+		s.SampleList = append(s.SampleList, sample.Name)
+		s.SampleMap[sample.Name] = sample
 	}
 
-	if len(s.Order) == 0 {
+	if len(s.SampleList) == 0 {
 		return fmt.Errorf("没有有效的数据行")
 	}
 
@@ -47,7 +49,7 @@ func (s *BatchInfo) ReadExcel() error {
 
 // findBAMFiles 查找所有BAM文件，并尝试补充参考序列
 func (s *BatchInfo) FindBAMFiles() error {
-	if len(s.Order) > 0 {
+	if len(s.SampleList) > 0 {
 		return s.findBAMFilesFromExcel()
 	} else {
 		return s.findBAMFilesFromWalk()
@@ -57,7 +59,7 @@ func (s *BatchInfo) FindBAMFiles() error {
 // findBAMFilesFromExcel 从Excel文件中获取样本顺序并查找对应BAM文件
 func (s *BatchInfo) findBAMFilesFromExcel() (err error) {
 	// 使用Excel中的样本顺序
-	for _, sampleName := range s.Order {
+	for _, sampleName := range s.SampleList {
 		sortBam := filepath.Join(s.Config.InputDir, "samples", sampleName, sampleName+".sorted.bam")
 		filterBam := filepath.Join(s.Config.InputDir, sampleName, sampleName+".filter.bam")
 		var bamPath string
@@ -70,7 +72,7 @@ func (s *BatchInfo) findBAMFilesFromExcel() (err error) {
 			return
 		}
 		// 更新样本的BAM文件路径
-		sample, ok := s.Samples[sampleName]
+		sample, ok := s.SampleMap[sampleName]
 		if !ok {
 			// Order 与 Samples 冲突，理论应该不会发生
 			err = fmt.Errorf("样本 %s 未在Excel中定义", sampleName)
@@ -103,15 +105,15 @@ func (s *BatchInfo) findBAMFilesFromWalk() (err error) {
 			sampleName := filepath.Base(filepath.Dir(path))
 
 			// 检查样本是否已存在，不存在则创建
-			sample, ok := s.Samples[sampleName]
+			sample, ok := s.SampleMap[sampleName]
 			if !ok {
 				sample = &cfg.Sample{
 					Name:    sampleName,
 					HeadCut: s.Config.HeadCut,
 					TailCut: s.Config.TailCut,
 				}
-				s.Samples[sampleName] = sample
-				s.Order = append(s.Order, sampleName)
+				s.SampleMap[sampleName] = sample
+				s.SampleList = append(s.SampleList, sampleName)
 			}
 
 			// 更新BAM文件路径

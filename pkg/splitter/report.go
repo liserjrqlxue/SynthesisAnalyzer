@@ -32,7 +32,7 @@ func (s *EnhancedSplitter) generateReports() error {
 
 // 生成汇总报告
 func (s *EnhancedSplitter) generateSummaryReport() error {
-	reportFile := filepath.Join(s.config.OutputDir, "split_summary.txt")
+	reportFile := filepath.Join(s.Config.OutputDir, "split_summary.txt")
 	f, err := os.Create(reportFile)
 	if err != nil {
 		return err
@@ -45,7 +45,7 @@ func (s *EnhancedSplitter) generateSummaryReport() error {
 	// 计算统计信息
 	totalReads := 0
 	totalMatched := 0
-	totalSamples := len(s.samples)
+	totalSamples := len(s.Samples)
 	totalFiles := len(s.mergedFiles)
 	beforeFilteringTotalReads := 0
 	beforeFilteringTotalBases := int64(0)
@@ -101,14 +101,14 @@ Excel文件: %s
 `,
 		time.Now().Format("2006-01-02 15:04:05"),
 		s.sequencingTime,
-		s.config.ExcelFile,
-		s.config.OutputDir,
-		s.config.Threads,
-		s.config.UseRC,
-		s.config.Quality,
-		s.config.MergeLen,
-		s.config.SkipExisting,
-		s.config.Compression,
+		s.Config.ExcelFile,
+		s.Config.OutputDir,
+		s.Config.Threads,
+		s.Config.UseRC,
+		s.Config.Quality,
+		s.Config.MergeLen,
+		s.Config.SkipExisting,
+		s.Config.Compression,
 		totalFiles,
 		totalSamples,
 		beforeFilteringTotalReads,
@@ -121,7 +121,7 @@ Excel文件: %s
 	writer.WriteString(summary)
 
 	// 写入每个样品的统计
-	for i, sample := range s.samples {
+	for i, sample := range s.Samples {
 		matchRate := 0.0
 		if sample.TotalReads > 0 {
 			matchRate = float64(sample.MatchedReads) / float64(sample.TotalReads) * 100
@@ -203,7 +203,7 @@ Excel文件: %s
 			s.stats.endTime.Format("2006-01-02 15:04:05"),
 			duration,
 			float64(totalReads)/duration.Seconds(),
-			s.config.OutputDir)
+			s.Config.OutputDir)
 
 		writer.WriteString(performance)
 	}
@@ -214,7 +214,7 @@ Excel文件: %s
 
 // 生成文件报告
 func (s *EnhancedSplitter) generateFileReport() error {
-	reportFile := filepath.Join(s.config.OutputDir, "file_split_report.csv")
+	reportFile := filepath.Join(s.Config.OutputDir, "file_split_report.csv")
 	f, err := os.Create(reportFile)
 	if err != nil {
 		return err
@@ -269,7 +269,7 @@ func (s *EnhancedSplitter) generateFileReport() error {
 
 // 生成详细的样品报告
 func (s *EnhancedSplitter) generateSampleReport() error {
-	reportFile := filepath.Join(s.config.OutputDir, "sample_split_report.csv")
+	reportFile := filepath.Join(s.Config.OutputDir, "sample_split_report.csv")
 	f, err := os.Create(reportFile)
 	if err != nil {
 		return err
@@ -303,7 +303,7 @@ func (s *EnhancedSplitter) generateSampleReport() error {
 	}
 
 	// 写入数据
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		matchRate := 0.0
 		avgLength := 0.0
 
@@ -354,8 +354,8 @@ func (s *EnhancedSplitter) generateSampleReport() error {
 func (s *EnhancedSplitter) generateDetailedAnalysis() error {
 
 	// 生成汇总统计
-	analysisFile := filepath.Join(s.config.OutputDir, "detailed_analysis.txt")
-	reportFile := filepath.Join(s.config.OutputDir, "extraction_report.csv")
+	analysisFile := filepath.Join(s.Config.OutputDir, "detailed_analysis.txt")
+	reportFile := filepath.Join(s.Config.OutputDir, "extraction_report.csv")
 	f, err := os.Create(analysisFile)
 	if err != nil {
 		return err
@@ -403,18 +403,18 @@ Excel文件: %s
 ==============
 `,
 		time.Now().Format("2006-01-02 15:04:05"),
-		s.config.ExcelFile,
-		s.config.OutputDir,
-		len(s.samples),
-		s.config.UseRC,
-		s.config.AllowMismatch,
-		s.config.MatchThreshold,
-		s.config.Threads,
+		s.Config.ExcelFile,
+		s.Config.OutputDir,
+		len(s.Samples),
+		s.Config.UseRC,
+		s.Config.AllowMismatch,
+		s.Config.MatchThreshold,
+		s.Config.Threads,
 		s.getTotalReads(),
 		s.getTotalMatched(),
 		s.getExtractionRate(),
-		s.config.Quality,
-		s.config.MergeLen,
+		s.Config.Quality,
+		s.Config.MergeLen,
 		reportFile,
 		analysisFile,
 	)
@@ -422,7 +422,7 @@ Excel文件: %s
 	writer.WriteString(report)
 
 	// 写入每个样本的详细信息
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		avgLength := 0.0
 		if sample.MatchedReads > 0 {
 			avgLength = float64(sample.TotalExtractedLen) / float64(sample.MatchedReads)
@@ -470,7 +470,7 @@ Excel文件: %s
 // 辅助统计函数
 func (s *EnhancedSplitter) getTotalReads() int {
 	total := 0
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		total += sample.TotalReads
 	}
 	return total
@@ -478,7 +478,7 @@ func (s *EnhancedSplitter) getTotalReads() int {
 
 func (s *EnhancedSplitter) getTotalMatched() int {
 	total := 0
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		total += sample.MatchedReads
 	}
 	return total
@@ -498,7 +498,7 @@ func (s *EnhancedSplitter) getExtractionRate() float64 {
 func (s *EnhancedSplitter) calculateSampleStats() map[string]*SampleStat {
 	stats := make(map[string]*SampleStat)
 
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		stat := &SampleStat{
 			Name:         sample.Name,
 			TotalReads:   sample.TotalReads,
@@ -558,7 +558,7 @@ type FileStat struct {
 
 // 生成最终汇总报告
 func (s *EnhancedSplitter) generateFinalSummary() error {
-	summaryFile := filepath.Join(s.config.OutputDir, "FINAL_SUMMARY.txt")
+	summaryFile := filepath.Join(s.Config.OutputDir, "FINAL_SUMMARY.txt")
 	f, err := os.Create(summaryFile)
 	if err != nil {
 		return err
@@ -608,8 +608,8 @@ func (s *EnhancedSplitter) generateFinalSummary() error {
 感谢使用FASTQ拆分与比对分析系统！
 `,
 		time.Now().Format("2006-01-02 15:04:05"),
-		s.config.OutputDir,
-		len(s.samples),
+		s.Config.OutputDir,
+		len(s.Samples),
 		s.getSuccessSplitCount(),
 		s.getAverageSplitRate(),
 		s.getAlignedSampleCount(),

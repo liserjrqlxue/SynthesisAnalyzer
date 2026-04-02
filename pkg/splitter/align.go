@@ -17,8 +17,9 @@ import (
 
 // 比对分析器
 type AlignmentAnalyzer struct {
-	config    *cfg.AlignmentConfig
-	samples   []*cfg.Sample
+	Config  *cfg.Config
+	samples []*cfg.Sample
+
 	outputDir string
 	stats     *AlignmentStats
 }
@@ -221,7 +222,7 @@ func (a *AlignmentAnalyzer) runContaminationAlignment(mergedRefFile string) (map
 
 	// 并行处理每个样品
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, a.config.AlignerThreads)
+	sem := make(chan struct{}, a.Config.Threads)
 
 	bamFiles := make(chan struct {
 		sampleName string
@@ -249,7 +250,7 @@ func (a *AlignmentAnalyzer) runContaminationAlignment(mergedRefFile string) (map
 			}()
 
 			// 使用通用比对方法进行污染检测比对
-			bamFile, err := AlignSampleWithParams(s.OutputDir, mergedRefFile, "contamination", max(a.config.AlignerThreads/len(a.samples), 1))
+			bamFile, err := AlignSampleWithParams(s.OutputDir, mergedRefFile, "contamination", max(a.Config.Threads/len(a.samples), 1))
 			if err != nil {
 				slog.Error("污染检测比对失败", "样本", s.Name, "err", err)
 			}

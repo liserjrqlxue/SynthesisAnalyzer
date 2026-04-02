@@ -17,7 +17,7 @@ func (s *EnhancedSplitter) extractTargetRegionEnhanced(sequence string, matcher 
 	}
 
 	// 方法2：如果正则失败，尝试模糊匹配（如果启用）
-	if s.config.AllowMismatch > 0 {
+	if s.Config.AllowMismatch > 0 {
 		targetRegion, sample, direction = s.fuzzyExtractTargetRegion(sequence)
 		if sample != nil {
 			return targetRegion, sample, direction, "fuzzy"
@@ -42,14 +42,14 @@ func (s *EnhancedSplitter) fuzzyExtractTargetRegion(sequence string) (string, *c
 
 	seqLen := len(sequence)
 
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		// 正向搜索
-		headPos := s.fuzzySearch(sequence, sample.TargetSeq, s.config.AllowMismatch)
+		headPos := s.fuzzySearch(sequence, sample.TargetSeq, s.Config.AllowMismatch)
 		if headPos != -1 {
 			// 从头靶标位置向后搜索尾靶标
 			searchStart := headPos + len(sample.TargetSeq)
 			if searchStart < seqLen {
-				tailPos := s.fuzzySearch(sequence[searchStart:], sample.PostTargetSeq, s.config.AllowMismatch)
+				tailPos := s.fuzzySearch(sequence[searchStart:], sample.PostTargetSeq, s.Config.AllowMismatch)
 				if tailPos != -1 {
 					tailPos += searchStart
 					// 提取区域
@@ -67,12 +67,12 @@ func (s *EnhancedSplitter) fuzzyExtractTargetRegion(sequence string) (string, *c
 		}
 
 		// 反向搜索（如果需要）
-		if s.config.UseRC {
-			rcHeadPos := s.fuzzySearch(sequence, sample.ReversePostTarget, s.config.AllowMismatch)
+		if s.Config.UseRC {
+			rcHeadPos := s.fuzzySearch(sequence, sample.ReversePostTarget, s.Config.AllowMismatch)
 			if rcHeadPos != -1 {
 				searchStart := rcHeadPos + len(sample.ReversePostTarget)
 				if searchStart < seqLen {
-					rcTailPos := s.fuzzySearch(sequence[searchStart:], sample.ReverseTarget, s.config.AllowMismatch)
+					rcTailPos := s.fuzzySearch(sequence[searchStart:], sample.ReverseTarget, s.Config.AllowMismatch)
 					if rcTailPos != -1 {
 						rcTailPos += searchStart
 						// 提取并反向互补
@@ -91,7 +91,7 @@ func (s *EnhancedSplitter) fuzzyExtractTargetRegion(sequence string) (string, *c
 	}
 
 	// 如果分数达到阈值，返回结果
-	if bestScore >= s.config.MatchThreshold {
+	if bestScore >= s.Config.MatchThreshold {
 		return bestMatch, bestSample, bestDirection
 	}
 
@@ -173,7 +173,7 @@ func (s *EnhancedSplitter) positionBasedExtract(sequence string) (string, *cfg.S
 	bestDirection := ""
 	bestScore := 0
 
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		// 正向搜索
 		headPos := strings.Index(sequence, sample.TargetSeq)
 		if headPos != -1 {
@@ -200,7 +200,7 @@ func (s *EnhancedSplitter) positionBasedExtract(sequence string) (string, *cfg.S
 		}
 
 		// 反向搜索
-		if s.config.UseRC {
+		if s.Config.UseRC {
 			// 搜索反向互补靶标
 			rcHeadPos := strings.Index(sequence, sample.ReversePostTarget)
 			if rcHeadPos != -1 {

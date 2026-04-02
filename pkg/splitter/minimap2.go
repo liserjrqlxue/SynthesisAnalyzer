@@ -29,8 +29,8 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 	*/
 	// 并行处理每个样品
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, a.config.AlignerThreads)
-	singleThread := max(a.config.AlignerThreads/len(a.samples), 1)
+	sem := make(chan struct{}, a.Config.Threads)
+	singleThread := max(a.Config.Threads/len(a.samples), 1)
 
 	results := make(chan *AlignmentResult, len(a.samples))
 
@@ -57,7 +57,7 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 				wg.Done()
 			}()
 
-			result := alignSample(s, singleThread, a.config.MapQThreshold)
+			result := alignSample(s, singleThread, a.Config.Alignment.MapQThreshold)
 			if result.Error != nil {
 				slog.Error("比对失败", "样本", s.Name, "err", result.Error)
 			}
@@ -116,6 +116,7 @@ func alignSample(sample *cfg.Sample, threads, mapQThreshold int) *AlignmentResul
 		sample.Name,
 		threads,
 	)
+	sample.BamFile = bamFile
 	if err != nil {
 		result.Error = err
 		return result

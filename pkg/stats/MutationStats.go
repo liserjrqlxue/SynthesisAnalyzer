@@ -136,7 +136,7 @@ func (stats *MutationStats) GetOrCreateSampleStats(sample *cfg.Sample) *SampleSt
 func (stats *MutationStats) SortSampleNames() {
 	var (
 		names       = stats.SampleNames
-		sampleOrder = stats.BatchInfo.Order
+		sampleOrder = stats.BatchInfo.SampleList
 	)
 	if len(sampleOrder) > 0 {
 		// 按 Excel 顺序排序
@@ -178,8 +178,8 @@ func (stats *MutationStats) ProcessBAMFiles() (err error) {
 	sem := make(chan struct{}, sampleInfo.Config.Threads)
 
 	// 处理每个BAM文件
-	for _, sampleName := range sampleInfo.Order {
-		sample, ok := sampleInfo.Samples[sampleName]
+	for _, sampleName := range sampleInfo.SampleList {
+		sample, ok := sampleInfo.SampleMap[sampleName]
 		if !ok {
 			slog.Error("sampleInfo的Order包含Samples中未定义的样本", "样品", sampleName)
 			err = fmt.Errorf("样本 %s 未在sampleInfo.Samples中定义", sampleName)

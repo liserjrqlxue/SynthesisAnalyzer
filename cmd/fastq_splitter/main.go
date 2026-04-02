@@ -152,10 +152,9 @@ func main() {
 		OutputMode:     "target-only", // 只输出靶标间序列
 
 		Alignment: cfg.AlignmentConfig{
-			UseMinimap2:    true,
-			AlignerThreads: *threads,
-			MapQThreshold:  10,
-			MinIdentity:    0.90,
+			UseMinimap2:   true,
+			MapQThreshold: 10,
+			MinIdentity:   0.90,
 		},
 
 		ContaminationDetection: *contaminationDetection,

@@ -22,9 +22,9 @@ import (
 )
 
 // 创建比对分析器
-func NewAlignmentAnalyzer(config *cfg.AlignmentConfig, samples []*cfg.Sample, outputDir string) *AlignmentAnalyzer {
+func NewAlignmentAnalyzer(config *cfg.Config, samples []*cfg.Sample, outputDir string) *AlignmentAnalyzer {
 	return &AlignmentAnalyzer{
-		config:    config,
+		Config:    config,
 		samples:   samples,
 		outputDir: outputDir,
 		stats:     &AlignmentStats{},
@@ -33,7 +33,7 @@ func NewAlignmentAnalyzer(config *cfg.AlignmentConfig, samples []*cfg.Sample, ou
 
 // 计算测序时间
 func (s *EnhancedSplitter) calculateSequencingTime() error {
-	fastqDir := s.config.FastqDir
+	fastqDir := s.Config.FastqDir
 
 	// 判断模式
 	if strings.Contains(fastqDir, "/G99/") {
@@ -119,7 +119,7 @@ func (s *EnhancedSplitter) RunAlignment() error {
 	// 阶段2: 比对分析
 	fmt.Println("\n--- 阶段2: 序列比对分析 ---")
 	// 创建比对分析器
-	analyzer := NewAlignmentAnalyzer(&s.config.Alignment, s.samples, s.config.OutputDir)
+	analyzer := NewAlignmentAnalyzer(s.Config, s.Samples, s.Config.OutputDir)
 
 	// 步骤1: 创建参考序列
 	if err := analyzer.createReferenceFiles(); err != nil {
@@ -142,7 +142,7 @@ func (s *EnhancedSplitter) RunAlignment() error {
 	}
 
 	// 步骤5: 执行交叉污染检测（如果启用）
-	if s.config.ContaminationDetection {
+	if s.Config.ContaminationDetection {
 		if err := analyzer.performContaminationDetection(); err != nil {
 			fmt.Printf("警告: 交叉污染检测失败: %v\n", err)
 		}
@@ -166,10 +166,10 @@ func (s *EnhancedSplitter) RunSplitter() error {
 
 	fmt.Println("=== 增强版FASTQ拆分程序开始运行 ===")
 	fmt.Printf("配置: 线程数=%d, 反向互补=%v, 跳过已存在=%v\n",
-		s.config.Threads, s.config.UseRC, s.config.SkipExisting)
+		s.Config.Threads, s.Config.UseRC, s.Config.SkipExisting)
 
 	// 步骤1: 读取Excel文件
-	fmt.Printf("\n步骤1: 读取Excel文件: %s\n", s.config.ExcelFile)
+	fmt.Printf("\n步骤1: 读取Excel文件: %s\n", s.Config.ExcelFile)
 	if err := s.loadSamplesFromExcel(); err != nil {
 		return fmt.Errorf("读取Excel文件失败: %v", err)
 	}
@@ -181,7 +181,7 @@ func (s *EnhancedSplitter) RunSplitter() error {
 	}
 
 	// 步骤3: 创建输出目录
-	fmt.Printf("\n步骤3: 创建输出目录: %s\n", s.config.OutputDir)
+	fmt.Printf("\n步骤3: 创建输出目录: %s\n", s.Config.OutputDir)
 	if err := s.createOutputDir(); err != nil {
 		return fmt.Errorf("创建输出目录失败: %v", err)
 	}
@@ -199,7 +199,7 @@ func (s *EnhancedSplitter) RunSplitter() error {
 	}
 
 	// 检查全局完成标签
-	runDoneFile := filepath.Join(s.config.OutputDir, "run.done")
+	runDoneFile := filepath.Join(s.Config.OutputDir, "run.done")
 	if _, err := os.Stat(runDoneFile); err == nil {
 		fmt.Println("  检测到run.done文件，后续步骤已跳过，如需重新运行，请删除[", runDoneFile, "]后重跑")
 		return nil
@@ -220,7 +220,7 @@ func (s *EnhancedSplitter) RunSplitter() error {
 	// 8. 可选：调试模式（输出未匹配的序列）
 	if os.Getenv("DEBUG") == "1" {
 		for mergedFile := range s.fileMap {
-			s.debugUnmatched(mergedFile, s.config.OutputDir)
+			s.debugUnmatched(mergedFile, s.Config.OutputDir)
 			break // 只调试第一个文件
 		}
 	}
@@ -239,18 +239,18 @@ func (s *EnhancedSplitter) RunSplitter() error {
 
 // 创建输出目录
 func (s *EnhancedSplitter) createOutputDir() error {
-	if err := os.MkdirAll(s.config.OutputDir, 0755); err != nil {
+	if err := os.MkdirAll(s.Config.OutputDir, 0755); err != nil {
 		return err
 	}
 
 	// 创建样品目录
-	samplesDir := filepath.Join(s.config.OutputDir, "samples")
+	samplesDir := filepath.Join(s.Config.OutputDir, "samples")
 	if err := os.MkdirAll(samplesDir, 0755); err != nil {
 		return err
 	}
 
 	// 创建日志目录
-	logDir := filepath.Join(s.config.OutputDir, "logs")
+	logDir := filepath.Join(s.Config.OutputDir, "logs")
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return err
 	}
@@ -266,9 +266,9 @@ func (s *EnhancedSplitter) createOutputDir() error {
 	multiWriter := io.MultiWriter(os.Stdout, f)
 	log.SetOutput(multiWriter)
 
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		// 创建输出目录
-		sample.OutputDir = filepath.Join(s.config.OutputDir, "samples", sample.Name)
+		sample.OutputDir = filepath.Join(s.Config.OutputDir, "samples", sample.Name)
 		if err := os.MkdirAll(sample.OutputDir, 0755); err != nil {
 			return fmt.Errorf("创建样品目录失败: %v", err)
 		}
@@ -279,22 +279,17 @@ func (s *EnhancedSplitter) createOutputDir() error {
 
 // 读取Excel文件
 func (s *EnhancedSplitter) loadSamplesFromExcel() error {
-	samples, err := s.config.LoadInputExcel()
+	samples, err := s.Config.LoadInputExcel()
 	if err != nil {
 		return fmt.Errorf("读取Excel文件失败: %v", err)
 	}
-	s.samples = samples
-
-	for _, sample := range s.samples {
-
-		// 创建输出目录
-		sample.OutputDir = filepath.Join(s.config.OutputDir, "samples", sample.Name)
-		if err := os.MkdirAll(sample.OutputDir, 0755); err != nil {
-			return fmt.Errorf("创建样品目录失败: %v", err)
-		}
+	s.Samples = samples
+	for _, sample := range samples {
+		s.SampleList = append(s.SampleList, sample.Name)
+		s.SampleMap[sample.Name] = sample
 	}
 
-	fmt.Printf("  成功读取 %d 个样品\n", len(s.samples))
+	fmt.Printf("  成功读取 %d 个样品\n", len(s.Samples))
 	return nil
 }
 
@@ -304,7 +299,7 @@ func (s *EnhancedSplitter) checkDuplicates() error {
 	seen := make(map[string]bool)
 	duplicates := []string{}
 
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		if seen[sample.Name] {
 			duplicates = append(duplicates, sample.Name)
 		} else {

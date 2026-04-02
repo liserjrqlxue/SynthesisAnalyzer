@@ -26,7 +26,7 @@ func (s *EnhancedSplitter) splitReads() error {
 	writers := make(map[string]*gzip.Writer)
 	files := make(map[string]*os.File)
 
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		outputFile := filepath.Join(sample.OutputDir, "split_reads.fastq.gz")
 		f, err := os.Create(outputFile)
 		if err != nil {
@@ -63,7 +63,7 @@ func (s *EnhancedSplitter) splitReads() error {
 		for sampleName, count := range stats {
 			// s.stats.totalReads += int64(count)
 			// 更新样本的read count
-			for _, sample := range s.samples {
+			for _, sample := range s.Samples {
 				if sample.Name == sampleName {
 					sample.ReadCount += count
 					break
@@ -279,7 +279,7 @@ func (s *EnhancedSplitter) printDetailedStats() {
 	// 每个样本的统计
 	fmt.Println("\n各样本统计:")
 	// fmt.Println("-" * 50)
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		if sample.ReadCount > 0 {
 			fmt.Printf("  %-20s: %d reads\n", sample.Name, sample.ReadCount)
 		}
@@ -300,13 +300,13 @@ func (s *EnhancedSplitter) processEachFileSeparately() error {
 
 	s.stats.startTime = time.Now()
 	s.stats.totalFiles = len(s.mergedFiles)
-	s.stats.totalSamples = len(s.samples)
+	s.stats.totalSamples = len(s.Samples)
 
 	// 为每个样本创建输出文件
 	outputWriters := make(map[string]*gzip.Writer)
 	outputFiles := make(map[string]*os.File)
 
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		outputFile := filepath.Join(sample.OutputDir, "target_only_reads.fastq.gz")
 		f, err := os.Create(outputFile)
 		if err != nil {
@@ -328,7 +328,7 @@ func (s *EnhancedSplitter) processEachFileSeparately() error {
 
 	// 并行处理每个合并文件
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, s.config.Threads) // 控制并发数
+	sem := make(chan struct{}, s.Config.Threads) // 控制并发数
 
 	// 用于收集每个文件的统计
 	fileStatsChan := make(chan *FileProcessStats, len(s.mergedFiles))
@@ -440,7 +440,7 @@ func (s *EnhancedSplitter) processSingleFile(fileInfo *MergedFileInfo,
 	defer gzReader.Close()
 
 	// 创建工作池
-	numWorkers := min(s.config.Threads, 32) // 限制最大工作线程数
+	numWorkers := min(s.Config.Threads, 32) // 限制最大工作线程数
 	recordChan := make(chan []byte, 100000)
 	resultChan := make(chan *MatchResult, 100000)
 
@@ -593,7 +593,7 @@ func (s *EnhancedSplitter) buildFileMatchers() error {
 			fileInfo:     mergedInfo,
 			forwardRegex: make(map[string]*regexp.Regexp),
 			reverseRegex: make(map[string]*regexp.Regexp),
-			useRC:        s.config.UseRC,
+			useRC:        s.Config.UseRC,
 		}
 
 		// 只为该文件的样品构建正则表达式
@@ -616,7 +616,7 @@ func (s *EnhancedSplitter) buildFileMatchers() error {
 			matcher.forwardRegex[sample.Name] = forwardRegex
 
 			// 2. 反向正则表达式
-			if s.config.UseRC {
+			if s.Config.UseRC {
 				// 反向互补序列：尾靶标在前，头靶标在后
 				reversePattern := `(` + s.escapeRegexp(sample.ReversePostTarget) + `.*?` + s.escapeRegexp(sample.ReverseTarget) + `)`
 				reverseRegex, err := regexp.Compile(reversePattern)
@@ -703,7 +703,7 @@ func (s *EnhancedSplitter) printPerSampleStats() {
 	totalLength := 0
 
 	// 计算每个样品的总reads数（来自所有文件）
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		// 重置，重新计算
 		sample.TotalReads = 0
 	}
@@ -720,7 +720,7 @@ func (s *EnhancedSplitter) printPerSampleStats() {
 	fmt.Printf("  样品名称            总处理数   匹配数   匹配率%%  最短长度  最长长度  平均长度  正向%%     反向%%  来源文件数  输出文件\n")
 	fmt.Println(strings.Repeat("-", width))
 
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		totalLength += sample.TotalExtractedLen
 		totalMatched += sample.MatchedReads
 
@@ -792,7 +792,7 @@ func (s *EnhancedSplitter) printPerSampleStats() {
 	// 输出每个样本的靶标信息
 	fmt.Println("\n各样本靶标信息:")
 	fmt.Println(strings.Repeat("=", 80))
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		fullRef := sample.TargetSeq + sample.SynthesisSeq + sample.PostTargetSeq
 		fmt.Printf("  样本 %-20s: 头靶标(%d) + 合成序列(%d) + 尾靶标(%d) = 总长 %d\n",
 			sample.Name,
@@ -853,7 +853,7 @@ func (s *EnhancedSplitter) debugUnmatched(filename string, outputDir string) err
 						writer.WriteString("可能的匹配检查:\n")
 
 						// 检查每个样本的匹配情况
-						for _, testSample := range s.samples {
+						for _, testSample := range s.Samples {
 							if strings.Contains(sequence, testSample.TargetSeq) {
 								writer.WriteString(fmt.Sprintf("  包含头靶标: %s (样本: %s)\n",
 									testSample.TargetSeq, testSample.Name))

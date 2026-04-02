@@ -20,7 +20,7 @@ func (s *EnhancedSplitter) mergeAndMapFiles() error {
 	// 去重R1/R2文件对
 	filePairs := make(map[string][]*cfg.Sample) // key: "R1|R2" -> 样品列表
 
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		key := sample.R1Path + "|" + sample.R2Path
 		filePairs[key] = append(filePairs[key], sample)
 	}
@@ -28,14 +28,14 @@ func (s *EnhancedSplitter) mergeAndMapFiles() error {
 	fmt.Printf("  发现 %d 个唯一的R1/R2文件对\n", len(filePairs))
 
 	// 创建合并目录
-	mergedDir := filepath.Join(s.config.OutputDir, "merged")
+	mergedDir := filepath.Join(s.Config.OutputDir, "merged")
 	if err := os.MkdirAll(mergedDir, 0755); err != nil {
 		return fmt.Errorf("创建合并目录失败: %v", err)
 	}
 
 	// 并行合并
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, s.config.Threads/2) // 限制并发数
+	sem := make(chan struct{}, s.Config.Threads/2) // 限制并发数
 	results := make(chan struct {
 		key    string
 		output string
@@ -69,7 +69,7 @@ func (s *EnhancedSplitter) mergeAndMapFiles() error {
 				err:    nil,
 			}
 
-			if exists && s.config.SkipExisting {
+			if exists && s.Config.SkipExisting {
 				fmt.Printf("  合并文件已存在，跳过: %s\n", filepath.Base(mergedFile))
 				atomic.AddInt64(&skippedCount, 1)
 				results <- result
@@ -163,7 +163,7 @@ func (s *EnhancedSplitter) mergeAndMapFiles() error {
 		mergedCount, skippedCount, errorCount)
 
 	// 检查是否有样品合并失败
-	for _, sample := range s.samples {
+	for _, sample := range s.Samples {
 		if sample.MergedFile == "" {
 			return fmt.Errorf("样品 %s 合并失败，请检查输入文件", sample.Name)
 		}
@@ -192,7 +192,7 @@ func (s *EnhancedSplitter) getMergedFileName(sample *cfg.Sample) (string, bool) 
 	}
 
 	// 合并目录
-	mergedDir := filepath.Join(s.config.OutputDir, "merged")
+	mergedDir := filepath.Join(s.Config.OutputDir, "merged")
 	os.MkdirAll(mergedDir, 0755)
 
 	// 使用第一个样品的名称作为文件名
