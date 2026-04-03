@@ -9,14 +9,8 @@ import (
 	"runtime"
 
 	"SynthesisAnalyzer/pkg/cfg"
-	stats "SynthesisAnalyzer/pkg/stats"
+	"SynthesisAnalyzer/pkg/stats"
 )
-
-func NewBatchInfo(config *cfg.Config) *stats.BatchInfo {
-	batchInfo := stats.NewBatchInfo()
-	batchInfo.Config = config
-	return batchInfo
-}
 
 // parseFlags 解析命令行参数，返回配置对象
 func parseFlags() *cfg.Config {
@@ -62,12 +56,13 @@ func validateConfig(cfg *cfg.Config) error {
 }
 
 // run 执行核心业务逻辑，返回错误
-func run(cfg *cfg.Config) error {
+func run(config *cfg.Config) error {
 	// 初始化样本信息
-	batchInfo := NewBatchInfo(cfg)
+	batchInfo := cfg.NewBatchInfo()
+	batchInfo.Config = config
 
 	// 读取 Excel 样本顺序（如果提供）
-	if cfg.ExcelFile != "" {
+	if config.ExcelFile != "" {
 		if err := batchInfo.ReadExcel(); err != nil {
 			return fmt.Errorf("读取Excel文件失败: %w", err)
 		}

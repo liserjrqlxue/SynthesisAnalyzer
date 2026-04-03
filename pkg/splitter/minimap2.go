@@ -17,24 +17,26 @@ import (
 // 使用minimap2进行比对
 func (a *AlignmentAnalyzer) runAlignment() error {
 	fmt.Println("\n=== 运行序列比对 ===")
+	var (
+		startTime = time.Now()
+		// 处理结果
+		total      = len(a.Samples)
+		successful = 0
+		failed     = 0
+	)
+	defer func() {
+		fmt.Printf("比对完成: %d 个样本, %d 个成功, %d 个失败\n", total, successful, failed)
+		fmt.Printf("总耗时: %v\n", time.Since(startTime))
+	}()
 
-	a.stats.startTime = time.Now()
-	a.stats.totalSamples = len(a.samples)
-	/*
-		// 创建比对结果目录
-		alignDir := filepath.Join(a.outputDir, "alignment")
-		if err := os.MkdirAll(alignDir, 0755); err != nil {
-			return fmt.Errorf("创建比对目录失败: %v", err)
-		}
-	*/
 	// 并行处理每个样品
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, a.Config.Threads)
-	singleThread := max(a.Config.Threads/len(a.samples), 1)
+	singleThread := max(a.Config.Threads/total, 1)
 
-	results := make(chan *AlignmentResult, len(a.samples))
+	results := make(chan *AlignmentResult, total)
 
-	for _, sample := range a.samples {
+	for _, sample := range a.Samples {
 		// 检查输入文件是否存在
 		inputFile := filepath.Join(sample.OutputDir, "target_only_reads.fastq.gz")
 		if _, err := os.Stat(inputFile); os.IsNotExist(err) {
@@ -71,10 +73,6 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 		close(results)
 	}()
 
-	// 处理结果
-	successful := 0
-	failed := 0
-
 	for result := range results {
 		if result.Error != nil {
 			failed++
@@ -82,26 +80,20 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 		}
 
 		successful++
-		a.stats.processedSamples++
 
 		// 更新样品信息
 		result.Sample.AlignmentResult = result.Alignment
 		result.Sample.PositionStats = result.Alignment.PositionStats
 
-		// fmt.Printf("  样本 %s: 比对完成 (%d reads, %.1f%% mapping rate)\n",
-		// 	result.Sample.Name,
-		// 	result.Alignment.Summary.MappedReads,
-		// 	result.Alignment.Summary.MappingRate)
 		slog.Debug("比对完成",
 			"样本", result.Sample.Name,
 			"映射读数", result.Alignment.Summary.MappedReads,
 			"映射率", result.Alignment.Summary.MappingRate)
 	}
 
-	a.stats.endTime = time.Now()
-
-	fmt.Printf("\n比对完成: %d 个成功, %d 个失败\n", successful, failed)
-	fmt.Printf("总耗时: %v\n", a.stats.endTime.Sub(a.stats.startTime))
+	if successful < total {
+		return fmt.Errorf("比对失败，有 %d 个样本未成功比对", total-successful)
+	}
 
 	return nil
 }

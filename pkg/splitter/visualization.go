@@ -184,7 +184,7 @@ func (a *AlignmentAnalyzer) generateErrorRateData(visDir string) error {
 	}
 
 	// 写入数据
-	for _, sample := range a.samples {
+	for _, sample := range a.Samples {
 		if sample.AlignmentResult == nil {
 			continue
 		}
@@ -229,7 +229,7 @@ func (a *AlignmentAnalyzer) generateCoverageData(visDir string) error {
 	}
 
 	// 写入数据
-	for _, sample := range a.samples {
+	for _, sample := range a.Samples {
 		if sample.AlignmentResult == nil {
 			continue
 		}
@@ -274,7 +274,7 @@ func (a *AlignmentAnalyzer) generateSuccessHeatmapData(visDir string) error {
 	}
 
 	// 写入数据
-	for _, sample := range a.samples {
+	for _, sample := range a.Samples {
 		if sample.AlignmentResult == nil {
 			continue
 		}
@@ -304,7 +304,7 @@ func (a *AlignmentAnalyzer) generateSuccessHeatmapData(visDir string) error {
 
 func (a *AlignmentAnalyzer) generateQCReport() error {
 	// 生成质量控制报告
-	qcFile := filepath.Join(a.outputDir, "reports", "quality_control_report.txt")
+	qcFile := filepath.Join(a.Config.OutputDir, "reports", "quality_control_report.txt")
 	f, err := os.Create(qcFile)
 	if err != nil {
 		return err
@@ -332,7 +332,7 @@ func (a *AlignmentAnalyzer) generateQCReport() error {
 	fairCount := 0
 	poorCount := 0
 
-	for _, sample := range a.samples {
+	for _, sample := range a.Samples {
 		if sample.AlignmentResult == nil {
 			continue
 		}

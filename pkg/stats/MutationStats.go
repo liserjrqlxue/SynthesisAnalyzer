@@ -15,7 +15,7 @@ import (
 // MutationStats 存储突变统计 - 添加新字段
 type MutationStats struct {
 	sync.RWMutex
-	BatchInfo   *BatchInfo              // 样本信息指针
+	BatchInfo   *cfg.BatchInfo          // 样本信息指针
 	Samples     map[string]*SampleStats // sample -> 样本统计
 	SampleNames []string                // 样本名顺序
 

@@ -10,43 +10,28 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"SynthesisAnalyzer/pkg/cfg"
 )
 
 // 比对分析器
 type AlignmentAnalyzer struct {
-	Config  *cfg.Config
-	samples []*cfg.Sample
-
-	outputDir string
-	stats     *AlignmentStats
-}
-
-// 比对统计
-type AlignmentStats struct {
-	totalSamples     int
-	processedSamples int
-	totalReads       int64
-	alignedReads     int64
-	failedAlignments int64
-	startTime        time.Time
-	endTime          time.Time
+	*cfg.BatchSample
+	Config *cfg.Config // 配置信息
 }
 
 // 为每个样品创建参考序列文件
 func (a *AlignmentAnalyzer) createReferenceFiles() error {
 	fmt.Println("\n=== 创建参考序列文件 ===")
 
-	refDir := filepath.Join(a.outputDir, "references")
+	refDir := filepath.Join(a.Config.OutputDir, "references")
 	if err := os.MkdirAll(refDir, 0755); err != nil {
 		return fmt.Errorf("创建参考序列目录失败: %v", err)
 	}
 
 	createdCount := 0
 
-	for _, sample := range a.samples {
+	for _, sample := range a.Samples {
 		// 构建完整的参考序列：头靶标 + 合成序列 + 尾靶标
 		// fullReference := sample.TargetSeq + sample.SynthesisSeq + sample.PostTargetSeq
 		if len(sample.FullReference) == 0 {
@@ -80,12 +65,12 @@ func (a *AlignmentAnalyzer) createReferenceFiles() error {
 
 // 创建合并的参考序列文件（用于污染检测）
 func (a *AlignmentAnalyzer) createMergedReferenceFile() (string, error) {
-	refDir := filepath.Join(a.outputDir, "references")
+	refDir := filepath.Join(a.Config.OutputDir, "references")
 	mergedRefFile := filepath.Join(refDir, "merged_all.fasta")
 
 	// 创建合并参考序列
 	var content strings.Builder
-	for _, sample := range a.samples {
+	for _, sample := range a.Samples {
 		if len(sample.FullReference) == 0 {
 			continue
 		}
@@ -103,7 +88,7 @@ func (a *AlignmentAnalyzer) createMergedReferenceFile() (string, error) {
 func (a *AlignmentAnalyzer) generateAlignmentReport() error {
 	fmt.Println("\n=== 生成比对分析报告 ===")
 
-	reportDir := filepath.Join(a.outputDir, "reports")
+	reportDir := filepath.Join(a.Config.OutputDir, "reports")
 	if err := os.MkdirAll(reportDir, 0755); err != nil {
 		return fmt.Errorf("创建报告目录失败: %v", err)
 	}
@@ -160,7 +145,7 @@ func (a *AlignmentAnalyzer) generateSummaryReport(reportDir string) error {
 	}
 
 	// 写入数据
-	for _, sample := range a.samples {
+	for _, sample := range a.Samples {
 		if sample.AlignmentResult == nil {
 			continue
 		}
@@ -197,7 +182,7 @@ func (a *AlignmentAnalyzer) generateSummaryReport(reportDir string) error {
 
 // 生成每个样品的详细报告
 func (a *AlignmentAnalyzer) generatePerSampleReports() error {
-	for _, sample := range a.samples {
+	for _, sample := range a.Samples {
 		if sample.AlignmentResult == nil {
 			continue
 		}
@@ -228,9 +213,9 @@ func (a *AlignmentAnalyzer) runContaminationAlignment(mergedRefFile string) (map
 		sampleName string
 		bamFile    string
 		err        error
-	}, len(a.samples))
+	}, len(a.Samples))
 
-	for _, sample := range a.samples {
+	for _, sample := range a.Samples {
 		// 检查输入文件是否存在
 		inputFile := filepath.Join(sample.OutputDir, "target_only_reads.fastq.gz")
 		if _, err := os.Stat(inputFile); os.IsNotExist(err) {
@@ -250,7 +235,7 @@ func (a *AlignmentAnalyzer) runContaminationAlignment(mergedRefFile string) (map
 			}()
 
 			// 使用通用比对方法进行污染检测比对
-			bamFile, err := AlignSampleWithParams(s.OutputDir, mergedRefFile, "contamination", max(a.Config.Threads/len(a.samples), 1))
+			bamFile, err := AlignSampleWithParams(s.OutputDir, mergedRefFile, "contamination", max(a.Config.Threads/len(a.Samples), 1))
 			if err != nil {
 				slog.Error("污染检测比对失败", "样本", s.Name, "err", err)
 			}
@@ -325,7 +310,7 @@ func (a *AlignmentAnalyzer) analyzeContamination(bamFiles map[string]string) (ma
 	totalCounts := make(map[string]int64)
 
 	// 打开污染详情文件
-	contamLogFile := filepath.Join(a.outputDir, "reports", "contamination_details.txt")
+	contamLogFile := filepath.Join(a.Config.OutputDir, "reports", "contamination_details.txt")
 	f, err := os.Create(contamLogFile)
 	if err != nil {
 		slog.Warn("创建污染详情文件失败", "file", contamLogFile, "err", err)
@@ -337,10 +322,10 @@ func (a *AlignmentAnalyzer) analyzeContamination(bamFiles map[string]string) (ma
 	}
 
 	// 分析每个样品的比对结果
-	for _, sample := range a.samples {
+	for _, sample := range a.Samples {
 		sampleName := sample.Name
 		contaminationMatrix[sampleName] = make(map[string]int64)
-		for _, targetSample := range a.samples {
+		for _, targetSample := range a.Samples {
 			contaminationMatrix[sampleName][targetSample.Name] = 0
 		}
 		unmappedCounts[sampleName] = 0
@@ -469,7 +454,7 @@ func (a *AlignmentAnalyzer) analyzeContamination(bamFiles map[string]string) (ma
 
 // 生成污染矩阵报告
 func (a *AlignmentAnalyzer) generateContaminationMatrixReport(matrix map[string]map[string]int64, unmapped map[string]int64, total map[string]int64) error {
-	reportDir := filepath.Join(a.outputDir, "reports")
+	reportDir := filepath.Join(a.Config.OutputDir, "reports")
 	if err := os.MkdirAll(reportDir, 0755); err != nil {
 		return err
 	}
@@ -496,7 +481,7 @@ func (a *AlignmentAnalyzer) generateContaminationMatrixReport(matrix map[string]
 
 	// 写入表头
 	header := []string{"Sample"}
-	for _, sample := range a.samples {
+	for _, sample := range a.Samples {
 		header = append(header, a.getSampleShortName(sample.Name))
 	}
 	header = append(header, "Unmapped", "Total", "Mapping_Rate")
@@ -509,7 +494,7 @@ func (a *AlignmentAnalyzer) generateContaminationMatrixReport(matrix map[string]
 	}
 
 	// 写入数据
-	for _, sample := range a.samples {
+	for _, sample := range a.Samples {
 		countRecord := []string{a.getSampleShortName(sample.Name)}
 		ratioRecord := []string{a.getSampleShortName(sample.Name)}
 		totalReads := total[sample.Name] + unmapped[sample.Name]
@@ -518,7 +503,7 @@ func (a *AlignmentAnalyzer) generateContaminationMatrixReport(matrix map[string]
 			mappingRate = float64(total[sample.Name]) / float64(totalReads)
 		}
 
-		for _, targetSample := range a.samples {
+		for _, targetSample := range a.Samples {
 			count := matrix[sample.Name][targetSample.Name]
 			percentage := 0.0
 			if totalReads > 0 {

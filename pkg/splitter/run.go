@@ -24,10 +24,10 @@ import (
 // 创建比对分析器
 func NewAlignmentAnalyzer(config *cfg.Config, samples []*cfg.Sample, outputDir string) *AlignmentAnalyzer {
 	return &AlignmentAnalyzer{
-		Config:    config,
-		samples:   samples,
-		outputDir: outputDir,
-		stats:     &AlignmentStats{},
+		BatchSample: &cfg.BatchSample{
+			Samples: samples,
+		},
+		Config: config,
 	}
 }
 
@@ -87,6 +87,17 @@ func (s *EnhancedSplitter) calculateSequencingTime() error {
 // 扩展的主运行函数，包含比对步骤
 func (s *EnhancedSplitter) RunAll() error {
 	fmt.Println("=== FASTQ拆分与比对分析完整流程 ===")
+
+	fmt.Println("=== 增强版FASTQ拆分程序开始运行 ===")
+	fmt.Printf("配置: 线程数=%d, 反向互补=%v, 跳过已存在=%v\n",
+		s.Config.Threads, s.Config.UseRC, s.Config.SkipExisting)
+
+	// 步骤1: 读取Excel文件
+	fmt.Printf("\n步骤1: 读取Excel文件: %s\n", s.Config.ExcelFile)
+	if err := s.BatchSample.ReadExcel(s.Config); err != nil {
+		return fmt.Errorf("读取Excel文件失败: %v", err)
+	}
+	fmt.Printf("  成功读取 %d 个样品\n", len(s.Samples))
 
 	// 计算测序时间
 	if err := s.calculateSequencingTime(); err != nil {
@@ -156,6 +167,7 @@ func (s *EnhancedSplitter) RunSplitter() error {
 	s.stats = &SplitStats{
 		startTime: time.Now(),
 	}
+	runDoneFile := filepath.Join(s.Config.OutputDir, "run.splitter.done")
 	defer func() {
 		s.stats.endTime = time.Now()
 		fmt.Printf("\n=== 全部处理完成! 总耗时: %v ===\n", s.stats.endTime.Sub(s.stats.startTime))
@@ -164,60 +176,43 @@ func (s *EnhancedSplitter) RunSplitter() error {
 			float64(s.stats.totalMatched)/float64(s.stats.totalReads)*100)
 	}()
 
-	fmt.Println("=== 增强版FASTQ拆分程序开始运行 ===")
-	fmt.Printf("配置: 线程数=%d, 反向互补=%v, 跳过已存在=%v\n",
-		s.Config.Threads, s.Config.UseRC, s.Config.SkipExisting)
-
-	// 步骤1: 读取Excel文件
-	fmt.Printf("\n步骤1: 读取Excel文件: %s\n", s.Config.ExcelFile)
-	if err := s.loadSamplesFromExcel(); err != nil {
-		return fmt.Errorf("读取Excel文件失败: %v", err)
-	}
-
-	// 步骤2: 检查重复样品名称
-	fmt.Println("\n步骤2: 检查重复样品名称...")
-	if err := s.checkDuplicates(); err != nil {
-		return err
-	}
-
-	// 步骤3: 创建输出目录
-	fmt.Printf("\n步骤3: 创建输出目录: %s\n", s.Config.OutputDir)
+	// 步骤1: 创建输出目录
+	fmt.Printf("\n步骤1: 创建输出目录: %s\n", s.Config.OutputDir)
 	if err := s.createOutputDir(); err != nil {
 		return fmt.Errorf("创建输出目录失败: %v", err)
 	}
 
-	// 步骤4: 合并PE reads并建立文件映射
-	fmt.Println("\n步骤4: 合并PE reads并建立文件映射...")
+	// 步骤2: 合并PE reads并建立文件映射
+	fmt.Println("\n步骤2: 合并PE reads并建立文件映射...")
 	if err := s.mergeAndMapFiles(); err != nil {
 		return fmt.Errorf("合并reads失败: %v", err)
 	}
 
-	// 步骤5: 为每个合并文件构建匹配器
-	fmt.Println("\n步骤5: 为每个合并文件构建匹配器...")
+	// 步骤3: 为每个合并文件构建匹配器
+	fmt.Println("\n步骤3: 为每个合并文件构建匹配器...")
 	if err := s.buildFileMatchers(); err != nil {
 		return fmt.Errorf("构建索引失败: %v", err)
 	}
 
 	// 检查全局完成标签
-	runDoneFile := filepath.Join(s.Config.OutputDir, "run.done")
 	if _, err := os.Stat(runDoneFile); err == nil {
 		fmt.Println("  检测到run.done文件，后续步骤已跳过，如需重新运行，请删除[", runDoneFile, "]后重跑")
 		return nil
 	}
 
-	// 步骤6: 独立处理每个合并文件
-	fmt.Println("\n步骤6: 独立处理每个合并文件...")
+	// 步骤4: 独立处理每个合并文件
+	fmt.Println("\n步骤4: 独立处理每个合并文件...")
 	if err := s.processEachFileSeparately(); err != nil {
 		return fmt.Errorf("拆分reads失败: %v", err)
 	}
 
-	// 步骤7: 生成报告
-	fmt.Println("\n步骤7: 生成报告...")
+	// 步骤5: 生成报告
+	fmt.Println("\n步骤5: 生成报告...")
 	if err := s.generateReports(); err != nil {
 		return fmt.Errorf("生成报告失败: %v", err)
 	}
 
-	// 8. 可选：调试模式（输出未匹配的序列）
+	// 步骤6: 可选：调试模式（输出未匹配的序列）
 	if os.Getenv("DEBUG") == "1" {
 		for mergedFile := range s.fileMap {
 			s.debugUnmatched(mergedFile, s.Config.OutputDir)
@@ -274,44 +269,6 @@ func (s *EnhancedSplitter) createOutputDir() error {
 		}
 	}
 
-	return nil
-}
-
-// 读取Excel文件
-func (s *EnhancedSplitter) loadSamplesFromExcel() error {
-	samples, err := s.Config.LoadInputExcel()
-	if err != nil {
-		return fmt.Errorf("读取Excel文件失败: %v", err)
-	}
-	s.Samples = samples
-	for _, sample := range samples {
-		s.SampleList = append(s.SampleList, sample.Name)
-		s.SampleMap[sample.Name] = sample
-	}
-
-	fmt.Printf("  成功读取 %d 个样品\n", len(s.Samples))
-	return nil
-}
-
-// 检查重复样品名称
-func (s *EnhancedSplitter) checkDuplicates() error {
-
-	seen := make(map[string]bool)
-	duplicates := []string{}
-
-	for _, sample := range s.Samples {
-		if seen[sample.Name] {
-			duplicates = append(duplicates, sample.Name)
-		} else {
-			seen[sample.Name] = true
-		}
-	}
-
-	if len(duplicates) > 0 {
-		return fmt.Errorf("发现重复的样品名称: %v", duplicates)
-	}
-
-	fmt.Println("  所有样品名称唯一，通过检查")
 	return nil
 }
 

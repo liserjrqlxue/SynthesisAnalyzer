@@ -1,4 +1,4 @@
-package stats
+package cfg
 
 import (
 	"fmt"
@@ -6,30 +6,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"SynthesisAnalyzer/pkg/cfg"
 )
 
-// 样本信息结构体
-type BatchInfo struct {
-	Config *cfg.Config // 配置信息
-
-	SampleList []string               // 样本顺序列表
-	Samples    []*cfg.Sample          // 样本列表
-	SampleMap  map[string]*cfg.Sample // 样本名->样本信息
-}
-
-func NewBatchInfo() *BatchInfo {
-	return &BatchInfo{
-		SampleList: []string{},
-		SampleMap:  make(map[string]*cfg.Sample),
-	}
+type BatchSample struct {
+	SampleList []string           // 样本顺序列表
+	Samples    []*Sample          // 样本列表
+	SampleMap  map[string]*Sample // 样本名->样本信息
 }
 
 // ReadExcel 使用 excelize 读取 Excel 文件，基于表头确定列
 // 返回: 样品信息结构体, 错误
-func (s *BatchInfo) ReadExcel() error {
-	samples, err := s.Config.LoadInputExcel()
+func (s *BatchSample) ReadExcel(cfg *Config) error {
+	samples, err := cfg.LoadInputExcel()
 	if err != nil {
 		return fmt.Errorf("读取Excel文件失败: %v", err)
 	}
@@ -45,6 +33,27 @@ func (s *BatchInfo) ReadExcel() error {
 	}
 
 	return nil
+}
+
+// 样本信息结构体
+type BatchInfo struct {
+	Config *Config // 配置信息
+	*BatchSample
+}
+
+func NewBatchInfo() *BatchInfo {
+	return &BatchInfo{
+		BatchSample: &BatchSample{
+			SampleList: []string{},
+			SampleMap:  make(map[string]*Sample),
+		},
+	}
+}
+
+// ReadExcel 使用 excelize 读取 Excel 文件，基于表头确定列
+// 返回: 样品信息结构体, 错误
+func (s *BatchInfo) ReadExcel() error {
+	return s.BatchSample.ReadExcel(s.Config)
 }
 
 // findBAMFiles 查找所有BAM文件，并尝试补充参考序列
@@ -107,7 +116,7 @@ func (s *BatchInfo) findBAMFilesFromWalk() (err error) {
 			// 检查样本是否已存在，不存在则创建
 			sample, ok := s.SampleMap[sampleName]
 			if !ok {
-				sample = &cfg.Sample{
+				sample = &Sample{
 					Name:    sampleName,
 					HeadCut: s.Config.HeadCut,
 					TailCut: s.Config.TailCut,

@@ -28,10 +28,7 @@ type MergedFileInfo struct {
 // 更新后的拆分处理器
 type EnhancedSplitter struct {
 	Config *cfg.Config
-
-	SampleList []string // 样本顺序列表
-	Samples    []*cfg.Sample
-	SampleMap  map[string]*cfg.Sample // 样品名称 -> 样品信息
+	*cfg.BatchSample
 
 	fileMap map[string][]*cfg.Sample // merged文件 -> 样品列表
 
@@ -79,9 +76,11 @@ type FileProcessStats struct {
 // 创建正则表达式拆分器
 func NewEnhancedSplitter(config *cfg.Config) *EnhancedSplitter {
 	return &EnhancedSplitter{
-		Config:        config,
-		Samples:       []*cfg.Sample{},
-		SampleMap:     make(map[string]*cfg.Sample),
+		Config: config,
+		BatchSample: &cfg.BatchSample{
+			SampleList: []string{},
+			SampleMap:  make(map[string]*cfg.Sample),
+		},
 		fileMap:       make(map[string][]*cfg.Sample),
 		forwardIndex:  make(map[string]*cfg.Sample),
 		reverseIndex:  make(map[string]*cfg.Sample),
