@@ -19,22 +19,27 @@ type Sample struct {
 	R1Path        string
 	R2Path        string
 
+	FullReference string // 完整参考序列（头靶标+合成序列+尾靶标）
+	RefLength     int    // 参考序列长度
+	HeadCut       int    // 头切除长度
+	TailCut       int    // 尾切除长度
+
 	OutputDir string
 	BamFile   string // BAM文件路径
 
-	// 完整参考序列（用于分析）
-	FullReference string
-
-	// bam-mut-analyzer 相关配置
-	RefLength int // 参考序列长度
-	HeadCut   int // 头切除长度
-	TailCut   int // 尾切除长度
-
-	// 统计信息
+	// splitter 相关配置
+	ReferenceFile string // 参考序列文件路径
+	// 反向互补序列（用于匹配）
+	ReverseTarget     string // 头靶标反向互补
+	ReversePostTarget string // 尾靶标反向互补
+	// 拆分统计信息
 	TotalReads   int
 	MatchedReads int
 	ForwardReads int
 	ReverseReads int
+	Error        error // 比对错误信息
+	// 比对统计信息
+	AlignmentResult *AlignmentSummary // 比对结果
 
 	// 提取序列统计
 	MinExtractedLen   int
@@ -47,20 +52,8 @@ type Sample struct {
 	Status     string
 	ReadCount  int
 
-	// 反向互补序列（用于匹配）
-	ReverseTarget     string // 头靶标反向互补
-	ReversePostTarget string // 尾靶标反向互补
-
 	MergeTime time.Time
 	SplitTime time.Time
-
-	// 比对相关字段（新增）
-	ReferenceFile   string           // 参考序列文件路径
-	ReferenceSeq    string           // 完整参考序列
-	ReferenceLen    int              // 参考序列长度
-	AlignmentResult *SampleAlignment // 比对结果
-	// PositionStats   []PositionStat   // 位置统计信息
-	Error error // 比对错误信息
 }
 
 // 生成位置详细统计
@@ -94,11 +87,10 @@ func (sample *Sample) GeneratePositionReport() error {
 	}
 
 	// 写入数据
-	alignment := sample.AlignmentResult
-	for i, pos := range alignment.PositionStats {
+	for i, pos := range sample.AlignmentResult.PositionStats {
 		refBase := "N"
-		if i < len(alignment.ReferenceSeq) {
-			refBase = string(alignment.ReferenceSeq[i])
+		if i < len(sample.FullReference) {
+			refBase = string(sample.FullReference[i])
 		}
 
 		synthesisSuccess := 100.0
@@ -150,8 +142,7 @@ func (sample *Sample) GenerateErrorDistribution() error {
 	}
 
 	// 写入数据
-	alignment := sample.AlignmentResult
-	for _, pos := range alignment.PositionStats {
+	for _, pos := range sample.AlignmentResult.PositionStats {
 		record := []string{
 			fmt.Sprintf("%d", pos.Position),
 			fmt.Sprintf("%.6f", pos.ErrorRate),
@@ -164,28 +155,20 @@ func (sample *Sample) GenerateErrorDistribution() error {
 	return nil
 }
 
-// 比对结果结构
-type SampleAlignment struct {
-	SampleName     string
-	ReferenceSeq   string
-	ReferenceLen   int
-	PositionStats  []PositionStat
-	Summary        *AlignmentSummary
-	BamFile        string
-	BamIndex       string
-	ReadTypeCounts map[ReadType]int // 新增：记录各种类型的reads个数
-}
-
 // 比对汇总
 type AlignmentSummary struct {
-	TotalReads       int64
-	MappedReads      int64
+	TotalReads  int64
+	MappedReads int64
+
 	MappingRate      float64
 	AverageCoverage  float64
 	AverageIdentity  float64
-	SynthesisSuccess float64          // 合成成功率
-	ErrorPositions   []int            // 高错误率位置
-	ReadTypeCounts   map[ReadType]int // 新增
+	SynthesisSuccess float64 // 合成成功率
+	ErrorPositions   []int   // 高错误率位置
+
+	ReadTypeCounts map[ReadType]int // 新增
+
+	PositionStats []PositionStat
 }
 
 // 位置统计结构

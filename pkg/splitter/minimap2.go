@@ -83,8 +83,8 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 
 		slog.Debug("比对完成",
 			"样本", result.Name,
-			"映射读数", result.AlignmentResult.Summary.MappedReads,
-			"映射率", result.AlignmentResult.Summary.MappingRate)
+			"映射读数", result.AlignmentResult.MappedReads,
+			"映射率", result.AlignmentResult.MappingRate)
 	}
 
 	if successful < total {

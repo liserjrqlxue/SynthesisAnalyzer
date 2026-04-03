@@ -53,7 +53,7 @@ type MutationStats struct {
 
 	TotalReadCount     int // 所有样本的总reads数
 	TotalAlignedReads  int // 所有样本的比对reads数
-	TotalReadsWithMuts int // 所有样本的包含突变reads数的和
+	TotalReadsWithMuts int // 所有样本的包含替换突变reads数的和
 	// 新增：汇总的reads维度变异统计
 	TotalInsertReads       int
 	TotalDeleteReads       int

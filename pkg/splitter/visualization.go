@@ -337,7 +337,7 @@ func (a *AlignmentAnalyzer) generateQCReport() error {
 			continue
 		}
 
-		successRate := sample.AlignmentResult.Summary.SynthesisSuccess
+		successRate := sample.AlignmentResult.SynthesisSuccess
 		quality := ""
 
 		if successRate > 95 {

@@ -403,7 +403,9 @@ func (s *EnhancedSplitter) processEachFileSeparately() error {
 	}
 
 	// 打印每个样品的统计
-	// s.printPerSampleStats()
+	if s.Config.LogLevel == "debug" {
+		s.printPerSampleStats()
+	}
 
 	return nil
 }

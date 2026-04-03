@@ -86,8 +86,8 @@ func (s *EnhancedSplitter) getAverageCoverage() float64 {
 	totalCoverage := 0.0
 	count := 0
 	for _, sample := range s.Samples {
-		if sample.AlignmentResult != nil && sample.AlignmentResult.Summary != nil {
-			totalCoverage += sample.AlignmentResult.Summary.AverageCoverage
+		if sample.AlignmentResult != nil {
+			totalCoverage += sample.AlignmentResult.AverageCoverage
 			count++
 		}
 	}
@@ -101,8 +101,8 @@ func (s *EnhancedSplitter) getAverageSuccessRate() float64 {
 	totalSuccess := 0.0
 	count := 0
 	for _, sample := range s.Samples {
-		if sample.AlignmentResult != nil && sample.AlignmentResult.Summary != nil {
-			totalSuccess += sample.AlignmentResult.Summary.SynthesisSuccess
+		if sample.AlignmentResult != nil {
+			totalSuccess += sample.AlignmentResult.SynthesisSuccess
 			count++
 		}
 	}

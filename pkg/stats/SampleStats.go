@@ -21,6 +21,8 @@ type SampleStats struct {
 
 	PositionMutations map[string]int            // position:mutation -> count
 	PositionDetails   map[string]map[string]int // position -> mutation -> count
+	// 新增：位置统计信息 1-based
+	PositionStats map[int]*PositionDetail
 
 	ReadTypeCounts    map[cfg.ReadType]int // read type -> count
 	SubstitutionCount map[string]int       // mutation -> count
@@ -31,18 +33,18 @@ type SampleStats struct {
 	DeleteLengthDist     map[int]int    // 缺失长度 -> count
 	DeletePositionCounts map[string]int // "位置:碱基" -> count
 
-	ReadCounts   int // 总reads数
-	AlignedReads int // 比对上的reads数
+	ReadCounts       int // 总reads数
+	AlignedReads     int // 比对上的reads数
+	GoodAlignedReads int // 比对良好reads数（替换个数 <= 阈值）
+	AlignedBases     int // 样本所有比对read的总参考覆盖碱基数
 
 	// 新增：reads维度的变异统计
 	InsertReads       int // 包含插入的reads数
 	DeleteReads       int // 包含缺失的reads数
 	SubstitutionReads int // 包含替换的reads数
-	// ReadsWithMutations int // 包含突变的reads数
-
-	TotalSubstitution int //总突变数
 
 	// 新增：变异事件个数维度
+	TotalEventCount        int //总突变数
 	InsertEventCount       int // 插入事件个数（多条插入算多个）
 	DeleteEventCount       int // 缺失事件个数（多条缺失算多个）
 	SubstitutionEventCount int // 替换事件个数（多条替换算多个）
@@ -52,18 +54,16 @@ type SampleStats struct {
 	DeleteBaseTotal       int // 缺失碱基总数（所有缺失长度的累加）
 	SubstitutionBaseTotal int // 替换碱基总数（替换个数）
 
+	// 新增：Del1缺失碱基分布
+	Del1BaseCounts map[byte]int // 缺失碱基 -> 事件数（注意：事件数即缺失个数）
 	// 新增：缺失细分类统计（三个维度）
 	DeleteSubtypeReads  map[cfg.DeletionSubtype]int // 包含该细分类缺失的reads数
 	DeleteSubtypeEvents map[cfg.DeletionSubtype]int // 该细分类缺失事件总数
 	DeleteSubtypeBases  map[cfg.DeletionSubtype]int // 该细分类缺失碱基总数
-	// 新增：Del1缺失碱基分布
-	Del1BaseCounts map[byte]int // 缺失碱基 -> 事件数（注意：事件数即缺失个数）
-
 	// 新增：插入细分类统计
 	InsertSubtypeReads  map[InsertionSubtype]int
 	InsertSubtypeEvents map[InsertionSubtype]int
 	InsertSubtypeBases  map[InsertionSubtype]int
-
 	// 新增：替换细分类统计
 	SubstitutionSubtypeReads  map[SubstitutionSubtype]int
 	SubstitutionSubtypeEvents map[SubstitutionSubtype]int
@@ -72,15 +72,10 @@ type SampleStats struct {
 	// 新增：细分类组合统计（reads维度）
 	SubtypeCombinationCounts map[string]int // 组合键 -> reads数
 
-	// RefSeqFull         string       // 完整的原始参考序列 -> 从Sample中获取
-	// RefLength          int          // 参考序列全长 -> 从Sample中获取
-	// HeadCut            int          // 头切除长度（默认或Excel指定） -> 从Sample中获取
-	// TailCut            int          // 尾切除长度（默认或Excel指定） -> 从Sample中获取
 	RefACGTCounts      map[byte]int // 切除头尾后参考序列中A、C、G、T的计数
 	RefLengthAfterTrim int          // 切除头尾后的参考长度
 
 	SubstitutionCountDist map[int]int // 替换个数 -> 该个数的reads数
-	GoodAlignedReads      int         // 比对良好reads数（替换个数 <= 阈值）
 
 	// 新增：Del3 缺失前一个碱基分布
 	Del3PrevBaseCounts map[byte]int
@@ -88,10 +83,6 @@ type SampleStats struct {
 	Del3FirstBaseCounts     map[byte]int
 	Del3PrevFirstCombCounts map[string]int // 组合计数，键如 "AC"
 
-	// 新增：位置统计信息 1-based
-	PositionStats map[int]*PositionDetail
-
-	AlignedBases int // 样本所有比对read的总参考覆盖碱基数
 }
 
 // NewSampleStats 创建新的样本统计对象
@@ -285,7 +276,7 @@ func (sampleStats *SampleStats) ProcessBAMFile(ctx context.Context, NMerSize, Ma
 	}
 
 	// 更新样本统计 - 无需加锁，因为每个样本只对应一个BAM文件
-	sampleStats.TotalSubstitution = sampleStats.SubstitutionEventCount // + sampleStats.InsertEventCount + sampleStats.DeleteEventCount
+	sampleStats.TotalEventCount = sampleStats.SubstitutionEventCount + sampleStats.InsertEventCount + sampleStats.DeleteEventCount
 	// 平滑连续碱基缺失分配
 	sampleStats.NormalizeDeletionsByContinuousBases()
 

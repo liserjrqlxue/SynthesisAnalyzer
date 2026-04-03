@@ -51,8 +51,7 @@ func (a *AlignmentAnalyzer) createReferenceFiles() error {
 		}
 
 		sample.ReferenceFile = refFile
-		sample.ReferenceSeq = sample.FullReference
-		sample.ReferenceLen = len(sample.FullReference)
+		sample.RefLength = len(sample.FullReference)
 
 		createdCount++
 
@@ -152,7 +151,7 @@ func (a *AlignmentAnalyzer) generateSummaryReport(reportDir string) error {
 			continue
 		}
 
-		summary := sample.AlignmentResult.Summary
+		summary := sample.AlignmentResult
 		errorPositions := ""
 		if len(summary.ErrorPositions) > 0 {
 			errorPositions = strings.Trim(strings.Join(strings.Fields(fmt.Sprint(summary.ErrorPositions)), ","), "[]")
@@ -160,7 +159,7 @@ func (a *AlignmentAnalyzer) generateSummaryReport(reportDir string) error {
 
 		record := []string{
 			sample.Name,
-			fmt.Sprintf("%d", sample.ReferenceLen),
+			fmt.Sprintf("%d", sample.RefLength),
 			fmt.Sprintf("%d", summary.TotalReads),
 			fmt.Sprintf("%d", summary.MappedReads),
 			fmt.Sprintf("%.3f", summary.MappingRate),

@@ -13,7 +13,7 @@ import (
 )
 
 // 分析BAM文件，统计合成成功率
-func analyzeBamFile(bamFile string, sample *cfg.Sample, mapQThreshold int) (*cfg.SampleAlignment, error) {
+func analyzeBamFile(bamFile string, sample *cfg.Sample, mapQThreshold int) (*cfg.AlignmentSummary, error) {
 	// 打开BAM文件
 	f, err := os.Open(bamFile)
 	if err != nil {
@@ -29,7 +29,7 @@ func analyzeBamFile(bamFile string, sample *cfg.Sample, mapQThreshold int) (*cfg
 	defer br.Close()
 
 	// 初始化位置统计
-	positionStats := make([]cfg.PositionStat, sample.ReferenceLen)
+	positionStats := make([]cfg.PositionStat, sample.RefLength)
 	for i := range positionStats {
 		positionStats[i].Position = i + 1 // 1-based position
 	}
@@ -106,12 +106,12 @@ func analyzeBamFile(bamFile string, sample *cfg.Sample, mapQThreshold int) (*cfg
 	}
 
 	// 计算平均覆盖度和identity
-	if sample.ReferenceLen > 0 {
+	if sample.RefLength > 0 {
 		totalCoverage := 0.0
 		for i := range positionStats {
 			totalCoverage += positionStats[i].Coverage
 		}
-		summary.AverageCoverage = totalCoverage / float64(sample.ReferenceLen)
+		summary.AverageCoverage = totalCoverage / float64(sample.RefLength)
 	}
 
 	if totalMatches+totalMismatches > 0 {
@@ -132,16 +132,9 @@ func analyzeBamFile(bamFile string, sample *cfg.Sample, mapQThreshold int) (*cfg
 		summary.SynthesisSuccess = float64(totalMatches) / float64(totalMatches+totalMismatches+totalErrors) * 100
 	}
 
-	return &cfg.SampleAlignment{
-		SampleName:     sample.Name,
-		ReferenceSeq:   sample.ReferenceSeq,
-		ReferenceLen:   sample.ReferenceLen,
-		PositionStats:  positionStats,
-		Summary:        summary,
-		BamFile:        bamFile,
-		BamIndex:       bamFile + ".bai",
-		ReadTypeCounts: readTypeCounts,
-	}, nil
+	summary.PositionStats = positionStats
+
+	return summary, nil
 }
 
 // 添加辅助函数，计算CIGAR操作消耗的序列长度

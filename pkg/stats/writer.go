@@ -150,18 +150,18 @@ func writeTotalMutationStats(stats *MutationStats, outputDir string) error {
 	}
 	sort.Strings(mutations)
 
-	// 获取所有样本的总reads数和包含突变reads数的和
-	totalReads := stats.TotalReadCount
-	totalReadsWithMuts := stats.TotalReadsWithMuts
-
 	for _, mut := range mutations {
 		count := stats.SubstitutionCount[mut]
 		fmt.Fprintf(writer, "%s,%d,%d,%d\n",
-			mut, count, totalReads, totalReadsWithMuts)
+			mut,
+			count,
+			stats.TotalReadCount,
+			stats.TotalReadsWithMuts,
+		)
 	}
 
 	writer.Flush()
-	fmt.Printf("总统计已写入: %s\n", filename)
+	fmt.Printf("总统计已写入:\t%s\n", filename)
 
 	return nil
 }
@@ -219,7 +219,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 			sampleStats.AlignedReads,
 			sampleStats.GoodAlignedReads,
 			sampleStats.SubstitutionReads,
-			sampleStats.TotalSubstitution,
+			sampleStats.SubstitutionEventCount,
 		)
 		for _, mut := range mutationTypes {
 			count := sampleStats.SubstitutionCount[mut]
@@ -404,7 +404,7 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	}
 
 	writer.Flush()
-	fmt.Printf("样本read类型统计已写入: %s\n", filename)
+	fmt.Printf("样本read类型统计已写入:\t%s\n", filename)
 
 	// 2. 汇总的read类型统计
 	filename = filepath.Join(outputDir, "read_type_summary.csv")
@@ -648,7 +648,7 @@ func writeReadTypeStats(stats *MutationStats, outputDir string) error {
 	}
 
 	writer.Flush()
-	fmt.Printf("汇总read类型统计已写入: %s\n", filename)
+	fmt.Printf("汇总read类型统计已写入:\t%s\n", filename)
 
 	return nil
 }
@@ -780,7 +780,7 @@ func writeDetailedStats(stats *MutationStats, outputDir string) error {
 		alignedReads := sampleStats.AlignedReads
 		readsWithMuts := sampleStats.SubstitutionReads
 		// 计算总突变数
-		totalMutations := sampleStats.TotalSubstitution
+		totalMutations := sampleStats.SubstitutionEventCount
 
 		alignmentRate := 0.0
 		mutationReadRate := 0.0
@@ -906,7 +906,7 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 		totalSubstitutionRate, totalInsertionRate, totalDeletionRate))
 
 	writer.Flush()
-	fmt.Printf("碱基维度变异统计已写入: %s\n", filename)
+	fmt.Printf("碱基维度变异统计已写入:\t%s\n", filename)
 
 	// 2. 单碱基缺失统计
 	filename = filepath.Join(outputDir, "single_base_deletion_stats.csv")
@@ -958,7 +958,7 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 	}
 
 	writer.Flush()
-	fmt.Printf("单碱基缺失统计已写入: %s\n", filename)
+	fmt.Printf("单碱基缺失统计已写入:\t%s\n", filename)
 
 	// 3. 插入序列统计
 	filename = filepath.Join(outputDir, "insertion_sequence_stats.csv")
@@ -1021,7 +1021,7 @@ func writeBaseMutationStats(stats *MutationStats, outputDir string) error {
 	}
 
 	writer.Flush()
-	fmt.Printf("插入序列统计已写入: %s\n", filename)
+	fmt.Printf("插入序列统计已写入:\t%s\n", filename)
 
 	return nil
 }
@@ -1168,7 +1168,7 @@ func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 	}
 
 	writer.Flush()
-	fmt.Printf("汇总缺失位置统计已写入: %s\n", filename)
+	fmt.Printf("汇总缺失位置统计已写入:\t%s\n", filename)
 
 	// 3. 缺失位置热力图数据
 	filename = filepath.Join(outputDir, "deletion_position_heatmap.csv")
@@ -1582,7 +1582,7 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 	}
 
 	writer.Flush()
-	fmt.Printf("细分类统计已写入: %s\n", filename)
+	fmt.Printf("细分类统计已写入:\t%s\n", filename)
 
 	// 2. 细分类组合统计
 	filename = filepath.Join(outputDir, "read_subtype_combinations.csv")
@@ -1614,7 +1614,7 @@ func writeReadSubtypeStats(stats *MutationStats, outputDir string) error {
 	}
 
 	writer.Flush()
-	fmt.Printf("细分类组合统计已写入: %s\n", filename)
+	fmt.Printf("细分类组合统计已写入:\t%s\n", filename)
 
 	return nil
 }
@@ -2003,6 +2003,6 @@ func writeSubstitutionStats(stats *MutationStats, outputDir string) error {
 	}
 
 	writer.Flush()
-	fmt.Printf("替换突变统计已写入: %s\n", filename)
+	fmt.Printf("替换突变统计已写入:\t%s\n", filename)
 	return nil
 }
