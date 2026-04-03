@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -141,6 +142,11 @@ func (s *EnhancedSplitter) RunAlignment() error {
 	if err := analyzer.runAlignment(); err != nil {
 		return fmt.Errorf("比对失败: %v", err)
 	}
+
+	slog.Info("开始生成统计文件...")
+	analyzer.MutationStats.SortSampleNames()
+	analyzer.MutationStats.MainWrite()
+	analyzer.MutationStats.MainPrint()
 
 	// 步骤3: 生成报告
 	if err := analyzer.generateAlignmentReport(); err != nil {

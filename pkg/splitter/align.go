@@ -12,12 +12,14 @@ import (
 	"sync"
 
 	"SynthesisAnalyzer/pkg/cfg"
+	"SynthesisAnalyzer/pkg/stats"
 )
 
 // 比对分析器
 type AlignmentAnalyzer struct {
 	*cfg.BatchSample
-	Config *cfg.Config // 配置信息
+	Config        *cfg.Config          // 配置信息
+	MutationStats *stats.MutationStats // 比对结果统计
 }
 
 // 为每个样品创建参考序列文件
@@ -223,6 +225,7 @@ func (a *AlignmentAnalyzer) runContaminationAlignment(mergedRefFile string) (map
 			slog.Warn("拆分文件不存在，跳过\n", "Name", sample.Name, "path", inputFile)
 			continue
 		}
+		singleThread := max(a.Config.Threads/len(a.Samples), 1)
 
 		wg.Add(1)
 		sem <- struct{}{}
@@ -235,7 +238,7 @@ func (a *AlignmentAnalyzer) runContaminationAlignment(mergedRefFile string) (map
 			}()
 
 			// 使用通用比对方法进行污染检测比对
-			bamFile, err := AlignSampleWithParams(s.OutputDir, mergedRefFile, "contamination", max(a.Config.Threads/len(a.Samples), 1))
+			bamFile, err := AlignSampleWithParams(inputFile, mergedRefFile, filepath.Join(s.OutputDir, "contamination"), singleThread)
 			if err != nil {
 				slog.Error("污染检测比对失败", "样本", s.Name, "err", err)
 			}

@@ -104,10 +104,3 @@ type readErrorFlags struct {
 	hasInsertion bool
 	hasDeletion  bool
 }
-
-// 比对结果结构
-type AlignmentResult struct {
-	Sample    *cfg.Sample
-	Alignment *cfg.SampleAlignment
-	Error     error
-}

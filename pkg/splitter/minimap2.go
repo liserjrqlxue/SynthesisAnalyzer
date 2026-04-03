@@ -2,16 +2,19 @@ package splitter
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"sync"
 	"time"
 
 	"SynthesisAnalyzer/pkg/cfg"
+	"SynthesisAnalyzer/pkg/stats"
+
+	"golang.org/x/sync/errgroup"
 )
 
 // 使用minimap2进行比对
@@ -28,52 +31,47 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 		fmt.Printf("比对完成: %d 个样本, %d 个成功, %d 个失败\n", total, successful, failed)
 		fmt.Printf("总耗时: %v\n", time.Since(startTime))
 	}()
+	a.MutationStats = stats.NewMutationStats()
+	a.MutationStats.BatchInfo = new(cfg.BatchInfo{
+		Config:      a.Config,
+		BatchSample: a.BatchSample,
+	})
 
 	// 并行处理每个样品
-	var wg sync.WaitGroup
 	sem := make(chan struct{}, a.Config.Threads)
 	singleThread := max(a.Config.Threads/total, 1)
+	g, ctx := errgroup.WithContext(context.Background())
 
-	results := make(chan *AlignmentResult, total)
+	for i := range a.Samples {
+		sample := a.Samples[i]
+		sampleStats := a.MutationStats.GetOrCreateSampleStats(sample)
 
-	for _, sample := range a.Samples {
-		// 检查输入文件是否存在
-		inputFile := filepath.Join(sample.OutputDir, "target_only_reads.fastq.gz")
-		if _, err := os.Stat(inputFile); os.IsNotExist(err) {
-			fmt.Printf("  警告: 样本 %s 的输入文件不存在，跳过\n", sample.Name)
-			continue
-		}
-
-		// 检查参考序列文件
-		if sample.ReferenceFile == "" {
-			fmt.Printf("  警告: 样本 %s 没有参考序列文件，跳过\n", sample.Name)
-			continue
-		}
-
-		wg.Add(1)
-		sem <- struct{}{}
-
-		go func(s *cfg.Sample) {
-			defer func() {
-				<-sem
-				wg.Done()
-			}()
-
-			result := alignSample(s, singleThread, a.Config.Alignment.MapQThreshold)
-			if result.Error != nil {
-				slog.Error("比对失败", "样本", s.Name, "err", result.Error)
+		g.Go(func() error {
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return ctx.Err()
 			}
-			results <- result
-		}(sample)
+			err := alignSample(sample, singleThread, a.Config.Alignment.MapQThreshold)
+			if err != nil {
+				return err
+			}
+			err = sampleStats.ProcessBAMFile(ctx, a.Config.NMerSize, a.Config.MaxSubstitutions)
+			if err != nil {
+				return err
+			}
+			a.MutationStats.UpdateStatsFromSampleStats(sampleStats)
+			return nil
+		})
 	}
 
-	// 等待所有比对完成
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
+	err := g.Wait()
+	if err != nil {
+		return err
+	}
 
-	for result := range results {
+	for _, result := range a.Samples {
 		if result.Error != nil {
 			failed++
 			continue
@@ -82,13 +80,11 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 		successful++
 
 		// 更新样品信息
-		result.Sample.AlignmentResult = result.Alignment
-		result.Sample.PositionStats = result.Alignment.PositionStats
 
 		slog.Debug("比对完成",
-			"样本", result.Sample.Name,
-			"映射读数", result.Alignment.Summary.MappedReads,
-			"映射率", result.Alignment.Summary.MappingRate)
+			"样本", result.Name,
+			"映射读数", result.AlignmentResult.Summary.MappedReads,
+			"映射率", result.AlignmentResult.Summary.MappingRate)
 	}
 
 	if successful < total {
@@ -99,40 +95,48 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 }
 
 // 单个样品的比对
-func alignSample(sample *cfg.Sample, threads, mapQThreshold int) *AlignmentResult {
-	var result = &AlignmentResult{Sample: sample}
+func alignSample(sample *cfg.Sample, threads, mapQThreshold int) error {
+	// 检查输入文件是否存在
+	inputFile := filepath.Join(sample.OutputDir, "target_only_reads.fastq.gz")
+	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
+		return fmt.Errorf("样本 %s 的输入文件不存在", sample.Name)
+	}
+
+	// 检查参考序列文件
+	if sample.ReferenceFile == "" {
+		return fmt.Errorf("样本 %s 没有参考序列文件", sample.Name)
+	}
+
 	// 调用通用的比对方法
 	bamFile, err := AlignSampleWithParams(
-		sample.OutputDir,
+		inputFile,
 		sample.ReferenceFile,
-		sample.Name,
+		filepath.Join(sample.OutputDir, sample.Name),
 		threads,
 	)
 	sample.BamFile = bamFile
 	if err != nil {
-		result.Error = err
-		return result
+		sample.Error = fmt.Errorf("比对失败: %w", err)
+		return sample.Error
 	}
 
 	// 分析比对结果
 	alignment, err := analyzeBamFile(bamFile, sample, mapQThreshold)
-	result.Error = err
-	result.Alignment = alignment
-	return result
+	sample.AlignmentResult = alignment
+	if err != nil {
+		sample.Error = fmt.Errorf("分析BAM失败: %w", err)
+		return sample.Error
+	}
+
+	return nil
 }
 
-func AlignSampleWithParams(workDir, referenceFile, outputPrefix string, threads int) (string, error) {
+func AlignSampleWithParams(inputFile, referenceFile, outputPrefix string, threads int) (string, error) {
 	var (
-		fastqFile = filepath.Join(workDir, "target_only_reads.fastq.gz")
-
-		samFile  = filepath.Join(workDir, fmt.Sprintf("%s.sam", outputPrefix))
-		bamFile  = filepath.Join(workDir, fmt.Sprintf("%s.sorted.bam", outputPrefix))
+		samFile  = outputPrefix + ".sam"
+		bamFile  = outputPrefix + ".sorted.bam"
 		doneFile = bamFile + ".done"
 	)
-	// 创建样品特定的输出目录
-	if err := os.MkdirAll(workDir, 0755); err != nil {
-		return "", fmt.Errorf("创建比对目录失败: %v", err)
-	}
 
 	// 检查是否已完成比对
 	if _, err := os.Stat(doneFile); err == nil {
@@ -144,8 +148,8 @@ func AlignSampleWithParams(workDir, referenceFile, outputPrefix string, threads 
 	}
 
 	// 检查输入文件是否存在
-	if _, err := os.Stat(fastqFile); os.IsNotExist(err) {
-		return "", fmt.Errorf("输入文件不存在: %s", fastqFile)
+	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
+		return "", fmt.Errorf("输入文件不存在: %s", inputFile)
 	}
 
 	// 1. 运行minimap2
@@ -160,7 +164,7 @@ func AlignSampleWithParams(workDir, referenceFile, outputPrefix string, threads 
 		"--secondary=no", // 不输出secondary比对
 		"-o", samFile,
 		referenceFile,
-		fastqFile,
+		inputFile,
 	)
 
 	var stderr bytes.Buffer

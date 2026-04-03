@@ -59,7 +59,8 @@ type Sample struct {
 	ReferenceSeq    string           // 完整参考序列
 	ReferenceLen    int              // 参考序列长度
 	AlignmentResult *SampleAlignment // 比对结果
-	PositionStats   []PositionStat   // 位置统计信息
+	// PositionStats   []PositionStat   // 位置统计信息
+	Error error // 比对错误信息
 }
 
 // 生成位置详细统计
