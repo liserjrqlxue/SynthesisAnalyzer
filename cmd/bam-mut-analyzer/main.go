@@ -15,20 +15,22 @@ import (
 func parseFlags() *cfg.Config {
 	config := &cfg.Config{}
 
-	// 计算默认最大线程数: max(8, CPU个数/8)
-	defaultMaxThreads := max(runtime.NumCPU()/8, 8)
+	defaultThreads := max(8, runtime.NumCPU()/2)
+
+	flag.StringVar(&config.ExcelFile, "i", "", "可选参数：输入Excel文件，包含样本顺序")
+	flag.StringVar(&config.InputSheet, "s", "Sheet1", "输入Sheet名称，默认Sheet1")
+	flag.StringVar(&config.SampleNameSuffix, "suffix-col", "", "可选参数：样品名称后缀列，若指定则将该列值拼接到样品名称后")
+	flag.StringVar(&config.OutputDir, "o", "", "输出目录，默认输入目录,写入子目录下:"+cfg.DefaultMutationStatsDir)
+
+	flag.StringVar(&config.LogLevel, "log-level", "info", "日志级别 (debug, info, warn, error)")
+	flag.IntVar(&config.Threads, "max-threads", defaultThreads, "最大线程数，默认值为max(8, CPU个数/8)")
 
 	flag.StringVar(&config.InputDir, "d", "", "输入目录，包含样本子目录")
-	flag.StringVar(&config.InputSheet, "s", "Sheet1", "输入Sheet名称，默认Sheet1")
-	flag.StringVar(&config.OutputDir, "o", "", "输出目录，默认输入目录,写入子目录下:"+cfg.DefaultMutationStatsDir)
-	flag.StringVar(&config.ExcelFile, "i", "", "可选参数：输入Excel文件，包含样本顺序")
-	flag.StringVar(&config.SampleNameSuffix, "suffix-col", "", "可选参数：样品名称后缀列，若指定则将该列值拼接到样品名称后")
+
 	flag.IntVar(&config.HeadCut, "head", 27, "头切除长度")
 	flag.IntVar(&config.TailCut, "tail", 20, "尾切除长度")
 	flag.IntVar(&config.MaxSubstitutions, "max-sub", 5, "最大替换个数阈值，用于定义比对良好reads")
 	flag.IntVar(&config.NMerSize, "n", 4, "N-mer 统计的 N 值（默认4，即统计5-mer准确率）")
-	flag.StringVar(&config.LogLevel, "log-level", "info", "日志级别 (debug, info, warn, error)")
-	flag.IntVar(&config.Threads, "max-threads", defaultMaxThreads, "最大线程数，默认值为max(8, CPU个数/8)")
 
 	flag.Parse()
 
@@ -88,7 +90,9 @@ func run(config *cfg.Config) error {
 
 	slog.Info("开始生成统计文件...")
 	mutationStats.SortSampleNames()
-	mutationStats.MainWrite()
+	if err := mutationStats.MainWrite(); err != nil {
+		return fmt.Errorf("写入统计文件失败: %w", err)
+	}
 	mutationStats.MainPrint()
 
 	return nil

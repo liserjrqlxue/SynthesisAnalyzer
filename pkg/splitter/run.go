@@ -145,7 +145,9 @@ func (s *EnhancedSplitter) RunAlignment() error {
 
 	slog.Info("开始生成统计文件...")
 	analyzer.MutationStats.SortSampleNames()
-	analyzer.MutationStats.MainWrite()
+	if err := analyzer.MutationStats.MainWrite(); err != nil {
+		return fmt.Errorf("写入统计文件失败: %v", err)
+	}
 	analyzer.MutationStats.MainPrint()
 
 	// 步骤3: 生成报告

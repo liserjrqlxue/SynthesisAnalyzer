@@ -148,21 +148,26 @@ func printUsage() {
 func parseFlags() *cfg.Config {
 	config := &cfg.Config{}
 
+	defaultThreads := max(8, runtime.NumCPU()/2)
+
 	flag.StringVar(&config.ExcelFile, "i", "", "<Excel文件> (必需)")
 	flag.StringVar(&config.InputSheet, "s", "Sheet1", "输入Sheet名称，默认Sheet1")
-	flag.StringVar(&config.OutputDir, "o", "", "[输出目录] 默认为Excel文件名去.xlsx")
-	flag.StringVar(&config.FastqDir, "fq", "", "[Fastq目录]")
 	flag.StringVar(&config.SampleNameSuffix, "suffix-col", "", "可选：样品名称后缀列，若指定则将该列值拼接到样品名称后")
+	flag.StringVar(&config.OutputDir, "o", "", "[输出目录] 默认为Excel文件名去.xlsx")
+
+	flag.StringVar(&config.LogLevel, "log-level", "info", "日志级别: debug,info,warn,error")
+	flag.IntVar(&config.Threads, "threads", defaultThreads, "线程数，默认CPU核心数的一半")
+
+	flag.StringVar(&config.FastqDir, "fq", "", "[Fastq目录]")
+
+	flag.BoolVar(&config.ContaminationDetection, "contamination-detection", false, "启用交叉污染检测")
 
 	// the minimum length to detect overlapped region of PE reads. This will affect overlap analysis based PE merge, adapter trimming and correction. 3
 	flag.IntVar(&config.OverlapLenRequire, "m", 30, "PE reads重叠区最小长度")
-
-	flag.StringVar(&config.LogLevel, "log-level", "info", "日志级别: debug,info,warn,error")
-
-	defaultThreads := max(1, runtime.NumCPU()/2)
-	flag.IntVar(&config.Threads, "threads", defaultThreads, "线程数，默认CPU核心数的一半")
-
-	flag.BoolVar(&config.ContaminationDetection, "contamination-detection", false, "启用交叉污染检测")
+	flag.IntVar(&config.HeadCut, "head", 27, "头切除长度")
+	flag.IntVar(&config.TailCut, "tail", 20, "尾切除长度")
+	flag.IntVar(&config.MaxSubstitutions, "max-sub", 5, "最大替换个数阈值，用于定义比对良好reads")
+	flag.IntVar(&config.NMerSize, "n", 4, "N-mer 统计的 N 值（默认4，即统计5-mer准确率）")
 
 	flag.Parse()
 

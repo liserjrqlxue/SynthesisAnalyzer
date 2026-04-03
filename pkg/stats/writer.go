@@ -1263,64 +1263,70 @@ func extractPosition(posKey string) int {
 	return 0
 }
 
-func (stats *MutationStats) MainWrite() {
+func (stats *MutationStats) MainWrite() error {
 	outputDir := filepath.Join(stats.BatchInfo.Config.OutputDir, cfg.DefaultMutationStatsDir)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("创建输出目录失败: %v", err)
+	}
 	// 写入各bam各位置各碱基变化组合的个数分布统计
 	if err := writePositionStats(stats, outputDir); err != nil {
-		fmt.Printf("写入位置统计失败: %v\n", err)
+		return fmt.Errorf("写入位置统计失败: %v", err)
 	}
 
 	// 写入各bam各碱基变化组合的分布
 	if err := writeSampleMutationStats(stats, outputDir); err != nil {
-		fmt.Printf("写入样本突变统计失败: %v\n", err)
+		return fmt.Errorf("写入样本突变统计失败: %v", err)
 	}
 
 	// 写入总碱基变化组合的分布
 	if err := writeTotalMutationStats(stats, outputDir); err != nil {
-		fmt.Printf("写入总突变统计失败: %v\n", err)
+		return fmt.Errorf("写入总突变统计失败: %v", err)
 	}
 
 	// 写入read类型统计
 	if err := writeReadTypeStats(stats, outputDir); err != nil {
-		fmt.Printf("写入read类型统计失败: %v\n", err)
+		return fmt.Errorf("写入read类型统计失败: %v", err)
 	}
 	// 写入汇总报告
 	if err := writeSummaryReport(stats, outputDir); err != nil {
-		fmt.Printf("写入汇总报告失败: %v\n", err)
+		return fmt.Errorf("写入汇总报告失败: %v", err)
 	}
 
 	// 新增：写入详细统计
 	if err := writeDetailedStats(stats, outputDir); err != nil {
-		fmt.Printf("写入详细统计失败: %v\n", err)
+		return fmt.Errorf("写入详细统计失败: %v", err)
 	}
 
 	// 新增：写入碱基维度统计
 	if err := writeBaseMutationStats(stats, outputDir); err != nil {
-		fmt.Printf("写入碱基维度统计失败: %v\n", err)
+		return fmt.Errorf("写入碱基维度统计失败: %v", err)
+
 	}
 
 	// 新增：写入缺失位置统计
 	if err := writeDeletionPositionStats(stats, outputDir); err != nil {
-		fmt.Printf("写入缺失位置统计失败: %v\n", err)
+		return fmt.Errorf("写入缺失位置统计失败: %v", err)
 	}
 
 	// 新增：细分类统计输出
 	if err := writeReadSubtypeStats(stats, outputDir); err != nil {
-		fmt.Printf("写入细分类统计失败: %v\n", err)
+		return fmt.Errorf("写入细分类统计失败: %v", err)
 	}
 
 	// 新增：样品-位置详细统计
 	if err := writePositionDetailedStats(stats, outputDir); err != nil {
-		fmt.Printf("写入位置详细统计失败: %v\n", err)
+		return fmt.Errorf("写入位置详细统计失败: %v", err)
 	}
 
 	if err := writeNMerStats(stats, outputDir); err != nil {
-		fmt.Printf("写入 N-mer 统计失败: %v\n", err)
+		return fmt.Errorf("写入 N-mer 统计失败: %v", err)
 	}
 
 	if err := writeSubstitutionStats(stats, outputDir); err != nil {
-		fmt.Printf("写入替换突变统计失败: %v\n", err)
+		return fmt.Errorf("写入替换突变统计失败: %v", err)
 	}
+
+	return nil
 }
 
 func (stats *MutationStats) MainPrint() {
