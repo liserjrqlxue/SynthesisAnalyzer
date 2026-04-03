@@ -58,7 +58,6 @@ type Config struct {
 
 	// 运行选项
 	SkipExisting  bool // 是否跳过已存在的文件
-	Compression   bool // 是否压缩输出
 	CompressLevel int  // 压缩级别 1-9，默认6
 	CleanupTemp   bool // 是否清理临时文件
 
@@ -176,9 +175,9 @@ func readExcel(excelFile, sheetName, sampleNameSuffix string) ([]*Sample, error)
 		}
 
 		// 确保行有足够的列
-		if len(row) < len(rows[0]) {
-			continue // 跳过不完整的行
-		}
+		// if len(row) < len(rows[0]) {
+		// continue // 跳过不完整的行
+		// }
 
 		sampleName := row[headerMap["样品名称"]]
 		targetSeq := strings.ToUpper(row[headerMap["靶标序列"]])

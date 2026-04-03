@@ -16,49 +16,6 @@ import (
 	"SynthesisAnalyzer/pkg/splitter"
 )
 
-var (
-	excelFile = flag.String(
-		"i",
-		"",
-		"<Excel文件>",
-	)
-	outputDir = flag.String(
-		"o",
-		"",
-		"[输出目录]",
-	)
-	fastqDir = flag.String(
-		"fq",
-		"",
-		"[Fastq目录]",
-	)
-	suffixCol = flag.String(
-		"suffix-col",
-		"",
-		"可选参数：样品名称后缀列，若指定则将该列值拼接到样品名称后",
-	)
-	overlap = flag.Int(
-		"m",
-		30,
-		"the minimum length to detect overlapped region of PE reads. This will affect overlap analysis based PE merge, adapter trimming and correction. 3",
-	)
-	contaminationDetection = flag.Bool(
-		"contamination-detection",
-		false,
-		"启用交叉污染检测功能",
-	)
-	logLevel = flag.String(
-		"log-level",
-		"info",
-		"日志级别: debug, info, warn, error",
-	)
-	threads = flag.Int(
-		"threads",
-		runtime.NumCPU()/2,
-		"设置线程数，默认CPU核心数的一半",
-	)
-)
-
 // 处理fastq目录
 func processFastqDir(fastqDir, excelFile string) (string, error) {
 	if fastqDir != "" {
@@ -105,64 +62,46 @@ func processFastqDir(fastqDir, excelFile string) (string, error) {
 }
 
 func main() {
-	flag.Parse()
-	if *excelFile == "" {
-		flag.Usage()
-		log.Fatalln("-i required!")
-	}
+	// 解析命令行参数
+	config := parseFlags()
 
-	// 处理输出目录
-	output := *outputDir
-	if output == "" {
+	// 先设置日志，以便后续错误也能输出
+	config.SetLogLevel()
+
+	// 后处理逻辑：OutputDir 默认值等
+	if config.OutputDir == "" {
 		// 如果-o未定义，使用-i 切掉".xlsx"作为输出目录
-		baseName := filepath.Base(*excelFile)
+		baseName := filepath.Base(config.ExcelFile)
 		if before, ok := strings.CutSuffix(baseName, ".xlsx"); ok {
-			output = before
+			config.OutputDir = before
 		} else {
-			output = baseName
+			config.OutputDir = baseName
 		}
 	}
 
 	// 处理fastq目录
-	fastq, err := processFastqDir(*fastqDir, *excelFile)
+	fastq, err := processFastqDir(config.FastqDir, config.ExcelFile)
 	if err != nil {
 		log.Fatalf("处理fastq目录失败: %v", err)
 	}
+	config.FastqDir = fastq
 
-	// 创建配置
-	config := &cfg.Config{
-		LogLevel:         *logLevel,
-		ExcelFile:        *excelFile,
-		OutputDir:        output,
-		FastqDir:         fastq,
-		Threads:          *threads,
-		SampleNameSuffix: *suffixCol,
-		SearchWindow:     200, // 从头/尾搜索50bp
-		Quality:          20,
-		MergeLen:         80,
-
-		UseRC:         true, // 启用反向互补匹配
-		SkipExisting:  true, // 默认跳过已存在文件
-		Compression:   true, // 默认启用压缩
-		CompressLevel: 6,    // 默认压缩级别
-		CleanupTemp:   true, // 不保留临时文件
-
-		AllowMismatch:  0,             // 允许2个错配
-		MatchThreshold: 30,            // 匹配分数阈值
-		OutputMode:     "target-only", // 只输出靶标间序列
-
-		Alignment: cfg.AlignmentConfig{
-			UseMinimap2:   true,
-			MapQThreshold: 10,
-			MinIdentity:   0.90,
-		},
-
-		ContaminationDetection: *contaminationDetection,
-		OverlapLenRequire:      *overlap,
+	// 补充固定默认值
+	config.UseRC = true // 启用反向互补匹配
+	config.Quality = 20
+	config.MergeLen = 80
+	config.SearchWindow = 200         // 从头/尾搜索200bp
+	config.SkipExisting = true        // 默认跳过已存在文件
+	config.CompressLevel = 6          // 默认压缩级别
+	config.CleanupTemp = true         // 不保留临时文件
+	config.AllowMismatch = 0          // 允许2个错配
+	config.MatchThreshold = 30        // 匹配分数阈值
+	config.OutputMode = "target-only" // 只输出靶标间序列
+	config.Alignment = cfg.AlignmentConfig{
+		UseMinimap2:   true,
+		MapQThreshold: 10,
+		MinIdentity:   0.90,
 	}
-
-	// 设置日志级别
-	config.SetLogLevel()
 
 	// 创建处理器
 	splitter := splitter.NewEnhancedSplitter(config)
@@ -203,4 +142,34 @@ func printUsage() {
   - minimap2: 用于序列比对
   - samtools: 用于BAM文件处理
   - R: 用于统计绘图（可选）`)
+}
+
+// parseFlags 解析命令行参数，返回配置对象
+func parseFlags() *cfg.Config {
+	config := &cfg.Config{}
+
+	flag.StringVar(&config.ExcelFile, "i", "", "<Excel文件> (必需)")
+	flag.StringVar(&config.InputSheet, "s", "Sheet1", "输入Sheet名称，默认Sheet1")
+	flag.StringVar(&config.OutputDir, "o", "", "[输出目录] 默认为Excel文件名去.xlsx")
+	flag.StringVar(&config.FastqDir, "fq", "", "[Fastq目录]")
+	flag.StringVar(&config.SampleNameSuffix, "suffix-col", "", "可选：样品名称后缀列，若指定则将该列值拼接到样品名称后")
+
+	// the minimum length to detect overlapped region of PE reads. This will affect overlap analysis based PE merge, adapter trimming and correction. 3
+	flag.IntVar(&config.OverlapLenRequire, "m", 30, "PE reads重叠区最小长度")
+
+	flag.StringVar(&config.LogLevel, "log-level", "info", "日志级别: debug,info,warn,error")
+
+	defaultThreads := max(1, runtime.NumCPU()/2)
+	flag.IntVar(&config.Threads, "threads", defaultThreads, "线程数，默认CPU核心数的一半")
+
+	flag.BoolVar(&config.ContaminationDetection, "contamination-detection", false, "启用交叉污染检测")
+
+	flag.Parse()
+
+	// 必需参数校验
+	if config.ExcelFile == "" {
+		flag.Usage()
+		log.Fatalf("-i 参数必需！: [%+v]	", config)
+	}
+	return config
 }

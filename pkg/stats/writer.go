@@ -1264,7 +1264,7 @@ func extractPosition(posKey string) int {
 }
 
 func (stats *MutationStats) MainWrite() {
-	outputDir := stats.BatchInfo.Config.OutputDir
+	outputDir := filepath.Join(stats.BatchInfo.Config.OutputDir, cfg.DefaultMutationStatsDir)
 	// 写入各bam各位置各碱基变化组合的个数分布统计
 	if err := writePositionStats(stats, outputDir); err != nil {
 		fmt.Printf("写入位置统计失败: %v\n", err)

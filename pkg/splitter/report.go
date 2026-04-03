@@ -83,7 +83,6 @@ Excel文件: %s
 质量阈值: %d
 最小合并长度: %d
 跳过已存在文件: %v
-压缩输出: %v
 
 总体统计
 --------
@@ -108,7 +107,6 @@ Excel文件: %s
 		s.Config.Quality,
 		s.Config.MergeLen,
 		s.Config.SkipExisting,
-		s.Config.Compression,
 		totalFiles,
 		totalSamples,
 		beforeFilteringTotalReads,

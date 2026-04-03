@@ -21,9 +21,9 @@ func (s *BatchSample) ReadExcel(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("读取Excel文件失败: %v", err)
 	}
-
 	s.Samples = samples
-	for _, sample := range samples {
+
+	for _, sample := range s.Samples {
 		s.SampleList = append(s.SampleList, sample.Name)
 		s.SampleMap[sample.Name] = sample
 	}

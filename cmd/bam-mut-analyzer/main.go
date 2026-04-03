@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"runtime"
 
 	"SynthesisAnalyzer/pkg/cfg"
@@ -21,7 +20,7 @@ func parseFlags() *cfg.Config {
 
 	flag.StringVar(&config.InputDir, "d", "", "输入目录，包含样本子目录")
 	flag.StringVar(&config.InputSheet, "s", "Sheet1", "输入Sheet名称，默认Sheet1")
-	flag.StringVar(&config.OutputDir, "o", "", "输出目录，默认输入目录/mutation_stats")
+	flag.StringVar(&config.OutputDir, "o", "", "输出目录，默认输入目录,写入子目录下:"+cfg.DefaultMutationStatsDir)
 	flag.StringVar(&config.ExcelFile, "i", "", "可选参数：输入Excel文件，包含样本顺序")
 	flag.StringVar(&config.SampleNameSuffix, "suffix-col", "", "可选参数：样品名称后缀列，若指定则将该列值拼接到样品名称后")
 	flag.IntVar(&config.HeadCut, "head", 27, "头切除长度")
@@ -34,7 +33,7 @@ func parseFlags() *cfg.Config {
 	flag.Parse()
 
 	if config.OutputDir == "" {
-		config.OutputDir = filepath.Join(config.InputDir, cfg.DefaultMutationStatsDir)
+		config.OutputDir = config.InputDir
 	}
 
 	return config
