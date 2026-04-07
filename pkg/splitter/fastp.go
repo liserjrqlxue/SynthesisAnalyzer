@@ -35,8 +35,13 @@ func (s *EnhancedSplitter) runFastpWithCheck(r1Path, r2Path, outputFile string) 
 	elapsed := time.Since(startTime)
 	fileSize := getFileSize(output)
 
-	fmt.Printf("    合并完成: %s (%.2f MB, 耗时: %v)\n",
-		filepath.Base(output), float64(fileSize)/1024/1024, elapsed)
+	fmt.Printf("    合并完成: %s,%s -> %s (%.2f MB, 耗时: %v)\n",
+		filepath.Base(r1Path),
+		filepath.Base(r2Path),
+		filepath.Base(output),
+		float64(fileSize)/1024/1024,
+		elapsed,
+	)
 
 	return output, nil
 }
@@ -109,16 +114,6 @@ func (s *EnhancedSplitter) runFastp(r1Path, r2Path, outputFile string) (string, 
 		return "", fmt.Errorf("合并文件生成失败或为空")
 	}
 
-	// 读取合并统计
-	stats, _ := s.readFastpStats(outputFile + ".fastp.json")
-	fmt.Printf("    合并完成: %s,%s -> %s (%.2f MB)\n\t(统计: %v)\n",
-		filepath.Base(r1Path),
-		filepath.Base(r2Path),
-		filepath.Base(outputFile),
-		float64(getFileSize(outputFile))/1024/1024,
-		stats,
-	)
-
 	return outputFile, nil
 }
 
@@ -166,24 +161,24 @@ func getFileSize(filename string) int64 {
 }
 
 // 读取fastp统计信息
-func (s *EnhancedSplitter) readFastpStats(jsonFile string) (map[string]interface{}, error) {
+func (s *EnhancedSplitter) readFastpStats(jsonFile string) (map[string]any, error) {
 	data, err := os.ReadFile(jsonFile)
 	if err != nil {
 		return nil, err
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.Unmarshal(data, &result); err != nil {
 		return nil, err
 	}
 
-	stats := make(map[string]interface{})
-	if summary, ok := result["summary"].(map[string]interface{}); ok {
-		if before, ok := summary["before_filtering"].(map[string]interface{}); ok {
+	stats := make(map[string]any)
+	if summary, ok := result["summary"].(map[string]any); ok {
+		if before, ok := summary["before_filtering"].(map[string]any); ok {
 			stats["before_reads"] = before["total_reads"]
 			stats["before_bases"] = before["total_bases"]
 		}
-		if after, ok := summary["after_filtering"].(map[string]interface{}); ok {
+		if after, ok := summary["after_filtering"].(map[string]any); ok {
 			stats["after_reads"] = after["total_reads"]
 			stats["after_bases"] = after["total_bases"]
 			stats["merged_reads"] = after["merged_reads"]
