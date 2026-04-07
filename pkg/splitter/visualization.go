@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/csv"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -11,7 +12,7 @@ import (
 
 // 生成可视化数据（用于R或Python绘图）
 func (a *AlignmentAnalyzer) generateVisualizationData(reportDir string) error {
-	fmt.Println("生成可视化数据...")
+	slog.Debug("Generating visualization data")
 
 	visDir := filepath.Join(reportDir, "visualization")
 	if err := os.MkdirAll(visDir, 0755); err != nil {
@@ -158,7 +159,7 @@ print("分析完成！请查看生成的图形文件。")
 		return err
 	}
 
-	fmt.Printf("R脚本已生成: %s\n", scriptFile)
+	fmt.Printf("R脚本已生成:\t\t%s\n", scriptFile)
 	return nil
 }
 
@@ -373,6 +374,6 @@ func (a *AlignmentAnalyzer) generateQCReport() error {
 
 	writer.WriteString(summary)
 
-	fmt.Printf("质量控制报告已生成: %s\n", qcFile)
+	fmt.Printf("质量控制报告已生成:\t%s\n", qcFile)
 	return nil
 }

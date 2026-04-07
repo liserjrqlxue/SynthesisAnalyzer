@@ -297,10 +297,19 @@ func sumMap(m map[string]int) int {
 // 修改主拆分函数，只输出靶标间序列
 func (s *EnhancedSplitter) processEachFileSeparately() error {
 	// fmt.Println("\n开始独立处理每个合并文件...")
+	var (
+		// 收集统计信息
+		totalFileReads   = 0
+		totalFileMatched = 0
+		startTime        = time.Now()
+	)
 
-	s.stats.startTime = time.Now()
 	s.stats.totalFiles = len(s.mergedFiles)
 	s.stats.totalSamples = len(s.Samples)
+
+	defer func() {
+		fmt.Printf("耗时: %v\n", time.Since(startTime))
+	}()
 
 	// 为每个样本创建输出文件
 	outputWriters := make(map[string]*gzip.Writer)
@@ -360,10 +369,6 @@ func (s *EnhancedSplitter) processEachFileSeparately() error {
 		close(fileStatsChan)
 	}()
 
-	// 收集统计信息
-	totalFileReads := 0
-	totalFileMatched := 0
-
 	for stats := range fileStatsChan {
 		totalFileReads += stats.totalReads
 		totalFileMatched += stats.matchedReads
@@ -387,13 +392,10 @@ func (s *EnhancedSplitter) processEachFileSeparately() error {
 	s.stats.totalFailed = int64(totalFileReads - totalFileMatched)
 	s.stats.endTime = time.Now()
 
-	elapsed := time.Since(s.stats.startTime)
-
-	fmt.Printf("\n拆分完成!\n")
+	fmt.Printf("拆分完成!\n")
 	fmt.Printf("总处理: %d 条reads\n", totalFileReads)
 	fmt.Printf("总提取: %d 条reads (%.1f%%)\n",
 		totalFileMatched, float64(totalFileMatched)/float64(totalFileReads)*100)
-	fmt.Printf("耗时: %v\n", elapsed)
 
 	// 从文件统计中汇总
 	for _, mergedInfo := range s.mergedFiles {

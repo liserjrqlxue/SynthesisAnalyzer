@@ -206,7 +206,7 @@ Excel文件: %s
 		writer.WriteString(performance)
 	}
 
-	fmt.Printf("汇总报告已生成: %s\n", reportFile)
+	fmt.Printf("汇总报告已生成:\t\t%s\n", reportFile)
 	return nil
 }
 
@@ -616,7 +616,7 @@ func (s *EnhancedSplitter) generateFinalSummary() error {
 	)
 
 	writer.WriteString(summary)
-	fmt.Printf("最终汇总报告已生成: %s\n", summaryFile)
+	fmt.Printf("最终汇总报告已生成:\t%s\n", summaryFile)
 
 	return nil
 }

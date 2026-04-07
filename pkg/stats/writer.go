@@ -161,7 +161,7 @@ func writeTotalMutationStats(stats *MutationStats, outputDir string) error {
 	}
 
 	writer.Flush()
-	fmt.Printf("总统计已写入:\t%s\n", filename)
+	fmt.Printf("总统计已写入:\t\t%s\n", filename)
 
 	return nil
 }
@@ -230,7 +230,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	}
 
 	writer.Flush()
-	fmt.Printf("样本汇总已写入: %s\n", filename)
+	fmt.Printf("样本汇总已写入:\t\t%s\n", filename)
 
 	// 2. 突变频谱（按频率排序）
 	filename = filepath.Join(outputDir, "mutation_spectrum.csv")
@@ -273,7 +273,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 			mc.mutation, count, frequency, percentage)
 	}
 	writer.Flush()
-	fmt.Printf("突变频谱已写入: %s\n", filename)
+	fmt.Printf("突变频谱已写入:\t\t%s\n", filename)
 
 	// 3. 突变类型分析（transition/transversion等）
 	filename = filepath.Join(outputDir, "mutation_analysis.csv")
@@ -323,7 +323,7 @@ func writeSummaryReport(stats *MutationStats, outputDir string) error {
 	}
 
 	writer.Flush()
-	fmt.Printf("突变分析已写入: %s\n", filename)
+	fmt.Printf("突变分析已写入:\t\t%s\n", filename)
 
 	return nil
 }
@@ -709,7 +709,7 @@ func writeDetailedStats(stats *MutationStats, outputDir string) error {
 	}
 
 	writer.Flush()
-	fmt.Printf("插入长度分布已写入: %s\n", filename)
+	fmt.Printf("插入长度分布已写入:\t%s\n", filename)
 
 	// 2. 缺失长度分布
 	filename = filepath.Join(outputDir, "delete_length_distribution.csv")
@@ -756,7 +756,7 @@ func writeDetailedStats(stats *MutationStats, outputDir string) error {
 	}
 
 	writer.Flush()
-	fmt.Printf("缺失长度分布已写入: %s\n", filename)
+	fmt.Printf("缺失长度分布已写入:\t%s\n", filename)
 
 	// 5. 比对率和变异比例（分母为比对reads）
 	filename = filepath.Join(outputDir, "alignment_and_mutation_rates.csv")
@@ -1246,7 +1246,7 @@ func writeDeletionPositionStats(stats *MutationStats, outputDir string) error {
 	}
 
 	writer.Flush()
-	fmt.Printf("缺失位置热力图数据已写入: %s\n", filename)
+	fmt.Printf("缺失位置热图数据已写入:\t%s\n", filename)
 
 	return nil
 }
@@ -1333,15 +1333,15 @@ func (stats *MutationStats) MainPrint() {
 	// 打印总体统计
 	fmt.Printf("\n处理完成!\n")
 	fmt.Printf("总体统计:\n")
-	fmt.Printf("  总reads数: %d\n", stats.TotalReadCount)
-	fmt.Printf("  过滤reads数: %d\n", stats.TotalGoodAlignedReads)
+	fmt.Printf("  总reads数:\t\t%d\n", stats.TotalReadCount)
+	fmt.Printf("  过滤reads数:\t\t%d\n", stats.TotalGoodAlignedReads)
 	fmt.Printf("  细分类统计:\n")
 	for rt := cfg.ReadTypeMatch; rt <= cfg.ReadTypeAll; rt++ {
 		count := stats.ReadTypeCounts[rt]
 		if count > 0 {
 			percentage1 := float64(count) / float64(stats.TotalReadCount) * 100
 			percentage2 := float64(count) / float64(stats.TotalGoodAlignedReads) * 100
-			fmt.Printf("    %s: %d (%.2f%%, %.2f%%)\n", cfg.ReadTypeNames[rt], count, percentage1, percentage2)
+			fmt.Printf("%16s:\t%7d\t%3.2f%%\t%3.2f%%\n", cfg.ReadTypeNames[rt], count, percentage1, percentage2)
 		}
 	}
 	stats.WriteSubtype(os.Stdout)

@@ -94,7 +94,7 @@ func (s *EnhancedSplitter) RunAll() error {
 		s.Config.Threads, s.Config.UseRC, s.Config.SkipExisting)
 
 	// 步骤1: 读取Excel文件
-	fmt.Printf("\n步骤1: 读取Excel文件: %s\n", s.Config.ExcelFile)
+	fmt.Printf("\n步骤1: 读取Excel文件:\t%s\n", s.Config.ExcelFile)
 	if err := s.BatchSample.ReadExcel(s.Config); err != nil {
 		return fmt.Errorf("读取Excel文件失败: %v", err)
 	}
@@ -128,8 +128,6 @@ func (s *EnhancedSplitter) RunAll() error {
 
 // 扩展的主运行函数，包含比对步骤
 func (s *EnhancedSplitter) RunAlignment() error {
-	// 阶段2: 比对分析
-	fmt.Println("\n--- 阶段2: 序列比对分析 ---")
 	// 创建比对分析器
 	analyzer := NewAlignmentAnalyzer(s.Config, s.Samples, s.Config.OutputDir)
 
@@ -143,7 +141,7 @@ func (s *EnhancedSplitter) RunAlignment() error {
 		return fmt.Errorf("比对失败: %v", err)
 	}
 
-	slog.Info("开始生成统计文件...")
+	slog.Debug("开始生成统计文件...")
 	analyzer.MutationStats.SortSampleNames()
 	if err := analyzer.MutationStats.MainWrite(); err != nil {
 		return fmt.Errorf("写入统计文件失败: %v", err)
@@ -179,13 +177,13 @@ func (s *EnhancedSplitter) RunSplitter() error {
 	defer func() {
 		s.stats.endTime = time.Now()
 		fmt.Printf("\n=== 全部处理完成! 总耗时: %v ===\n", s.stats.endTime.Sub(s.stats.startTime))
-		fmt.Printf("处理统计: %d 个文件, %d 个样品, %d 条reads, %d 条匹配 (%.1f%%)\n",
+		fmt.Printf("处理统计:\t\t%d 个文件, %d 个样品, %d 条reads, %d 条匹配 (%.1f%%)\n",
 			s.stats.totalFiles, s.stats.totalSamples, s.stats.totalReads, s.stats.totalMatched,
 			float64(s.stats.totalMatched)/float64(s.stats.totalReads)*100)
 	}()
 
 	// 步骤1: 创建输出目录
-	fmt.Printf("\n步骤1: 创建输出目录: %s\n", s.Config.OutputDir)
+	fmt.Printf("\n步骤1: 创建输出目录:\t%s\n", s.Config.OutputDir)
 	if err := s.createOutputDir(); err != nil {
 		return fmt.Errorf("创建输出目录失败: %v", err)
 	}

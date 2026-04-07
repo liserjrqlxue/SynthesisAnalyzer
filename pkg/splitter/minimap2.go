@@ -28,8 +28,7 @@ func (a *AlignmentAnalyzer) runAlignment() error {
 		failed     = 0
 	)
 	defer func() {
-		fmt.Printf("比对完成: %d 个样本, %d 个成功, %d 个失败\n", total, successful, failed)
-		fmt.Printf("总耗时: %v\n", time.Since(startTime))
+		fmt.Printf("\r比对完成:\t\t%d 个样本, %d 个成功, %d 个失败, 总耗时: %v\n", total, successful, failed, time.Since(startTime))
 	}()
 	a.MutationStats = stats.NewMutationStats()
 	a.MutationStats.BatchInfo = new(cfg.BatchInfo{

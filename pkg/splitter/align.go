@@ -54,13 +54,9 @@ func (a *AlignmentAnalyzer) createReferenceFiles() error {
 		sample.RefLength = len(sample.FullReference)
 
 		createdCount++
-
-		if createdCount%10 == 0 {
-			fmt.Printf("\r  已创建 %d 个参考序列文件", createdCount)
-		}
 	}
 
-	fmt.Printf("\r参考序列文件创建完成: %d 个文件\n", createdCount)
+	fmt.Printf("\r参考序列文件创建完成:\t%d 个文件\n", createdCount)
 	return nil
 }
 
@@ -109,7 +105,7 @@ func (a *AlignmentAnalyzer) generateAlignmentReport() error {
 		return err
 	}
 
-	fmt.Println("比对报告生成完成")
+	slog.Debug("Alignment report generated successfully")
 	return nil
 }
 
@@ -177,7 +173,7 @@ func (a *AlignmentAnalyzer) generateSummaryReport(reportDir string) error {
 		}
 	}
 
-	fmt.Printf("汇总报告已生成: %s\n", reportFile)
+	fmt.Printf("汇总报告已生成:\t\t%s\n", reportFile)
 	return nil
 }
 
@@ -273,7 +269,7 @@ func (a *AlignmentAnalyzer) runContaminationAlignment(mergedRefFile string) (map
 		result[bamResult.sampleName] = bamResult.bamFile
 	}
 
-	fmt.Printf("  污染检测比对完成: %d 成功, %d 失败\n", successful, failed)
+	fmt.Printf("  污染检测比对完成:\t%d 成功, %d 失败\n", successful, failed)
 	return result, nil
 }
 
@@ -286,7 +282,7 @@ func (a *AlignmentAnalyzer) performContaminationDetection() error {
 	if err != nil {
 		return fmt.Errorf("创建合并参考序列失败: %v", err)
 	}
-	fmt.Printf("  合并参考序列已创建: %s\n", filepath.Base(mergedRefFile))
+	fmt.Printf("  合并参考序列已创建:\t%s\n", mergedRefFile)
 
 	// 2. 对每个样品的拆分数据进行比对
 	bamFiles, err := a.runContaminationAlignment(mergedRefFile)
@@ -538,7 +534,8 @@ func (a *AlignmentAnalyzer) generateContaminationMatrixReport(matrix map[string]
 		}
 	}
 
-	fmt.Printf("污染矩阵报告已生成: %s, %s\n", countFile, ratioFile)
+	fmt.Printf("污染Count矩阵已生成:\t%s\n", countFile)
+	fmt.Printf("污染Ratio矩阵已生成:\t%s\n", ratioFile)
 	return nil
 }
 

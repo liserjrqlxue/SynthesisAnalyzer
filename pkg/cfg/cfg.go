@@ -116,7 +116,7 @@ func (cfg *Config) LoadInputExcel() ([]*Sample, error) {
 	if cfg.ExcelFile == "" {
 		return nil, fmt.Errorf("-i required!")
 	}
-	slog.Info("Loading input Excel file", "file", cfg.ExcelFile)
+	slog.Debug("Loading input Excel file", "file", cfg.ExcelFile)
 	// 读取Excel文件
 	samples, err := readExcel(cfg.ExcelFile, cfg.InputSheet, cfg.SampleNameSuffix)
 	if err != nil {
