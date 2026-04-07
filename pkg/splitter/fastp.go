@@ -149,9 +149,9 @@ func (s *EnhancedSplitter) buildFastpCommand(r1Path, r2Path, outputFile, tempDir
 	}
 
 	// 设置临时输出文件
-	out1File := filepath.Join(tempDir, "out1.fastq")
-	out2File := filepath.Join(tempDir, "out2.fastq")
-	args = append(args, "--out1", out1File, "--out2", out2File)
+	// out1File := filepath.Join(tempDir, "out1.fastq")
+	// out2File := filepath.Join(tempDir, "out2.fastq")
+	// args = append(args, "--out1", out1File, "--out2", out2File)
 
 	return args
 }
