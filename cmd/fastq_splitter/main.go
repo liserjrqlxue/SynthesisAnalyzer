@@ -108,7 +108,7 @@ func main() {
 
 	// 运行处理流程
 	if err := splitter.RunAll(); err != nil {
-		fmt.Printf("处理失败: %v\n", err)
+		fmt.Printf("处理失败: [%v]\n", err)
 		os.Exit(1)
 	}
 

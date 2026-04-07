@@ -128,7 +128,7 @@ func (s *EnhancedSplitter) buildFastpCommand(r1Path, r2Path, outputFile, tempDir
 		"-i", r1Path,
 		"-I", r2Path,
 		"--merged_out", outputFile,
-		"--thread", "4",
+		"--thread", "16",
 		"--merge",
 		"--overlap_len_require", strconv.Itoa(s.Config.OverlapLenRequire),
 		"--overlap_diff_limit", "5",
