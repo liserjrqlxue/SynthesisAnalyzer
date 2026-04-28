@@ -173,25 +173,63 @@ func (g *Generator) printWellPositionTablesPDF(doc *document.Document, data *Rep
 func (g *Generator) createPositionTable(data *ReportData, dataField func(*PositionStats) float64, batchID string, pos int) *layout.Table {
 	tbl := layout.NewTable().
 		SetColumnUnitWidths([]layout.UnitValue{
-			layout.Pct(14), layout.Pct(12), layout.Pct(12), layout.Pct(12),
-			layout.Pct(12), layout.Pct(12), layout.Pct(12), layout.Pct(12), layout.Pct(4),
+			layout.Pct(10), layout.Pct(11), layout.Pct(11), layout.Pct(11),
+			layout.Pct(11), layout.Pct(11), layout.Pct(11), layout.Pct(11), layout.Pct(14),
 		}).
 		SetBorderCollapse(true)
 
-	hBorder := layout.CellBorders{Bottom: layout.SolidBorder(1, layout.ColorBlack)}
-	rBorder := layout.CellBorders{Bottom: layout.SolidBorder(0.5, layout.ColorLightGray)}
-	pad := layout.Padding{Top: 4, Right: 4, Bottom: 4, Left: 4}
+	headerBorder := layout.CellBorders{
+		Top:    layout.SolidBorder(1, layout.ColorBlack),
+		Bottom: layout.SolidBorder(1, layout.ColorBlack),
+		Left:   layout.SolidBorder(0.5, layout.ColorBlack),
+		Right:  layout.SolidBorder(0.5, layout.ColorBlack),
+	}
+	rowBorder := layout.CellBorders{
+		Bottom: layout.SolidBorder(0.3, layout.ColorLightGray),
+		Left:   layout.SolidBorder(0.3, layout.ColorLightGray),
+		Right:  layout.SolidBorder(0.3, layout.ColorLightGray),
+	}
+	lastRowBorder := layout.CellBorders{
+		Bottom: layout.SolidBorder(1, layout.ColorBlack),
+		Left:   layout.SolidBorder(0.3, layout.ColorLightGray),
+		Right:  layout.SolidBorder(0.3, layout.ColorLightGray),
+	}
+	pad := layout.Padding{Top: 5, Right: 6, Bottom: 5, Left: 6}
+	headerBg := layout.RGB(0.9, 0.92, 0.94)
 
 	hr := tbl.AddHeaderRow()
-	hr.AddCell(fmt.Sprintf("%s\n%03d Cycle", batchID, pos), font.HelveticaBold, 8).SetBorders(hBorder).SetPaddingSides(pad)
+	hr.AddCell(fmt.Sprintf("%s\n%03d", batchID, pos), font.HelveticaBold, 9).
+		SetBorders(headerBorder).
+		SetPaddingSides(pad).
+		SetBackground(headerBg).
+		SetAlign(layout.AlignCenter)
 	cols := []string{"H", "G", "F", "E", "D", "C", "B", "A"}
 	for _, c := range cols {
-		hr.AddCell(c, font.HelveticaBold, 8).SetBorders(hBorder).SetPaddingSides(pad)
+		hr.AddCell(c, font.HelveticaBold, 9).
+			SetBorders(headerBorder).
+			SetPaddingSides(pad).
+			SetBackground(headerBg).
+			SetAlign(layout.AlignCenter)
 	}
 
 	for rowIdx := 0; rowIdx < Rows; rowIdx++ {
 		r := tbl.AddRow()
-		r.AddCell(fmt.Sprintf("%d", rowIdx+1), font.Helvetica, 8).SetBorders(rBorder).SetPaddingSides(pad)
+		curBorder := rowBorder
+		if rowIdx == Rows-1 {
+			curBorder = lastRowBorder
+		}
+
+		rowBg := layout.ColorWhite
+		if rowIdx%2 == 1 {
+			rowBg = layout.RGB(0.98, 0.98, 0.98)
+		}
+
+		r.AddCell(fmt.Sprintf("%d", rowIdx+1), font.HelveticaBold, 8).
+			SetBorders(curBorder).
+			SetPaddingSides(pad).
+			SetBackground(rowBg).
+			SetAlign(layout.AlignCenter)
+
 		for colIdx := 0; colIdx < Cols; colIdx++ {
 			well := data.Plate[rowIdx][colIdx]
 			var value string
@@ -204,7 +242,11 @@ func (g *Generator) createPositionTable(data *ReportData, dataField func(*Positi
 					}
 				}
 			}
-			r.AddCell(value, font.Helvetica, 8).SetBorders(rBorder).SetPaddingSides(pad)
+			r.AddCell(value, font.Helvetica, 8).
+				SetBorders(curBorder).
+				SetPaddingSides(pad).
+				SetBackground(rowBg).
+				SetAlign(layout.AlignCenter)
 		}
 	}
 
