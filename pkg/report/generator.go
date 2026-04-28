@@ -111,7 +111,7 @@ func (g *Generator) writeHTMLHeader(b *strings.Builder, reportTitle string) {
 		b.WriteString(`"></script>
 `)
 	} else {
-		b.WriteString(`<script src="https://go-echarts.github.io/go-echarts-assets/assets/echarts.min.js"></script>
+		b.WriteString(`<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 `)
 	}
 	b.WriteString(`<style>
