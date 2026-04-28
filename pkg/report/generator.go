@@ -107,23 +107,26 @@ func (g *Generator) GenerateAppendixPDF(data *ReportData) ([]byte, error) {
 	doc.SetMargins(layout.Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
 	doc.Info.Title = data.ReportTitle + " - Appendix"
 
+	doc.Add(layout.NewHeading("Appendix", layout.H1))
+	doc.Add(layout.NewHeading("TIESyno-96 Synthesizer Run Report", layout.H2))
+
 	// 4.1 Well-Cycle Data - Yield
-	doc.Add(layout.NewHeading("4.1 Well-Cycle Data - Yield", layout.H1))
+	doc.Add(layout.NewHeading("4.1 Well-Cycle Data - Yield", layout.H3))
 	g.printWellPositionTablesPDF(doc, data, "yield", data.BatchID)
 
 	// 4.2 Well-Cycle Data - Deletion
 	doc.Add(layout.NewAreaBreak())
-	doc.Add(layout.NewHeading("4.2 Well-Cycle Data - Deletion", layout.H1))
+	doc.Add(layout.NewHeading("4.2 Well-Cycle Data - Deletion", layout.H3))
 	g.printWellPositionTablesPDF(doc, data, "deletion", data.BatchID)
 
 	// 4.3 Well-Cycle Data - Insertion
 	doc.Add(layout.NewAreaBreak())
-	doc.Add(layout.NewHeading("4.3 Well-Cycle Data - Insertion", layout.H1))
+	doc.Add(layout.NewHeading("4.3 Well-Cycle Data - Insertion", layout.H3))
 	g.printWellPositionTablesPDF(doc, data, "insertion", data.BatchID)
 
 	// 4.4 Well-Cycle Data - Mutation
 	doc.Add(layout.NewAreaBreak())
-	doc.Add(layout.NewHeading("4.4 Well-Cycle Data - Mutation", layout.H1))
+	doc.Add(layout.NewHeading("4.4 Well-Cycle Data - Mutation", layout.H3))
 	g.printWellPositionTablesPDF(doc, data, "mutation", data.BatchID)
 
 	// 生成PDF
