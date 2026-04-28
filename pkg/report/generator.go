@@ -12,6 +12,10 @@ import (
 
 	"SynthesisAnalyzer/pkg/cfg"
 
+	"github.com/carlos7ags/folio/document"
+	"github.com/carlos7ags/folio/font"
+	"github.com/carlos7ags/folio/layout"
+
 	"github.com/go-echarts/go-echarts/v2/charts"
 	"github.com/go-echarts/go-echarts/v2/opts"
 	"gonum.org/v1/gonum/stat"
@@ -91,25 +95,120 @@ func (g *Generator) GenerateHTML(data *ReportData) string {
 	return b.String()
 }
 
-// GenerateAppendixHTML 生成附录HTML
-func (g *Generator) GenerateAppendixHTML(data *ReportData) string {
-	var b strings.Builder
-
-	// HTML 头部
-	g.writeHTMLHeader(&b, data.ReportTitle+" - 附录")
-
+// GenerateAppendixPDF 生成附录PDF
+func (g *Generator) GenerateAppendixPDF(data *ReportData) ([]byte, error) {
 	// 构建二维孔索引
 	data.buildWellPlate()
 	// 生成并更新 batchID
 	data.makeBatchID()
 
-	// 附录
-	g.writeAppendixSection(&b, data)
+	// 创建document文档
+	doc := document.NewDocument(document.PageSizeA4)
+	doc.SetMargins(layout.Margins{Top: 72, Right: 72, Bottom: 72, Left: 72})
+	doc.Info.Title = data.ReportTitle + " - Appendix"
 
-	// HTML 尾部
-	g.writeHTMLFooter(&b)
+	// 4.1 Well-Cycle Data - Yield
+	doc.Add(layout.NewHeading("4.1 Well-Cycle Data - Yield", layout.H1))
+	g.printWellPositionTablesPDF(doc, data, "yield", data.BatchID)
 
-	return b.String()
+	// 4.2 Well-Cycle Data - Deletion
+	doc.Add(layout.NewAreaBreak())
+	doc.Add(layout.NewHeading("4.2 Well-Cycle Data - Deletion", layout.H1))
+	g.printWellPositionTablesPDF(doc, data, "deletion", data.BatchID)
+
+	// 4.3 Well-Cycle Data - Insertion
+	doc.Add(layout.NewAreaBreak())
+	doc.Add(layout.NewHeading("4.3 Well-Cycle Data - Insertion", layout.H1))
+	g.printWellPositionTablesPDF(doc, data, "insertion", data.BatchID)
+
+	// 4.4 Well-Cycle Data - Mutation
+	doc.Add(layout.NewAreaBreak())
+	doc.Add(layout.NewHeading("4.4 Well-Cycle Data - Mutation", layout.H1))
+	g.printWellPositionTablesPDF(doc, data, "mutation", data.BatchID)
+
+	// 生成PDF
+	return doc.ToBytes()
+}
+
+// printWellPositionTablesPDF 为每个位置生成表格
+func (g *Generator) printWellPositionTablesPDF(doc *document.Document, data *ReportData, dataType, batchID string) {
+	var dataField func(*PositionStats) float64
+	switch dataType {
+	case "yield":
+		dataField = func(ps *PositionStats) float64 { return ps.AvgYield }
+	case "deletion":
+		dataField = func(ps *PositionStats) float64 { return ps.AvgDeletion }
+	case "insertion":
+		dataField = func(ps *PositionStats) float64 { return ps.AvgInsertion }
+	case "mutation":
+		dataField = func(ps *PositionStats) float64 { return ps.AvgMutation }
+	default:
+		return
+	}
+
+	positions := make(map[int]bool)
+	for _, well := range data.Wells {
+		if well != nil {
+			for _, ps := range well.PositionStats {
+				positions[ps.Pos] = true
+			}
+		}
+	}
+
+	var posSlice []int
+	for pos := range positions {
+		posSlice = append(posSlice, pos)
+	}
+	sort.Ints(posSlice)
+
+	for i, pos := range posSlice {
+		if i > 0 {
+			doc.Add(layout.NewParagraph(" ", font.Helvetica, 8))
+		}
+		doc.Add(g.createPositionTable(data, dataField, batchID, pos))
+	}
+}
+
+// createPositionTable 创建单个位置的表格
+func (g *Generator) createPositionTable(data *ReportData, dataField func(*PositionStats) float64, batchID string, pos int) *layout.Table {
+	tbl := layout.NewTable().
+		SetColumnUnitWidths([]layout.UnitValue{
+			layout.Pct(14), layout.Pct(12), layout.Pct(12), layout.Pct(12),
+			layout.Pct(12), layout.Pct(12), layout.Pct(12), layout.Pct(12), layout.Pct(4),
+		}).
+		SetBorderCollapse(true)
+
+	hBorder := layout.CellBorders{Bottom: layout.SolidBorder(1, layout.ColorBlack)}
+	rBorder := layout.CellBorders{Bottom: layout.SolidBorder(0.5, layout.ColorLightGray)}
+	pad := layout.Padding{Top: 4, Right: 4, Bottom: 4, Left: 4}
+
+	hr := tbl.AddHeaderRow()
+	hr.AddCell(fmt.Sprintf("%s\n%03d Cycle", batchID, pos), font.HelveticaBold, 8).SetBorders(hBorder).SetPaddingSides(pad)
+	cols := []string{"H", "G", "F", "E", "D", "C", "B", "A"}
+	for _, c := range cols {
+		hr.AddCell(c, font.HelveticaBold, 8).SetBorders(hBorder).SetPaddingSides(pad)
+	}
+
+	for rowIdx := 0; rowIdx < Rows; rowIdx++ {
+		r := tbl.AddRow()
+		r.AddCell(fmt.Sprintf("%d", rowIdx+1), font.Helvetica, 8).SetBorders(rBorder).SetPaddingSides(pad)
+		for colIdx := 0; colIdx < Cols; colIdx++ {
+			well := data.Plate[rowIdx][colIdx]
+			var value string
+			if well != nil {
+				for i := range well.PositionStats {
+					ps := &well.PositionStats[i]
+					if ps.Pos == pos {
+						value = fmt.Sprintf("%.2f", dataField(ps))
+						break
+					}
+				}
+			}
+			r.AddCell(value, font.Helvetica, 8).SetBorders(rBorder).SetPaddingSides(pad)
+		}
+	}
+
+	return tbl
 }
 
 // writeHTMLHeader 写入HTML头部

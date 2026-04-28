@@ -47,13 +47,16 @@ func main() {
 		}
 		log.Printf("HTML报告已生成: %s", htmlFile)
 
-		// 生成附录HTML报告
-		appendixReport := generator.GenerateAppendixHTML(reportData)
-		appendixFile := config.Prefix + "_附录.html"
-		if err := os.WriteFile(appendixFile, []byte(appendixReport), 0644); err != nil {
-			log.Fatalf("写入附录HTML文件失败: %v", err)
+		// 生成附录PDF报告
+		appendixPDF, err := generator.GenerateAppendixPDF(reportData)
+		if err != nil {
+			log.Fatalf("生成附录PDF失败: %v", err)
 		}
-		log.Printf("附录HTML报告已生成: %s", appendixFile)
+		appendixFile := config.Prefix + "_附录.pdf"
+		if err := os.WriteFile(appendixFile, appendixPDF, 0644); err != nil {
+			log.Fatalf("写入附录PDF文件失败: %v", err)
+		}
+		log.Printf("附录PDF报告已生成: %s", appendixFile)
 
 		// 生成TXT报告
 		txtReport := generator.GenerateTXT(reportData)

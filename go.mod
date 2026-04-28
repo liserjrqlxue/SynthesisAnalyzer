@@ -5,13 +5,15 @@ go 1.26.0
 require (
 	github.com/biogo/hts v1.4.5
 	github.com/bits-and-blooms/bloom/v3 v3.7.1
+	github.com/carlos7ags/folio v0.7.1
 	github.com/klauspost/pgzip v1.2.6
 	github.com/samber/lo v1.52.0
 	github.com/xuri/excelize/v2 v2.10.0
 	golang.org/x/exp v0.0.0-20251209150349-8475f28825e9
-	golang.org/x/sync v0.19.0
-	golang.org/x/sys v0.39.0
+	golang.org/x/sync v0.20.0
 )
+
+require golang.org/x/image v0.39.0 // indirect
 
 require (
 	github.com/bits-and-blooms/bitset v1.24.2 // indirect
@@ -22,8 +24,8 @@ require (
 	github.com/tiendc/go-deepcopy v1.7.1 // indirect
 	github.com/xuri/efp v0.0.1 // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
-	golang.org/x/crypto v0.43.0 // indirect
-	golang.org/x/net v0.46.0 // indirect
-	golang.org/x/text v0.30.0 // indirect
+	golang.org/x/crypto v0.50.0 // indirect
+	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
 	gonum.org/v1/gonum v0.17.0
 )
