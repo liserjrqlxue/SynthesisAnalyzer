@@ -85,11 +85,29 @@ func (g *Generator) GenerateHTML(data *ReportData) string {
 	// 3. 合成轮次分析
 	g.writeCycleAnalysisSection(b, data, outputDir)
 
-	// 4. 附录
-	g.writeAppendixSection(b, data)
-
 	// HTML 尾部
 	g.writeHTMLFooter(b)
+
+	return b.String()
+}
+
+// GenerateAppendixHTML 生成附录HTML
+func (g *Generator) GenerateAppendixHTML(data *ReportData) string {
+	var b strings.Builder
+
+	// HTML 头部
+	g.writeHTMLHeader(&b, data.ReportTitle+" - 附录")
+
+	// 构建二维孔索引
+	data.buildWellPlate()
+	// 生成并更新 batchID
+	data.makeBatchID()
+
+	// 附录
+	g.writeAppendixSection(&b, data)
+
+	// HTML 尾部
+	g.writeHTMLFooter(&b)
 
 	return b.String()
 }
